@@ -1,0 +1,4 @@
+interface:
+  display_name: "Optimize GLB"
+  short_description: "Simplify and compress GLB assets"
+  default_prompt: "Use $optimize-glb to simplify, retexture, and compress this GLB asset."
