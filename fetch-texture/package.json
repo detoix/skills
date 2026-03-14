@@ -1,0 +1,9 @@
+{
+  "name": "textures",
+  "version": "1.0.0",
+  "type": "module",
+  "dependencies": {
+    "sharp": "^0.33.0",
+    "tinify": "^1.6.1"
+  }
+}

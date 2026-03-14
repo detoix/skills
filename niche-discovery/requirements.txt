@@ -1,0 +1,7 @@
+# Core dependencies (required)
+requests>=2.31.0
+beautifulsoup4>=4.12.0
+
+# Source-specific libraries
+pytrends>=4.9.0                 # trends.py
+youtube-transcript-api>=0.6.0   # youtube_transcripts.py

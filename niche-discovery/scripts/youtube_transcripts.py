@@ -1,0 +1,190 @@
+#!/usr/bin/env python3
+"""
+YouTube transcript miner — scans video transcripts for problem-related phrases.
+
+Usage: python scripts/youtube_transcripts.py <keyword> [options]
+       python scripts/youtube_transcripts.py <keyword> --video-ids <id1> <id2> ...
+"""
+
+import sys
+import json
+import time
+import argparse
+
+sys.path.insert(0, __file__.rsplit("/", 1)[0])
+from utils import (make_session, safe_get, load_env_key,
+                   dry_run_check, output_result, output_error)
+
+
+PAIN_PHRASES = [
+    "the problem is", "people struggle with", "common complaint",
+    "biggest issue", "pain point", "most frustrating", "annoying part",
+    "people hate", "users complain", "biggest challenge",
+    "one thing people", "hard part is", "difficulty is",
+    "major downside", "main drawback", "limitation is",
+    "doesn't work", "fails when", "breaks when",
+    "need a better way", "wish there was", "there's no way to",
+]
+
+SEARCH_URL = "https://www.googleapis.com/youtube/v3/search"
+
+
+def search_video_ids(keyword: str, api_key: str, session, max_results: int = 10) -> list:
+    """Use YouTube API to find video IDs for a keyword."""
+    resp = safe_get(session, SEARCH_URL, params={
+        "part": "snippet",
+        "q": keyword,
+        "type": "video",
+        "key": api_key,
+        "maxResults": max_results,
+    })
+    if resp is None or resp.status_code != 200:
+        return []
+    items = resp.json().get("items", [])
+    return [
+        {"video_id": i["id"]["videoId"], "title": i["snippet"]["title"]}
+        for i in items
+    ]
+
+
+def fetch_transcript(video_id: str) -> list:
+    """Fetch transcript segments for a video ID."""
+    try:
+        from youtube_transcript_api import YouTubeTranscriptApi, TranscriptsDisabled, NoTranscriptFound
+    except ImportError:
+        print("ERROR: youtube-transcript-api not installed. Run: pip install youtube-transcript-api", file=sys.stderr)
+        return None
+
+    try:
+        fetched = YouTubeTranscriptApi().fetch(video_id, languages=["en", "en-US"])
+        return [{"text": s.text, "start": s.start, "duration": s.duration} for s in fetched]
+    except TranscriptsDisabled:
+        print(f"Transcripts disabled for {video_id}", file=sys.stderr)
+        return []
+    except NoTranscriptFound:
+        print(f"No English transcript for {video_id}", file=sys.stderr)
+        return []
+    except Exception as e:
+        print(f"Transcript error for {video_id}: {e}", file=sys.stderr)
+        return []
+
+
+def seconds_to_timestamp(seconds: float) -> str:
+    """Convert float seconds to M:SS timestamp."""
+    total = int(seconds)
+    m = total // 60
+    s = total % 60
+    return f"{m}:{s:02d}"
+
+
+def scan_transcript_for_pain(transcript: list, video_title: str, video_url: str) -> list:
+    """Scan transcript segments for pain phrases, return matched segments."""
+    # Build a sliding window of ~200 chars around each phrase match
+    full_text = " ".join(seg.get("text", "") for seg in transcript)
+    full_text_lower = full_text.lower()
+    matched_segments = []
+
+    for phrase in PAIN_PHRASES:
+        idx = 0
+        while True:
+            pos = full_text_lower.find(phrase, idx)
+            if pos == -1:
+                break
+            # Find which transcript segment this position corresponds to
+            char_count = 0
+            timestamp_sec = 0
+            for seg in transcript:
+                seg_text = seg.get("text", "")
+                if char_count + len(seg_text) >= pos:
+                    timestamp_sec = seg.get("start", 0)
+                    break
+                char_count += len(seg_text) + 1
+
+            # Extract surrounding context (~200 chars)
+            start = max(0, pos - 50)
+            end = min(len(full_text), pos + 200)
+            context = full_text[start:end].strip()
+
+            matched_segments.append({
+                "video_title": video_title,
+                "video_url": video_url,
+                "timestamp": seconds_to_timestamp(timestamp_sec),
+                "text": context,
+                "matches": [phrase],
+            })
+            idx = pos + len(phrase)
+
+    return matched_segments
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Mine YouTube video transcripts for pain point phrases")
+    parser.add_argument("keyword", help="Niche keyword (used to find videos if --video-ids not given)")
+    parser.add_argument("--dry-run", action="store_true", help="Show what would be fetched")
+    parser.add_argument("--video-ids", nargs="+", help="Specific video IDs to process")
+    parser.add_argument("--max-videos", type=int, default=10, help="Videos to search if no IDs given (default: 10)")
+    parser.add_argument("--delay", type=float, default=1.0, help="Seconds between transcript fetches (default: 1.0)")
+    parser.add_argument("--queries", nargs="+", help="Dynamic list of full search queries generated by the agent")
+    parser.add_argument("--query-templates", nargs="+", help="Dynamic list of query templates containing {kw}")
+    parser.add_argument("--subreddits", nargs="+", help="Ignored by this script (for compatibility)")
+    args = parser.parse_args()
+
+    kw = args.keyword
+    dry_run_check(args, f"Fetch YouTube transcripts for '{kw}'", [
+        "youtube-transcript-api for each video ID",
+        f"YouTube Search API to find up to {args.max_videos} videos" if not args.video_ids else "Using provided video IDs",
+    ])
+
+    session = make_session()
+    api_key = load_env_key("YOUTUBE_API_KEY")
+
+    # Resolve video IDs
+    videos = []
+    if args.video_ids:
+        videos = [{"video_id": vid, "title": vid} for vid in args.video_ids]
+    elif api_key:
+        print(f"Searching YouTube for videos about: {kw}", file=sys.stderr)
+        videos = search_video_ids(kw, api_key, session, max_results=args.max_videos)
+    else:
+        output_error("youtube_transcripts",
+                     "Either --video-ids or YOUTUBE_API_KEY must be provided", keyword=kw)
+        sys.exit(1)
+
+    print(f"Processing {len(videos)} videos...", file=sys.stderr)
+    all_pain_segments = []
+    processed = 0
+    failed = 0
+
+    for video in videos:
+        vid_id = video["video_id"]
+        vid_title = video.get("title", vid_id)
+        vid_url = f"https://www.youtube.com/watch?v={vid_id}"
+        print(f"Fetching transcript: {vid_title[:60]}", file=sys.stderr)
+
+        transcript = fetch_transcript(vid_id)
+        if transcript is None:
+            failed += 1
+        elif transcript:
+            segments = scan_transcript_for_pain(transcript, vid_title, vid_url)
+            all_pain_segments.extend(segments)
+            processed += 1
+        else:
+            failed += 1
+
+        time.sleep(args.delay)
+
+    output_result({
+        "source": "youtube_transcripts",
+        "keyword": kw,
+        "videos_processed": processed,
+        "videos_failed": failed,
+        "pain_segments": all_pain_segments,
+    })
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except Exception as e:
+        output_error("youtube_transcripts", str(e))
+        sys.exit(1)
