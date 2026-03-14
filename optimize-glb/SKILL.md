@@ -15,26 +15,26 @@ The bundled script handles:
 
 ## Quick Start
 
-Run the bundled script:
+Run the bundled script. The script lives at `scripts/optimize_glb.sh` within this skill's directory — resolve the full path from your skill installation before running:
 
 ```bash
-bash /home/kdeptula/.claude/skills/optimize-glb/scripts/optimize_glb.sh -i model.glb
+bash <skill-dir>/scripts/optimize_glb.sh -i model.glb
 ```
 
 Common variants:
 
 ```bash
 # Stronger cleanup for dense meshes
-bash /home/kdeptula/.claude/skills/optimize-glb/scripts/optimize_glb.sh -i asset.glb -d 3 -r 0.35
+bash <skill-dir>/scripts/optimize_glb.sh -i asset.glb -d 3 -r 0.35
 
 # Pre-simplify before Blender if the model is too heavy
-bash /home/kdeptula/.claude/skills/optimize-glb/scripts/optimize_glb.sh -i asset.glb -s 0.25
+bash <skill-dir>/scripts/optimize_glb.sh -i asset.glb -s 0.25
 
 # Add textures while exporting
-bash /home/kdeptula/.claude/skills/optimize-glb/scripts/optimize_glb.sh -i asset.glb -T color.webp -N normal.webp
+bash <skill-dir>/scripts/optimize_glb.sh -i asset.glb -T color.webp -N normal.webp
 
 # Use Flatpak Blender
-bash /home/kdeptula/.claude/skills/optimize-glb/scripts/optimize_glb.sh -i asset.glb -f
+bash <skill-dir>/scripts/optimize_glb.sh -i asset.glb -f
 ```
 
 ## Workflow
