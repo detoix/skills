@@ -18,32 +18,33 @@ The bundled script handles:
 Run the bundled script:
 
 ```bash
-bash /home/kdeptula/skills/optimize-glb/scripts/optimize_glb.sh -i model.glb
+bash /home/kdeptula/.claude/skills/optimize-glb/scripts/optimize_glb.sh -i model.glb
 ```
 
 Common variants:
 
 ```bash
 # Stronger cleanup for dense meshes
-bash /home/kdeptula/skills/optimize-glb/scripts/optimize_glb.sh -i asset.glb -d 3 -r 0.35
+bash /home/kdeptula/.claude/skills/optimize-glb/scripts/optimize_glb.sh -i asset.glb -d 3 -r 0.35
 
 # Pre-simplify before Blender if the model is too heavy
-bash /home/kdeptula/skills/optimize-glb/scripts/optimize_glb.sh -i asset.glb -s 0.25
+bash /home/kdeptula/.claude/skills/optimize-glb/scripts/optimize_glb.sh -i asset.glb -s 0.25
 
 # Add textures while exporting
-bash /home/kdeptula/skills/optimize-glb/scripts/optimize_glb.sh -i asset.glb -T color.webp -N normal.webp
+bash /home/kdeptula/.claude/skills/optimize-glb/scripts/optimize_glb.sh -i asset.glb -T color.webp -N normal.webp
 
 # Use Flatpak Blender
-bash /home/kdeptula/skills/optimize-glb/scripts/optimize_glb.sh -i asset.glb -f
+bash /home/kdeptula/.claude/skills/optimize-glb/scripts/optimize_glb.sh -i asset.glb -f
 ```
 
 ## Workflow
 
 1. Confirm the input is a `.glb`.
-2. Start with the default settings unless the user explicitly wants aggressive reduction.
-3. If Blender is likely to stall on a dense mesh, add `-s 0.25` or similar so `gltf-transform simplify` runs first.
-4. If the user provides texture maps, pass `-T` for base color and `-N` for the normal map.
-5. Check the output size and report the before/after reduction.
+2. Check whether `blender` is on PATH (`which blender`). If not, check for Flatpak (`flatpak list | grep -i blender`). If found via Flatpak, always pass `-f`.
+3. Always pass `-s 0.25 -t 180` by default. Pre-simplification reduces Blender processing time and avoids timeouts regardless of file size.
+4. Start with the default settings unless the user explicitly wants aggressive reduction.
+5. If the user provides texture maps, pass `-T` for base color and `-N` for the normal map.
+6. Check the output size and report the before/after reduction.
 
 ## Parameter Guidance
 
