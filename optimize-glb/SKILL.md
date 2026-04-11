@@ -5,7 +5,7 @@ description: Optimize, simplify, retexture, and recompress `.glb` assets with Bl
 
 # Optimize Glb
 
-Use this skill to process a `.glb` through a deterministic pipeline instead of rewriting Blender automation each time.
+Use this skill to process a `.glb` through a deterministic pipeline instead of rewriting Blender automation each time. Handles both Linux/macOS and Windows (Git Bash).
 
 The bundled script handles:
 - optional pre-simplification with `@gltf-transform/cli`
@@ -15,59 +15,53 @@ The bundled script handles:
 
 ## Quick Start
 
-Run the bundled script. The script lives at `scripts/optimize_glb.sh` within this skill's directory — resolve the full path from your skill installation before running:
+Run the bundled script from your skill installation directory:
 
 ```bash
-bash <skill-dir>/scripts/optimize_glb.sh -i model.glb
+# General usage
+bash scripts/optimize_glb.sh -i model.glb
+
+# Windows (if Blender is not in PATH, specify path)
+bash scripts/optimize_glb.sh -i model.glb -b "/c/Program Files/Blender Foundation/Blender 4.2/blender.exe"
 ```
 
 Common variants:
 
 ```bash
 # Stronger cleanup for dense meshes
-bash <skill-dir>/scripts/optimize_glb.sh -i asset.glb -d 3 -r 0.35
+bash scripts/optimize_glb.sh -i asset.glb -d 3 -r 0.35
 
 # Pre-simplify before Blender if the model is too heavy
-bash <skill-dir>/scripts/optimize_glb.sh -i asset.glb -s 0.25
+bash scripts/optimize_glb.sh -i asset.glb -s 0.25
 
 # Add textures while exporting
-bash <skill-dir>/scripts/optimize_glb.sh -i asset.glb -T color.webp -N normal.webp
-
-# Use Flatpak Blender
-bash <skill-dir>/scripts/optimize_glb.sh -i asset.glb -f
+bash scripts/optimize_glb.sh -i asset.glb -T color.webp -N normal.webp
 ```
 
 ## Workflow
 
 1. Confirm the input is a `.glb`.
-2. Check whether `blender` is on PATH (`which blender`). If not, check for Flatpak (`flatpak list | grep -i blender`). If found via Flatpak, always pass `-f`.
-3. Always pass `-s 0.25 -t 180` by default. Pre-simplification reduces Blender processing time and avoids timeouts regardless of file size.
-4. Start with the default settings unless the user explicitly wants aggressive reduction.
-5. If the user provides texture maps, pass `-T` for base color and `-N` for the normal map.
-6. Check the output size and report the before/after reduction.
+2. **Windows**: If running on Windows, use Git Bash and ensure `cygpath` is available.
+3. Check whether `blender` is on PATH. If not, check for Flatpak (Linux) or specify the path with `-b`.
+4. Always pass `-s 0.25 -t 180` by default. Pre-simplification reduces Blender processing time.
+5. Report the before/after reduction in file size.
 
 ## Parameter Guidance
 
 - `-d <degrees>` controls Limited Dissolve. Lower values preserve more hard edges.
-- `-r <ratio>` controls Blender Decimate. `0.5` is a reasonable default. Values near `0.2` are aggressive.
-- `-s <ratio>` runs pre-simplification before Blender. Use it when imports are slow or the model is extremely dense.
+- `-r <ratio>` controls Blender Decimate. `0.5` is a reasonable default.
+- `-s <ratio>` runs pre-simplification before Blender.
 - `-t <seconds>` increases the Blender timeout for large assets.
 - `-T <path>` assigns a diffuse texture to Base Color.
-- `-N <path>` assigns a normal map through a Normal Map node.
-- `-f` uses `flatpak run org.blender.Blender` instead of a system `blender` binary.
+- `-N <path>` assigns a normal map.
+- `-b <path>` explicitly set the Blender binary path (useful on Windows).
+- `-f` uses `flatpak run org.blender.Blender` (Linux).
 
 ## Dependencies
 
 The script expects:
-- `bash`
-- `timeout`
-- `npx`
-- Blender, either on `PATH` or via Flatpak
+- `bash`, `timeout`, `npx`, `realpath`, `mktemp`
+- **Windows only**: `cygpath`
+- Blender, either on `PATH`, Flatpak, or specified via `-b`
 - `@gltf-transform/cli`, fetched automatically through `npx --yes`
 
-## Notes
-
-- The script writes temporary Blender Python and intermediate GLBs to a temp directory and cleans them up automatically.
-- The final output defaults to `<input>_processed.glb`.
-- If the user asks for no Draco compression, patch the script or duplicate it rather than improvising a separate one-off command.
-- If the source asset is not `.glb`, convert it first or use Blender directly.

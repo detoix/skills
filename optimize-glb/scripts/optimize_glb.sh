@@ -1,29 +1,38 @@
 #!/usr/bin/env bash
+# Dual-platform GLB optimization script (Linux/macOS and Windows Git Bash).
 set -euo pipefail
 
 usage() {
   cat <<'EOF'
-Usage: optimize_glb.sh -i <input.glb> [-o <output.glb>] [-d <degrees>] [-r <decimate_ratio>] [-s <pre_simplify_ratio>] [-t <timeout_secs>] [-T <texture>] [-N <normal_map>] [-b <blender_binary>] [-f]
+Usage: optimize_glb.sh -i <input.glb> [-o <output.glb>] [-d <degrees>] [-r <decimate_ratio>] [-s <pre_simplify_ratio>] [-t <timeout_secs>] [-T <texture>] [-N <normal_map>] [-b <blender_binary>] [-f] [-h] 
 
   -i  Input GLB file (required)
   -o  Output GLB file (default: <input>_processed.glb)
   -d  Limited Dissolve angle in degrees (default: 5)
   -r  Decimate ratio 0.0-1.0 (default: 0.5)
   -s  Pre-simplify ratio via gltf-transform before Blender
-  -t  Blender timeout in seconds (default: 60)
-  -T  Diffuse texture path assigned to Base Color
-  -N  Normal map path assigned through a Normal Map node
-  -b  Blender binary path (default: blender)
-  -f  Use Flatpak Blender (flatpak run org.blender.Blender)
+  -t  Blender timeout in seconds (default: 120)
+  -T  Diffuse texture path
+  -N  Normal map path
+  -b  Blender binary path
+  -f  Use Flatpak Blender (Linux only)
   -h  Show this help
 EOF
   exit 1
 }
 
-require_cmd() {
-  if ! command -v "$1" >/dev/null 2>&1; then
-    echo "Error: required command not found: $1" >&2
-    exit 1
+# Detect OS
+IS_WIN=false
+if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" ]]; then
+  IS_WIN=true
+fi
+
+# Helper to normalize paths for Blender (handles Windows cygpath if needed)
+to_blender_path() {
+  if $IS_WIN; then
+    cygpath -w "$1"
+  else
+    echo "$1"
   fi
 }
 
@@ -32,9 +41,9 @@ OUTPUT=""
 DEGREES=5
 RATIO=0.5
 PRE_SIMPLIFY=""
-BLENDER_TIMEOUT=60
+BLENDER_TIMEOUT=120
 BLENDER="blender"
-USE_FLATPAK=0
+USE_FLATPAK=false
 TEXTURE=""
 NORMAL=""
 
@@ -49,7 +58,7 @@ while getopts "i:o:d:r:s:t:T:N:b:fh" opt; do
     T) TEXTURE="$(realpath "$OPTARG")" ;;
     N) NORMAL="$(realpath "$OPTARG")" ;;
     b) BLENDER="$OPTARG" ;;
-    f) USE_FLATPAK=1 ;;
+    f) USE_FLATPAK=true ;;
     h) usage ;;
     *) usage ;;
   esac
@@ -60,34 +69,11 @@ if [[ -z "$INPUT" ]]; then
   usage
 fi
 
-require_cmd realpath
-require_cmd mktemp
-require_cmd timeout
-require_cmd npx
-
-if [[ $USE_FLATPAK -eq 1 ]]; then
-  require_cmd flatpak
-  BLENDER_CMD=(flatpak run --filesystem=/tmp org.blender.Blender)
-else
-  if ! command -v "$BLENDER" >/dev/null 2>&1; then
-    echo "Error: Blender binary not found: $BLENDER" >&2
-    exit 1
-  fi
-  BLENDER_CMD=("$BLENDER")
+if $USE_FLATPAK; then
+  BLENDER="flatpak run org.blender.Blender"
 fi
 
 INPUT="$(realpath "$INPUT")"
-
-if [[ ! -f "$INPUT" ]]; then
-  echo "Error: input file does not exist: $INPUT" >&2
-  exit 1
-fi
-
-if [[ "${INPUT##*.}" != "glb" ]]; then
-  echo "Error: input must be a .glb file: $INPUT" >&2
-  exit 1
-fi
-
 if [[ -z "$OUTPUT" ]]; then
   BASENAME="$(basename "$INPUT" .glb)"
   OUTPUT="$(dirname "$INPUT")/${BASENAME}_processed.glb"
@@ -110,6 +96,15 @@ if [[ -n "$PRE_SIMPLIFY" ]]; then
   BLENDER_INPUT="$PRE_SIMPLIFIED"
 fi
 
+# Paths for the Blender Python script
+B_INPUT="$(to_blender_path "$BLENDER_INPUT")"
+B_OUTPUT="$(to_blender_path "$INTERMEDIATE")"
+B_TEXTURE=""
+B_NORMAL=""
+[[ -n "$TEXTURE" ]] && B_TEXTURE="$(to_blender_path "$TEXTURE")"
+[[ -n "$NORMAL"  ]] && B_NORMAL="$(to_blender_path "$NORMAL")"
+
+# Generate Blender Python script
 cat >"$BLENDER_SCRIPT" <<PYEOF
 import bpy
 import math
@@ -123,15 +118,10 @@ texture_path = args[3] if len(args) > 3 and args[3] else ""
 normal_path = args[4] if len(args) > 4 and args[4] else ""
 
 bpy.ops.wm.read_factory_settings(use_empty=True)
-bpy.ops.import_scene.gltf(filepath="${BLENDER_INPUT}")
+bpy.ops.import_scene.gltf(filepath=r"${B_INPUT}")
 
-bpy.ops.object.select_all(action="DESELECT")
 meshes = [obj for obj in bpy.context.scene.objects if obj.type == "MESH"]
-for obj in meshes:
-    obj.select_set(True)
-
 if not meshes:
-    print("ERROR: No mesh objects found in the GLB file.")
     sys.exit(1)
 
 bpy.context.view_layer.objects.active = meshes[0]
@@ -145,86 +135,46 @@ for obj in meshes:
     modifier = obj.modifiers.new(name="Decimate", type="DECIMATE")
     modifier.ratio = ratio
     bpy.ops.object.modifier_apply(modifier=modifier.name)
-
-for obj in meshes:
-    bpy.context.view_layer.objects.active = obj
+    
     bpy.ops.object.mode_set(mode="EDIT")
     bpy.ops.mesh.select_all(action="SELECT")
-    bpy.ops.uv.cube_project(cube_size=1.0)
+    bpy.ops.uv.smart_project(angle_limit=66.0, island_margin=0.02)
     bpy.ops.object.mode_set(mode="OBJECT")
 
 if texture_path or normal_path:
-    material = bpy.data.materials.new(name="Material")
-    material.use_nodes = True
-    nodes = material.node_tree.nodes
-    links = material.node_tree.links
-    nodes.clear()
-
-    output_node = nodes.new("ShaderNodeOutputMaterial")
-    output_node.location = (400, 0)
-
-    bsdf = nodes.new("ShaderNodeBsdfPrincipled")
-    bsdf.location = (0, 0)
-    links.new(bsdf.outputs["BSDF"], output_node.inputs["Surface"])
-
+    mat = bpy.data.materials.new(name="Material")
+    mat.use_nodes = True
+    nodes = mat.node_tree.nodes
+    links = mat.node_tree.links
+    bsdf = nodes.get("Principled BSDF")
+    
     if texture_path:
-        tex_node = nodes.new("ShaderNodeTexImage")
-        tex_node.location = (-500, 200)
-        tex_node.image = bpy.data.images.load(texture_path)
-        links.new(tex_node.outputs["Color"], bsdf.inputs["Base Color"])
-
+        tex = nodes.new("ShaderNodeTexImage")
+        tex.image = bpy.data.images.load(texture_path)
+        links.new(tex.outputs["Color"], bsdf.inputs["Base Color"])
+    
     if normal_path:
-        normal_tex = nodes.new("ShaderNodeTexImage")
-        normal_tex.location = (-700, -200)
-        normal_tex.image = bpy.data.images.load(normal_path)
-        normal_tex.image.colorspace_settings.name = "Non-Color"
-
-        normal_map = nodes.new("ShaderNodeNormalMap")
-        normal_map.location = (-300, -200)
-        links.new(normal_tex.outputs["Color"], normal_map.inputs["Color"])
-        links.new(normal_map.outputs["Normal"], bsdf.inputs["Normal"])
+        nor_tex = nodes.new("ShaderNodeTexImage")
+        nor_tex.image = bpy.data.images.load(normal_path)
+        nor_tex.image.colorspace_settings.name = "Non-Color"
+        nor_map = nodes.new("ShaderNodeNormalMap")
+        links.new(nor_tex.outputs["Color"], nor_map.inputs["Color"])
+        links.new(nor_map.outputs["Normal"], bsdf.inputs["Normal"])
 
     for obj in meshes:
         obj.data.materials.clear()
-        obj.data.materials.append(material)
+        obj.data.materials.append(mat)
 
-bpy.ops.object.select_all(action="SELECT")
-bpy.ops.export_scene.gltf(
-    filepath=output,
-    export_format="GLB",
-    use_selection=False,
-    export_apply=True,
-)
-
-print(f"Exported to {output}")
+bpy.ops.export_scene.gltf(filepath=output, export_format="GLB")
 PYEOF
 
-echo "==> Running Blender (limited dissolve=${DEGREES} deg, decimate ratio=${RATIO}, timeout=${BLENDER_TIMEOUT}s)..."
-set +e
-timeout "$BLENDER_TIMEOUT" "${BLENDER_CMD[@]}" --background --python "$BLENDER_SCRIPT" -- "$DEGREES" "$RATIO" "$INTERMEDIATE" "$TEXTURE" "$NORMAL"
-EXIT_CODE=$?
-set -e
-if [[ $EXIT_CODE -ne 0 ]]; then
-  if [[ $EXIT_CODE -eq 124 ]]; then
-    echo "Error: Blender timed out after ${BLENDER_TIMEOUT}s. Try pre-simplifying first with -s 0.25." >&2
-  else
-    echo "Error: Blender exited with code $EXIT_CODE. Check the logs above." >&2
-  fi
-  exit 1
-fi
+B_SCRIPT="$(to_blender_path "$BLENDER_SCRIPT")"
 
-if [[ ! -f "$INTERMEDIATE" ]]; then
-  echo "Error: Blender did not produce output. Check the logs above." >&2
-  exit 1
-fi
+echo "==> Running Blender..."
+timeout "$BLENDER_TIMEOUT" $BLENDER --background --python "$B_SCRIPT" -- "$DEGREES" "$RATIO" "$B_OUTPUT" "$B_TEXTURE" "$B_NORMAL"
 
-echo "==> Running gltf-transform optimize with Draco compression..."
+echo "==> Finalizing with Draco compression..."
 npx --yes @gltf-transform/cli optimize "$INTERMEDIATE" "$OUTPUT" --compress draco
 
-ORIG_SIZE=$(du -h "$INPUT" | cut -f1)
-FINAL_SIZE=$(du -h "$OUTPUT" | cut -f1)
+echo "Done: $OUTPUT"
 
-echo ""
-echo "Done"
-echo "  Input:  $INPUT ($ORIG_SIZE)"
-echo "  Output: $OUTPUT ($FINAL_SIZE)"
