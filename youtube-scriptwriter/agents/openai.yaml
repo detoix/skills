@@ -1,0 +1,4 @@
+interface:
+  display_name: "YouTube Scriptwriter"
+  short_description: "Retention-first scripts for automated video pipelines"
+  default_prompt: "Use $youtube-scriptwriter to create a retention-optimized YouTube script for a topic, audience, tone, language, and target duration."

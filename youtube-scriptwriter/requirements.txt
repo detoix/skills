@@ -1,0 +1,1 @@
+# No runtime dependencies. This skill is designed for direct agent use.

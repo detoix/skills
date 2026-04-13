@@ -1,0 +1,4 @@
+interface:
+  display_name: "Playwright B-Roll Recorder"
+  short_description: "Record webpage b-roll clips with scrolling and save video files"
+  default_prompt: "Use $playwright-broll-recorder to record a webpage as B-roll video with smooth scrolling and save the clip to a file."

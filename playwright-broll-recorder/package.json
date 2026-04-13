@@ -1,0 +1,13 @@
+{
+  "name": "playwright-broll-recorder",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Record webpage b-roll clips with Playwright",
+  "type": "module",
+  "scripts": {
+    "record": "node scripts/record_broll.mjs"
+  },
+  "dependencies": {
+    "playwright": "^1.59.1"
+  }
+}

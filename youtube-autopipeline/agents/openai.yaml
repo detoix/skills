@@ -1,0 +1,4 @@
+interface:
+  display_name: "YouTube Autopipeline"
+  short_description: "Automate YouTube video production"
+  default_prompt: "Create a YouTube video from a topic or interview me for the missing inputs, then orchestrate scriptwriting, TTS, presenter lip-sync, B-roll, and final composition."

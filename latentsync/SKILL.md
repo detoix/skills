@@ -8,7 +8,7 @@ description: High-fidelity lip-syncing for videos using LatentSync. Use when you
 High-quality synchronization of facial movements using the LatentSync pipeline.
 
 ## Prerequisites
-- **FFmpeg**: Must be in PATH. Local path: `C:\Users\kdeptula\Documents\FFmpeg\ffmpeg-master-latest-win64-gpl\bin`
+- **FFmpeg**: Must be in PATH. Local path: `%USERPROFILE%\Documents\FFmpeg\ffmpeg-master-latest-win64-gpl\bin`
 - **Environment**: Use the local venv in `official-latentsync`.
 
 ## Workflow
@@ -36,4 +36,3 @@ cd official-latentsync
 ## References
 - **Models**: `checkpoints/latentsync_unet.pt` and Whisper checkpoints.
 - **Configs**: `configs/unet/stage2.yaml`.
-

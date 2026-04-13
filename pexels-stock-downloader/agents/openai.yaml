@@ -1,0 +1,4 @@
+interface:
+  display_name: "Pexels Downloader"
+  short_description: "Search and download Pexels stock video"
+  default_prompt: "Search Pexels for stock video clips, choose the best matches, and download them to a target folder using the Pexels API."

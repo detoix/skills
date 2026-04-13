@@ -1,0 +1,1 @@
+# No Python dependencies. This skill runs with Node.js and Playwright.

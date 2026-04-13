@@ -8,33 +8,49 @@ description: High-fidelity face restoration for videos using CodeFormer. Use whe
 Enhance facial clarity in generated videos (LatentSync/SVD) using the CodeFormer architecture.
 
 ## Prerequisites
-- **FFmpeg**: Must be in PATH. Local: `C:\Users\kdeptula\Documents\FFmpeg\ffmpeg-master-latest-win64-gpl\bin`
+- **FFmpeg**: Must be in PATH. Local: `%USERPROFILE%\Documents\FFmpeg\ffmpeg-master-latest-win64-gpl\bin`
 - **Environment**: Use ComfyUI venv and set `PYTHONPATH` to ComfyUI core.
+- **Implementation Root**: `%USERPROFILE%\Downloads\speech-gen`
+- **Script**: `%USERPROFILE%\Downloads\speech-gen\postprocess_face_restore.py`
 
 ## Workflow
 
-### 1. Running Restoration
+### 1. Set Environment
 ```powershell
-# Set environment
-$env:PYTHONPATH = "C:\Users\kdeptula\AppData\Local\Programs\ComfyUI\resources\ComfyUI"
+# Set PYTHONPATH to your local ComfyUI path
+$env:PYTHONPATH = "%USERPROFILE%\AppData\Local\Programs\ComfyUI\resources\ComfyUI"
 
 # Run with ComfyUI venv
-& "C:\Users\kdeptula\Documents\ComfyUI\.venv\Scripts\python.exe" `
-  "postprocess_face_restore.py" `
+& "%USERPROFILE%\Documents\ComfyUI\.venv\Scripts\python.exe" `
+  "%USERPROFILE%\Downloads\speech-gen\postprocess_face_restore.py" `
   --input "input.mp4" `
   --output "restored.mp4" `
-  --fidelity 0.5 `
+  --fidelity 0.6 `
   --device cuda
+```
+
+Run from the implementation root when possible:
+
+```powershell
+Set-Location "%USERPROFILE%\Downloads\speech-gen"
 ```
 
 ## Options
 - **Fidelity (`--fidelity`)**:
-  - `0.5`: Balanced (default).
+  - `0.6`: Balanced local default for this machine and workflow.
+  - `0.5`: Slightly stronger restoration.
   - `0.7`: Preserves more identity.
   - `0.3`: Stronger restoration.
 - **Detector (`--detector`)**: Default `retinaface_resnet50`, use `YOLOv5n` for speed.
 
+## Parallelism
+
+- This step can run in parallel on the local GPU.
+- Known-good local setting: up to `3` concurrent runs at `--fidelity 0.6`.
+- Prefer batching visible presenter clips in groups of `2-3` instead of strictly serial execution when throughput matters.
+- If GPU instability appears, reduce the batch size before changing fidelity.
+
 ## References
-- **Model**: `C:\Users\kdeptula\Documents\ComfyUI\models\facerestore_models\codeformer.pth`
+- **Model**: `%USERPROFILE%\Documents\ComfyUI\models\facerestore_models\codeformer.pth`
 - **Custom Node**: Uses `facerestore_cf` for architecture definitions.
 

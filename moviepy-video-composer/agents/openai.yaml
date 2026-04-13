@@ -1,0 +1,4 @@
+interface:
+  display_name: "MoviePy Video Composer"
+  short_description: "Assemble timeline-driven videos from local assets and audio"
+  default_prompt: "Use $moviepy-video-composer to assemble a final YouTube video from timeline.json, local assets, and final_audio.mp3."
