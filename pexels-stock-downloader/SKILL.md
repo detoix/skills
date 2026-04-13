@@ -46,7 +46,7 @@ The downloader loads `PEXELS_API_KEY` in this order:
 2. `.env` file in the skill root
 3. `.env` file in the current working directory
 
-For local use, put this in [`.env`](C:/Users/kdeptula/skills/pexels-stock-downloader/.env):
+For local use, put this in [`.env`](.env):
 
 ```dotenv
 PEXELS_API_KEY=your_key_here

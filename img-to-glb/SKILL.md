@@ -25,7 +25,7 @@ powershell -Command "
   Add-Type -AssemblyName System.Drawing;
   \$img = [System.Windows.Forms.Clipboard]::GetImage();
   if (\$img -eq \$null) { Write-Error 'No image in clipboard'; exit 1 };
-  \$img.Save('C:\\Users\\kdeptula\\Downloads\\modele-blender\\NAME.png', [System.Drawing.Imaging.ImageFormat]::Png);
+  \$img.Save('%USERPROFILE%\\Downloads\\modele-blender\\NAME.png', [System.Drawing.Imaging.ImageFormat]::Png);
   Write-Host 'Saved'
 "
 ```
@@ -36,13 +36,13 @@ If clipboard is empty (returns error), ask the user to save the image to disk an
 
 ## Step 3 — Run img_to_glb.py
 
-Script: `C:/Users/kdeptula/Downloads/modele-blender/Hunyuan3D-2.1/img_to_glb.py`
-Python: `C:/Users/kdeptula/Downloads/modele-blender/venv/Scripts/python`
-Must run with CWD = `C:/Users/kdeptula/Downloads/modele-blender/Hunyuan3D-2.1` (required for imports).
+Script: `%USERPROFILE%/Downloads/modele-blender/Hunyuan3D-2.1/img_to_glb.py`
+Python: `%USERPROFILE%/Downloads/modele-blender/venv/Scripts/python`
+Must run with CWD = `%USERPROFILE%/Downloads/modele-blender/Hunyuan3D-2.1` (required for imports).
 
 ```bash
-cd "C:/Users/kdeptula/Downloads/modele-blender/Hunyuan3D-2.1" && \
-  "C:/Users/kdeptula/Downloads/modele-blender/venv/Scripts/python" img_to_glb.py "<absolute_image_path>" [--steps N] [--cpu]
+cd "%USERPROFILE%/Downloads/modele-blender/Hunyuan3D-2.1" && \
+  "%USERPROFILE%/Downloads/modele-blender/venv/Scripts/python" img_to_glb.py "<absolute_image_path>" [--steps N] [--cpu]
 ```
 
 ### Options

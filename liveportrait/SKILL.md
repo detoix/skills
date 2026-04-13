@@ -8,9 +8,9 @@ description: Efficient portrait animation that transfers motion from a driving v
 LivePortrait is a high-speed motion transfer framework that animates a static avatar using a "driving video" or motion template.
 
 ## Environment Details
-- **Location**: `C:\Users\kdeptula\LivePortrait`
-- **Virtual Env**: `C:\Users\kdeptula\LivePortrait\.venv`
-- **Weights**: `C:\Users\kdeptula\LivePortrait\pretrained_weights`
+- **Location**: `%USERPROFILE%\LivePortrait`
+- **Virtual Env**: `%USERPROFILE%\LivePortrait\.venv`
+- **Weights**: `%USERPROFILE%\LivePortrait\pretrained_weights`
 
 ## Workflow
 
@@ -21,7 +21,7 @@ Run from the `LivePortrait` directory using the local venv.
 
 ```powershell
 # Set Environment
-$env:PATH += ";C:\Users\kdeptula\Documents\FFmpeg\ffmpeg-master-latest-win64-gpl\bin"
+$env:PATH += ";%USERPROFILE%\Documents\FFmpeg\ffmpeg-master-latest-win64-gpl\bin"
 $env:PYTHONIOENCODING = "utf-8"
 $env:PYTHONUTF8 = "1"
 $env:ORT_TENSORRT_UNAVAILABLE = "1"
@@ -32,7 +32,7 @@ $source = "path/to/avatar.png"
 $driving = "path/to/driving_video.mp4"
 $outputDir = Split-Path -Parent $source
 
-cd C:\Users\kdeptula\LivePortrait
+cd %USERPROFILE%\LivePortrait
 .\.venv\Scripts\python.exe inference.py `
     -s $source `
     -d $driving `
@@ -49,7 +49,7 @@ Remove-Item -LiteralPath ([System.IO.Path]::ChangeExtension($driving, ".pkl")) -
 Prefer the local helper when possible. It bakes in the UTF-8 fix, writes outputs next to the source by default, removes `_concat` artifacts automatically, and deletes auto-generated driving `.pkl` templates after success.
 
 ```powershell
-cd C:\Users\kdeptula\LivePortrait
+cd %USERPROFILE%\LivePortrait
 .\.venv\Scripts\python.exe animate_custom.py `
     -s "path/to/avatar.png" `
     -d "path/to/driving_video.mp4"
@@ -67,4 +67,4 @@ cd C:\Users\kdeptula\LivePortrait
 
 ## References
 - **GitHub**: [KwaiVGI/LivePortrait](https://github.com/KwaiVGI/LivePortrait)
-- **Local Animate Script**: `C:\Users\kdeptula\LivePortrait\animate_custom.py`
+- **Local Animate Script**: `%USERPROFILE%\LivePortrait\animate_custom.py`

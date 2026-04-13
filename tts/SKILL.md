@@ -10,18 +10,18 @@ This skill provides access to three local TTS engines for speech generation and 
 ## Environment Note
 **OmniVoice** and **VoxCPM2** are installed in the local speech generation environment at:
 
-`C:\Users\kdeptula\Downloads\speech-gen\venv`
+`%USERPROFILE%\Downloads\speech-gen\venv`
 
 Prefer that interpreter explicitly for local runs:
 ```bash
-C:\Users\kdeptula\Downloads\speech-gen\venv\Scripts\python.exe generate_omnivoice.py ...
-C:\Users\kdeptula\Downloads\speech-gen\venv\Scripts\python.exe generate_voxcpm.py ...
-C:\Users\kdeptula\Downloads\speech-gen\venv\Scripts\python.exe -m voxcpm.cli ...
+%USERPROFILE%\Downloads\speech-gen\venv\Scripts\python.exe generate_omnivoice.py ...
+%USERPROFILE%\Downloads\speech-gen\venv\Scripts\python.exe generate_voxcpm.py ...
+%USERPROFILE%\Downloads\speech-gen\venv\Scripts\python.exe -m voxcpm.cli ...
 ```
 
 The wrapper scripts such as `generate_voxcpm.py` and `generate_omnivoice.py` live in:
 
-`C:\Users\kdeptula\Downloads\speech-gen`
+`%USERPROFILE%\Downloads\speech-gen`
 
 If a task is being run from another workspace, do not assume a per-project `.\venv` exists. Use the known `speech-gen` environment unless the user provides a different one.
 
