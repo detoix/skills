@@ -11,6 +11,7 @@
 - Extended `scripts/visual_qa.py` to audit generated-image timeline references against reviewed z-image plan entries.
 - Added `scripts/z_image_plan.py` to create z-image prompt/command manifests from script segments.
 - Extended `scripts/pipeline_check.py` with z-image plan validation and optional required review status.
+- Tightened `scripts/z_image_plan.py` so generated-image prompts do not ingest on-screen copy as render text and so routine B-roll/TEXT segments are not planned for z-image unless the script explicitly requests generated imagery or needs a visual fallback.
 - Extended `moviepy-video-composer` to accept reviewed still images as visual media, enabling z-image outputs in timelines.
 - Extended `moviepy-video-composer` so any timeline segment can carry `caption_text`; captions support `caption_position` and inspected `caption_y` placement.
 - Made composer `TEXT` beats more reliable by reducing dynamic font size and adding a subdued backing band for readability over busy footage.
@@ -37,3 +38,11 @@
 - TTS/lip-sync QA manifest from earlier structural proof: `C:\Users\kdeptula\Videos\ai-videos\reel-proof-20260505\manifests\visual-qa-tts-lipsync.json`
 - TTS/lip-sync QA contact sheet: `C:\Users\kdeptula\Videos\ai-videos\reel-proof-20260505\qa\contact-sheet-final_output_tts_lipsync.jpg`
 - Still-image composer smoke test: `C:\Users\kdeptula\Videos\ai-videos\still-smoke-20260505\final_output.mp4`
+- Failed 72s strict QA reports retained for comparison:
+  - `C:\Users\kdeptula\Videos\ai-videos\autopipeline-validation-20260505\01-password-hygiene\manifests\visual-qa-strict.md`
+  - `C:\Users\kdeptula\Videos\ai-videos\autopipeline-validation-20260505\02-ai-workflow\manifests\visual-qa-strict.md`
+- Passing 60s fixture reel:
+  - Video: `C:\Users\kdeptula\Videos\ai-videos\autopipeline-validation-20260505\04-meeting-reuse-pass\final_output.mp4`
+  - QA report: `C:\Users\kdeptula\Videos\ai-videos\autopipeline-validation-20260505\04-meeting-reuse-pass\manifests\visual-qa.md`
+  - z-image plan: `C:\Users\kdeptula\Videos\ai-videos\autopipeline-validation-20260505\04-meeting-reuse-pass\manifests\z-image-plan.json`
+  - TTS manifest: `C:\Users\kdeptula\Videos\ai-videos\autopipeline-validation-20260505\04-meeting-reuse-pass\manifests\tts-manifest.json`

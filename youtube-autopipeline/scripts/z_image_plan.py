@@ -29,27 +29,35 @@ def safe_slug(value: str) -> str:
 
 def prompt_for_segment(segment: dict[str, Any], broll_query: dict[str, Any] | None, style: str) -> str:
     if broll_query:
-        query_text = " ".join(
-            str(broll_query.get(key, "")).strip()
-            for key in ("query", "must_include", "avoid")
-            if str(broll_query.get(key, "")).strip()
-        )
+        query_text = str(broll_query.get("query", "")).strip()
+        must_include = str(broll_query.get("must_include", "")).strip()
+        avoid = str(broll_query.get("avoid", "")).strip()
     else:
         query_text = ""
+        must_include = ""
+        avoid = ""
+    # Do not feed on-screen copy or search-title copy into image prompts. Text-to-image models often
+    # render garbled typography, so title/caption copy belongs in the composer.
     topic_text = " ".join(
         str(segment.get(key, "")).strip()
-        for key in ("visual_direction", "on_screen_text", "broll_search_query", "narration")
+        for key in ("visual_direction", "narration")
         if str(segment.get(key, "")).strip()
     )
     if query_text:
-        topic_text = f"{query_text}. {topic_text}".strip()
+        topic_text = query_text
+        if must_include:
+            topic_text = f"{topic_text}. Include: {must_include}"
+        if avoid:
+            topic_text = f"{topic_text}. Avoid: {avoid}"
     if not topic_text:
         topic_text = str(segment.get("segment_id", "visual beat"))
     return (
         f"Vertical 9:16 social video still, {style}. "
         f"Clear central subject, strong depth, polished editorial lighting, "
         f"clean negative space in upper and middle thirds for captions, no logos, "
-        f"no readable private data, no UI screenshots unless explicitly requested. Scene: {topic_text}"
+        f"no readable private data, no UI screenshots unless explicitly requested, "
+        f"no humans or faces unless explicitly requested, no letters, no words, no numbers, no text. "
+        f"Scene: {topic_text}"
     )
 
 
@@ -71,7 +79,7 @@ def build_plan(script: dict[str, Any], output_dir: Path, style: str, limit: int 
         visual = segment.get("primary_visual")
         segment_id = str(segment.get("segment_id") or f"S{len(items) + 1:02d}")
         broll_query = broll_queries.get(segment_id)
-        if visual not in VISUAL_MODES and not broll_query:
+        if not broll_query and visual not in {"TEXT_GRAPHIC", "PUNCH_IN"}:
             continue
         text = str(segment.get("on_screen_text") or segment.get("visual_direction") or segment_id)
         output = output_dir / f"{segment_id}_{safe_slug(text)}.png"
