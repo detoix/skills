@@ -22,6 +22,10 @@ TIMELINE_TYPES = {"A-ROLL", "B-ROLL", "PIP", "TEXT", "STACK_3"}
 LOOP_POLICIES = {"loop", "error"}
 CAPTION_POSITIONS = {"top", "center", "bottom"}
 PRESENTER_TYPES = {"A-ROLL", "PIP"}
+IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
+BROLL_SOURCE_TYPES = {"webpage", "stock", "screen-record", "generated-image", "manual"}
+GRAPHIC_TARGETS = {"TEXT", "B_ROLL", "PIP", "manual"}
+ASSEMBLY_RISKS = {"none", "fallback", "manual-review"}
 REQUIRED_SKILLS = (
     "youtube-scriptwriter",
     "tts",
@@ -228,14 +232,69 @@ def validate_script(script: Any, report: Report, format_mode: str | None = None)
             if ref not in segment_ids:
                 report.error("tts-segment-ref", f"{context} references unknown segment {ref!r}")
 
-    for collection_name, collection in (("broll_queries", broll_queries), ("graphics", graphics)):
-        for index, item in enumerate(collection):
-            if not isinstance(item, dict):
-                report.error(f"{collection_name}-shape", f"{collection_name}[{index}] must be an object")
-                continue
-            ref = item.get("segment_id")
-            if ref not in segment_ids:
-                report.error(f"{collection_name}-ref", f"{collection_name}[{index}] references unknown segment {ref!r}")
+    for index, item in enumerate(broll_queries):
+        if not isinstance(item, dict):
+            report.error("broll_queries-shape", f"broll_queries[{index}] must be an object")
+            continue
+        ref = item.get("segment_id")
+        if ref not in segment_ids:
+            report.error("broll_queries-ref", f"broll_queries[{index}] references unknown segment {ref!r}")
+        require_keys(
+            item,
+            ("segment_id", "query", "source_type", "must_include", "avoid", "orientation_preference"),
+            report,
+            f"broll_queries[{index}]",
+        )
+        source_type = item.get("source_type")
+        if source_type not in BROLL_SOURCE_TYPES:
+            report.error(
+                "broll-source-type",
+                f"broll_queries[{index}].source_type must be one of {sorted(BROLL_SOURCE_TYPES)}",
+            )
+        if source_type == "generated-image" and detected_format == "vertical":
+            orientation = item.get("orientation_preference")
+            if orientation not in {"vertical", "either"}:
+                report.warn("generated-orientation", f"broll_queries[{index}] generated image should prefer vertical or either")
+
+    for index, item in enumerate(graphics):
+        if not isinstance(item, dict):
+            report.error("graphics-shape", f"graphics[{index}] must be an object")
+            continue
+        ref = item.get("segment_id")
+        if ref not in segment_ids:
+            report.error("graphics-ref", f"graphics[{index}] references unknown segment {ref!r}")
+        require_keys(item, ("segment_id", "graphic_type", "copy", "composer_target"), report, f"graphics[{index}]")
+        if item.get("composer_target") not in GRAPHIC_TARGETS:
+            report.error("graphics-target", f"graphics[{index}].composer_target must be one of {sorted(GRAPHIC_TARGETS)}")
+
+    for index, item in enumerate(assembly_notes):
+        if not isinstance(item, dict):
+            report.error("assembly-notes-shape", f"assembly_notes[{index}] must be an object")
+            continue
+        ref = item.get("segment_id")
+        if ref not in segment_ids:
+            report.error("assembly-notes-ref", f"assembly_notes[{index}] references unknown segment {ref!r}")
+        require_keys(item, ("segment_id", "note", "risk"), report, f"assembly_notes[{index}]")
+        if item.get("risk") not in ASSEMBLY_RISKS:
+            report.error("assembly-risk", f"assembly_notes[{index}].risk must be one of {sorted(ASSEMBLY_RISKS)}")
+
+    generated_refs = {
+        item.get("segment_id")
+        for item in broll_queries
+        if isinstance(item, dict) and item.get("source_type") == "generated-image"
+    }
+    for index, segment in enumerate(segments):
+        if not isinstance(segment, dict):
+            continue
+        if segment.get("primary_visual") in {"TEXT_GRAPHIC", "PUNCH_IN"}:
+            segment_id = segment.get("segment_id")
+            has_graphic = any(isinstance(item, dict) and item.get("segment_id") == segment_id for item in graphics)
+            has_generated = segment_id in generated_refs
+            if not has_graphic and not has_generated:
+                report.warn(
+                    "visual-plan-weak",
+                    f"segments[{index}] {segment_id!r} uses {segment.get('primary_visual')} without graphics or generated-image plan",
+                )
 
 
 def resolve_path(project_dir: Path, value: Any) -> Path | None:
@@ -374,6 +433,10 @@ def validate_timeline(timeline: Any, project_dir: Path, report: Report, audio_pa
             if start_offset < 0:
                 report.error("clip-start", f"{context} {field} start offset must be non-negative")
                 continue
+            if path.suffix.lower() in IMAGE_EXTENSIONS:
+                if start_offset:
+                    report.error("clip-start", f"{context} {field} is a still image and cannot use clip_start")
+                continue
             source_duration = media_duration(path, report)
             if source_duration is None:
                 continue
@@ -488,6 +551,101 @@ def preflight(project_dir: Path, report: Report, require_pexels: bool) -> None:
             report.error("pexels-key", "PEXELS_API_KEY missing")
 
 
+def validate_asset_manifest(manifest: Any, report: Report, format_mode: str | None, allow_fixture: bool) -> None:
+    if not isinstance(manifest, dict):
+        report.error("asset-manifest-shape", "asset manifest must be an object")
+        return
+    asset_set_type = manifest.get("asset_set_type")
+    if asset_set_type == "sample_fixture" and not allow_fixture:
+        report.error(
+            "sample-fixture-assets",
+            "asset manifest is marked sample_fixture; production runs require user-provided assets",
+        )
+    groups = manifest.get("groups")
+    if not isinstance(groups, dict):
+        report.error("asset-groups", "asset manifest must include grouped asset categories")
+        return
+
+    presenter_plates = groups.get("usable_presenter_plates")
+    voice_samples = groups.get("voice_samples")
+    transcripts = groups.get("transcripts")
+    if not isinstance(presenter_plates, list) or not presenter_plates:
+        report.error("asset-presenter", "no usable presenter plates found")
+    if not isinstance(voice_samples, list) or not voice_samples:
+        report.error("asset-voice", "no voice sample found")
+    if not isinstance(transcripts, list) or not transcripts:
+        report.error("asset-transcript", "no voice sample transcript found")
+
+    if isinstance(presenter_plates, list) and format_mode == "vertical":
+        portrait_front = [
+            item
+            for item in presenter_plates
+            if isinstance(item, dict)
+            and item.get("role") == "presenter_front"
+            and item.get("orientation") == "portrait"
+        ]
+        if not portrait_front:
+            report.warn("asset-front-portrait", "no portrait front presenter plate found for vertical mode")
+    if isinstance(presenter_plates, list) and format_mode == "landscape":
+        landscape_front = [
+            item
+            for item in presenter_plates
+            if isinstance(item, dict)
+            and item.get("role") == "presenter_front"
+            and item.get("orientation") == "landscape"
+        ]
+        landscape_profile = [
+            item
+            for item in presenter_plates
+            if isinstance(item, dict)
+            and item.get("role") == "presenter_profile"
+            and item.get("orientation") == "landscape"
+        ]
+        if not landscape_front:
+            report.error("asset-front-landscape", "landscape mode requires a landscape front presenter plate")
+        if not landscape_profile:
+            report.error("asset-profile-landscape", "landscape mode requires a landscape profile presenter plate")
+
+
+def validate_z_image_plan(plan: Any, report: Report, require_review: bool) -> None:
+    if not isinstance(plan, dict):
+        report.error("z-image-plan-shape", "z-image plan must be an object")
+        return
+    if plan.get("source") != "z-image-turbo":
+        report.error("z-image-source", "z-image plan source must be z-image-turbo")
+    items = plan.get("items")
+    if not isinstance(items, list):
+        report.error("z-image-items", "z-image plan must include an items array")
+        return
+    if not items:
+        report.warn("z-image-empty", "z-image plan contains no candidate images")
+    for index, item in enumerate(items):
+        context = f"z-image.items[{index}]"
+        if not isinstance(item, dict):
+            report.error("z-image-item-shape", f"{context} must be an object")
+            continue
+        require_keys(item, ("segment_id", "prompt", "output", "status", "review", "command"), report, context)
+        prompt = item.get("prompt")
+        if not isinstance(prompt, str) or len(prompt.strip()) < 40:
+            report.error("z-image-prompt", f"{context}.prompt is missing or too weak")
+        output = item.get("output")
+        if not isinstance(output, str) or not output:
+            report.error("z-image-output", f"{context}.output must be a non-empty path")
+        elif Path(output).suffix.lower() not in IMAGE_EXTENSIONS:
+            report.error("z-image-output", f"{context}.output must be an image path")
+        review = item.get("review")
+        if not isinstance(review, dict):
+            report.error("z-image-review", f"{context}.review must be an object")
+            continue
+        accepted = review.get("accepted")
+        if require_review and accepted is None:
+            report.error("z-image-review-required", f"{context} has not been reviewed")
+        if accepted is True and not str(review.get("notes", "")).strip():
+            report.error("z-image-review-notes", f"{context} accepted image requires review notes")
+        if accepted is False and not str(review.get("rejection_reason", "")).strip():
+            report.error("z-image-rejection-reason", f"{context} rejected image requires a rejection reason")
+
+
 def print_report(report: Report, json_output: bool) -> None:
     if json_output:
         print(json.dumps([item.__dict__ for item in report.findings], indent=2))
@@ -501,15 +659,23 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--project-dir", default=".", help="Project directory for relative timeline/media paths.")
     parser.add_argument("--script", help="Path to script.json to validate.")
     parser.add_argument("--timeline", help="Path to timeline.json to validate.")
+    parser.add_argument("--asset-manifest", help="Path to assets-manifest.json to validate.")
+    parser.add_argument("--z-image-plan", help="Path to z-image-plan.json to validate.")
     parser.add_argument("--audio", help="Path to final narration audio for duration validation.")
     parser.add_argument("--format", choices=("landscape", "vertical"), help="Expected output format.")
     parser.add_argument(
         "--mode",
-        choices=("all", "preflight", "script", "timeline"),
+        choices=("all", "preflight", "script", "timeline", "assets"),
         default="all",
         help="Validation scope.",
     )
     parser.add_argument("--require-pexels", action="store_true", help="Fail preflight if PEXELS_API_KEY is missing.")
+    parser.add_argument(
+        "--allow-sample-fixture",
+        action="store_true",
+        help="Allow asset manifests marked as sample_fixture. Use only for tests, never production runs.",
+    )
+    parser.add_argument("--require-z-image-review", action="store_true", help="Fail if z-image candidates lack review status.")
     parser.add_argument("--json", action="store_true", help="Emit JSON findings.")
     return parser.parse_args()
 
@@ -534,6 +700,18 @@ def main() -> int:
         audio_path = Path(args.audio).resolve() if args.audio else None
         if timeline is not None:
             validate_timeline(timeline, project_dir, report, audio_path)
+
+    asset_manifest_path = Path(args.asset_manifest).resolve() if args.asset_manifest else None
+    if asset_manifest_path and args.mode in {"all", "preflight", "assets"}:
+        manifest = load_json(asset_manifest_path, report, "asset manifest")
+        if manifest is not None:
+            validate_asset_manifest(manifest, report, args.format, args.allow_sample_fixture)
+
+    z_image_plan_path = Path(args.z_image_plan).resolve() if args.z_image_plan else None
+    if z_image_plan_path and args.mode in {"all", "preflight", "assets"}:
+        plan = load_json(z_image_plan_path, report, "z-image plan")
+        if plan is not None:
+            validate_z_image_plan(plan, report, args.require_z_image_review)
 
     print_report(report, args.json)
     return 1 if report.has_errors else 0

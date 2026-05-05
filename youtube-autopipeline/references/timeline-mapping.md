@@ -46,6 +46,19 @@ Map to:
 }
 ```
 
+Reviewed generated stills from `z-image-turbo` can also be used as `clip_path` values:
+
+```json
+{
+  "type": "B-ROLL",
+  "clip_path": "broll/generated/S03_concept-still.png",
+  "start_time": 5.0,
+  "end_time": 10.0
+}
+```
+
+Do not set `clip_start` on still images.
+
 ### PIP
 
 Map to:
@@ -209,7 +222,7 @@ Fields:
 - `text`: string to display (use short keywords or phrases, not long sentences)
 - `text_color`: optional HEX color, default `"#fad617"` (yellow)
 - `font`: optional path to a `.ttf` file, default `arialbd.ttf`
-- `clip_start`: optional offset into the background video
+- `clip_start`: optional offset into the background video; omit for still images
 
 Use `TEXT` segments for:
 - keyword hits that reinforce the narration
@@ -217,6 +230,16 @@ Use `TEXT` segments for:
 - call-to-action phrases at the end
 
 Use `caption_text` on ordinary `A-ROLL`, `B-ROLL`, `PIP`, and `STACK_3` entries for subtitles or hook captions. Use `TEXT` entries for full-screen kinetic keyword beats.
+
+Generate candidate stills with:
+
+```powershell
+python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\z_image_plan.py `
+  --project-dir <project-dir> `
+  --script <project-dir>\script.json
+```
+
+Only accepted images from the generated plan should enter `timeline.json`.
 
 ### STACK_3
 

@@ -163,6 +163,8 @@ def classify_audio_role(name: str) -> str:
 
 
 def classify_image_role(name: str) -> str:
+    if "z-image" in name or "generated" in name:
+        return "generated_visual"
     if "presenter" in name and "profile" in name:
         return "presenter_profile_still"
     if "presenter" in name or "front" in name:
@@ -182,7 +184,7 @@ def video_reason(item: dict[str, Any]) -> str:
     return "B-roll or alternate presenter candidate"
 
 
-def summarize(items: list[dict[str, Any]]) -> dict[str, Any]:
+def summarize(items: list[dict[str, Any]], fixture_label: str | None = None) -> dict[str, Any]:
     counts: dict[str, int] = {}
     roles: dict[str, int] = {}
     for item in items:
@@ -190,19 +192,62 @@ def summarize(items: list[dict[str, Any]]) -> dict[str, Any]:
         roles[item["role"]] = roles.get(item["role"], 0) + 1
     selected = [item for item in items if item.get("usable")]
     rejected = [item for item in items if not item.get("usable")]
-    return {
+    summary = {
         "total_files": len(items),
         "counts_by_media_type": counts,
         "counts_by_role": roles,
         "selected_count": len(selected),
         "rejected_count": len(rejected),
     }
+    if fixture_label:
+        summary["fixture_label"] = fixture_label
+    return summary
+
+
+def grouped_manifest(items: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+    groups = {
+        "usable_presenter_plates": [],
+        "voice_samples": [],
+        "transcripts": [],
+        "music": [],
+        "stills": [],
+        "overlays": [],
+        "generated_visuals": [],
+        "previous_outputs": [],
+        "rejected_assets": [],
+    }
+    for item in items:
+        role = str(item.get("role", ""))
+        media_type = str(item.get("media_type", ""))
+        if not item.get("usable"):
+            groups["rejected_assets"].append(item)
+        if role in {"presenter_front", "presenter_profile", "presenter_or_vertical_broll", "broll_or_presenter"} and item.get("usable"):
+            groups["usable_presenter_plates"].append(item)
+        if role == "voice_sample":
+            groups["voice_samples"].append(item)
+        if role == "transcript":
+            groups["transcripts"].append(item)
+        if role == "music":
+            groups["music"].append(item)
+        if media_type == "image" and role != "overlay":
+            groups["stills"].append(item)
+        if role == "overlay":
+            groups["overlays"].append(item)
+        if role == "generated_visual":
+            groups["generated_visuals"].append(item)
+        if role == "previous_output":
+            groups["previous_outputs"].append(item)
+    return groups
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Inspect and classify local video pipeline assets.")
     parser.add_argument("--asset-root", required=True, help="Folder containing source assets to classify.")
     parser.add_argument("--output", required=True, help="Manifest JSON output path.")
+    parser.add_argument(
+        "--fixture-label",
+        help="Optional label marking this manifest as a sample/test fixture instead of production user assets.",
+    )
     return parser.parse_args()
 
 
@@ -216,7 +261,10 @@ def main() -> int:
     items = [classify_path(path, root) for path in sorted(root.rglob("*")) if path.is_file()]
     manifest = {
         "asset_root": str(root),
-        "summary": summarize(items),
+        "asset_set_type": "sample_fixture" if args.fixture_label else "user_provided_assets",
+        "fixture_label": args.fixture_label,
+        "summary": summarize(items, args.fixture_label),
+        "groups": grouped_manifest(items),
         "assets": items,
         "selected_assets": [item for item in items if item.get("usable")],
         "rejected_assets": [item for item in items if not item.get("usable")],

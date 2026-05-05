@@ -90,10 +90,12 @@ Each item must contain:
 
 - `segment_id`
 - `query`
-- `source_type`: `webpage`, `stock`, `screen-record`, or `manual`
+- `source_type`: `webpage`, `stock`, `screen-record`, `generated-image`, or `manual`
 - `must_include`
 - `avoid`
 - `orientation_preference`: `landscape`, `vertical`, or `either`
+
+Use `generated-image` when a controlled synthetic visual is likely stronger than stock or screen capture, especially for abstract concepts, privacy-safe metaphor scenes, neutral fake UI backgrounds, or clean caption-safe graphic inserts. Do not use it to hide missing user assets when the brief depends on a real product, person, location, brand, or app.
 
 ## `graphics`
 

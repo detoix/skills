@@ -18,6 +18,7 @@ from moviepy import ColorClip, CompositeVideoClip, ImageClip, VideoFileClip, con
 
 SUPPORTED_TYPES = {"A-ROLL", "B-ROLL", "PIP", "TEXT", "STACK_3"}
 LOOP_POLICIES = {"loop", "error"}
+IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
 DEFAULT_FPS = 30
 DEFAULT_CODEC = "libx264"
 DEFAULT_AUDIO_CODEC = "aac"
@@ -434,6 +435,11 @@ def normalize_video_clip(
 ):
     if loop_policy not in LOOP_POLICIES:
         raise ValueError(f"Unsupported loop policy: {loop_policy!r}")
+    if path.suffix.lower() in IMAGE_EXTENSIONS:
+        if start_offset:
+            raise ValueError(f"{label} clip_start is not valid for still images.")
+        return ImageClip(str(path)).with_duration(target_duration), None
+
     source = VideoFileClip(str(path))
     try:
         if start_offset < 0:

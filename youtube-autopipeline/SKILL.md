@@ -81,6 +81,8 @@ Build a YouTube video as a project, not as a loose set of clips. Keep the whole 
 
 Before generating assets, the agent verifies the runtime and required inputs directly:
 
+- Real production runs must use user-provided project assets. Do not treat `C:\Users\kdeptula\Videos\avatar` as a production library; it is only a local fixture set for testing and regression checks.
+- If the user has not provided production assets, stop and ask for the asset root, presenter plates, voice sample, and exact voice-sample transcript before promising a production reel.
 - `youtube-scriptwriter`, `tts`, `latentsync`, `playwright-broll-recorder`, and `moviepy-video-composer` are available.
 - `codeformer-postprocess` is available if presenter restoration is expected.
 - `pexels-stock-downloader` is available and `PEXELS_API_KEY` is configured before promising non-web stock footage.
@@ -104,6 +106,13 @@ Do not run a scripted preflight. If a required item is missing, stop before expe
        --asset-root <asset-root> `
        --output <project-dir>\manifests\assets-manifest.json
      ```
+   - For fixture tests only, mark sample assets explicitly:
+     ```powershell
+     python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\asset_inventory.py `
+       --asset-root C:\Users\kdeptula\Videos\avatar `
+       --fixture-label avatar-sample-fixture `
+       --output C:\Users\kdeptula\Videos\ai-videos\avatar-intake\manifests\assets-manifest.json
+     ```
    - Review the manifest before selecting presenter plates, voice samples, stills, overlays, music, B-roll candidates, or previous outputs for comparison.
 3. Call `youtube-scriptwriter` and use its structured output as the planning source of truth.
 4. Validate the script JSON:
@@ -114,11 +123,35 @@ Do not run a scripted preflight. If a required item is missing, stop before expe
      --format <landscape-or-vertical> `
      --mode script
    ```
+   Validate asset intake before production work. This must fail for sample fixtures unless this is explicitly a test run:
+   ```powershell
+   python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\pipeline_check.py `
+     --project-dir <project-dir> `
+     --asset-manifest <project-dir>\manifests\assets-manifest.json `
+     --format <landscape-or-vertical> `
+     --mode assets
+   ```
+   For fixture-only regression tests, add `--allow-sample-fixture` and label the report as a test artifact.
 5. Call `tts` to generate chunked cloned speech from the scriptwriter payload, then verify every chunk is target-only. Trim only if a generated file actually contains a prompt/sample prefix.
 6. Validate or manually review all clean TTS chunks before using them for lip-sync or final narration assembly.
 7. Call `latentsync` to build synced presenter clips from the silent motion plates and clean chunk audio.
 8. When presenter clips look soft, compressed, or artifacted after lip-sync, call `codeformer-postprocess` on the synced presenter outputs before timeline assembly.
 9. Call `playwright-broll-recorder` for webpage B-roll and call `pexels-stock-downloader` when non-web stock footage is needed.
+   - When the script needs abstract, synthetic, product-neutral, conceptual, or visually controlled B-roll, create a `z-image-turbo` plan:
+     ```powershell
+     python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\z_image_plan.py `
+       --project-dir <project-dir> `
+       --script <project-dir>\script.json
+     ```
+   - Generate only the selected images with `z-image-turbo`, review them, record accepted/rejected outputs in the asset manifest, then use accepted stills as timeline `B-ROLL`, `TEXT` backgrounds, or generated visual inserts.
+   - Validate the generated-image plan before using outputs in the timeline:
+     ```powershell
+     python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\pipeline_check.py `
+       --project-dir <project-dir> `
+       --z-image-plan <project-dir>\manifests\z-image-plan.json `
+       --mode assets `
+       --require-z-image-review
+     ```
 10. Build `timeline.json` using the schema matching the format mode.
 11. Validate the timeline and final audio before composition:
    ```powershell
@@ -131,12 +164,26 @@ Do not run a scripted preflight. If a required item is missing, stop before expe
 12. Call `moviepy-video-composer` with the matching `--format` value.
 13. Run final visual QA on the rendered video by extracting representative frames across the timeline and inspecting them. If any frame fails the visual acceptance criteria, revise assets, typography, PiP crop/shape, layout, or timeline and rerender.
    ```powershell
-   python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\visual_qa.py `
+    python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\visual_qa.py `
      --project-dir <project-dir> `
      --video <project-dir>\final_output.mp4 `
      --timeline <project-dir>\timeline.json `
      --status needs_review
    ```
+   - The helper cannot mark final success by itself. A final pass requires human/aesthetic review with concrete notes:
+     ```powershell
+     python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\visual_qa.py `
+       --project-dir <project-dir> `
+       --video <project-dir>\final_output.mp4 `
+       --timeline <project-dir>\timeline.json `
+       --format vertical `
+       --min-duration 60 `
+       --max-duration 90 `
+       --z-image-plan <project-dir>\manifests\z-image-plan.json `
+       --human-aesthetic-pass `
+       --aesthetic-notes "Specific notes covering hook, safe zones, caption readability, visual variety, generated visuals, presenter/PiP quality, and rejected frames." `
+       --status pass
+     ```
 14. Report any blockers immediately if a required runtime tool or asset is missing.
 
 ## Interview Rules
@@ -465,6 +512,22 @@ The agent may freely combine:
 - screen recordings
 - composited layouts
 
+### Generated Visuals With z-image-turbo
+
+Use `z-image-turbo` as a first-class source when real footage, screen capture, or stock video would be generic, misleading, unavailable, or visually weak. Generated stills are acceptable for abstract explainers, metaphor shots, privacy-safe synthetic UI backgrounds, product-neutral mood scenes, and graphic inserts.
+
+Do not use generated images as a cheap replacement for missing user assets. If a production brief requires the user's product, location, face, brand, or app, ask for those assets.
+
+Rules:
+
+- Generate a plan with `scripts/z_image_plan.py` from `script.json` before running image generation.
+- Save outputs under `<project-dir>\broll\generated\`.
+- Record prompt, output path, segment id, acceptance status, and rejection reason in the project manifest.
+- Pass the z-image plan into final `visual_qa.py` so timeline references to `broll/generated/` are checked against reviewed accepted outputs.
+- Keep prompts vertical-safe: central subject, clean upper/middle negative space, no fake logos, no credentials, no private data, no implied real-brand UI unless explicitly requested.
+- Review generated images before using them. Reject generic, distorted, illegible, branded, unsafe, or visually cheap outputs.
+- Accepted generated stills can be referenced directly by the composer as `B-ROLL` or `TEXT` background media.
+
 Choose the source type per segment using these criteria:
 
 - Does it make the point clear in under two seconds?
@@ -567,6 +630,10 @@ New-Item -ItemType Directory -Force "$projectDir\qa\final-frames" | Out-Null
 
 Use enough timestamps to cover the whole timeline. Do not inspect only one preview frame.
 
+Automated structural checks cannot mark a reel as production-ready. A final pass requires explicit human/aesthetic review notes. If a render looks generic, cheap, template-like, visually empty, or off-brand, mark it failed even when duration, resolution, and blank-frame checks pass.
+
+Use [references/professional-qa-rubric.md](references/professional-qa-rubric.md) before setting `--human-aesthetic-pass`.
+
 Reject and rerender when any frame shows:
 
 - overlapping text, captions, cards, PiP, or UI elements
@@ -579,6 +646,7 @@ Reject and rerender when any frame shows:
 - visual repetition that makes the reel feel static or boring
 - real-brand or credential exposure that was not explicitly intended
 - black/blank/error/loading frames
+- low-effort generated stills, generic stock, placeholder-looking motion graphics, or any frame that looks like a test harness rather than a finished reel
 
 If a frame fails, do not explain it away. Fix the visual cause and rerender. Record visual QA results in `manifests/visual-qa.json` with inspected frame paths, pass/fail status, and any rerender actions.
 

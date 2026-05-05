@@ -40,6 +40,8 @@ Generate scripts as production-ready assets, not as plain prose. Always optimize
 - Break long explanations into multiple visual beats.
 - Mark each segment with an explicit visual mode and a pattern interrupt flag.
 - Make `B_ROLL` and `PIP` instructions concrete enough for asset fetching or screen-record capture.
+- Use `generated-image` in `broll_queries.source_type` when a controlled synthetic still is stronger than stock, webpage capture, or manual assets for an abstract or privacy-safe segment.
+- Do not use generated-image plans to hide missing user assets when the topic depends on the user's real product, presenter, brand, location, or app.
 - Make `TEXT_GRAPHIC` copy short enough to be readable on screen.
 - Make `on_screen_text` usable as `caption_text` when the timeline needs burned-in reel captions: short, punchy, and not a full transcript dump.
 - Keep the spoken narration aligned with the claimed duration.
@@ -83,6 +85,7 @@ Always follow this contract:
    - B-roll queries are concrete
    - on-screen text is readable and short
    - caption-style text fits phone viewing and avoids bottom UI/PiP collisions
+   - generated-image segments are explicitly justified in `broll_queries` or `assembly_notes`
    - narration is natural for spoken delivery in the target language
 
 ## Output Template

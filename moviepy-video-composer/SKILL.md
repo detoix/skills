@@ -46,6 +46,7 @@ Both formats use [scripts/compose_video.py](scripts/compose_video.py).
   - `PIP`
   - `TEXT`
   - `STACK_3`
+- accepted generated stills or project images (`.png`, `.jpg`, `.jpeg`, `.webp`) may be used anywhere a visual media path is accepted; stills are held for the segment duration
 - optional `caption_text` fields on any segment for burned-in short-form captions
 
 ## Use The Script
@@ -75,6 +76,7 @@ If paths are omitted, the script defaults to the project directory and common so
 - Keep timeline order intact; do not reorder entries.
 - Match each segment to the exact target duration defined by `end_time - start_time`.
 - Loop clips when they are too short; trim them when they are too long.
+- Treat still images as duration-flexible visual media. Do not set `clip_start` on still images.
 - Use `clip_start` when a segment should begin from a non-zero point in the source clip.
 - Use `background_clip_start` and `overlay_clip_start` for `PIP` when the background and presenter overlay need different source offsets.
 - Use `clip_start_top`, `clip_start_mid`, and `clip_start_bot` for `STACK_3` when stacked clips need different source offsets.

@@ -31,7 +31,15 @@ Run the generation script. It will automatically detect and use the local models
 python scripts/generate.py --prompt "A futuristic city in the style of cyberpunk" --output "city.png"
 ```
 
-For YouTube reel B-roll, save generated assets inside the active project directory, usually `broll/generated/` or `source-assets/generated/`, and record them in the project asset manifest. Prefer concrete prompts that produce vertical-safe subjects, clean negative space for captions, and no fake logos, credentials, or misleading real-brand screens.
+For YouTube reel B-roll, use this skill only after the autopipeline has decided that generated visuals are the right source for a segment. Prefer the autopipeline helper first:
+
+```bash
+python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\z_image_plan.py --project-dir <project-dir> --script <project-dir>\script.json
+```
+
+Save generated assets inside the active project directory, usually `broll/generated/`, and record them in the project asset manifest with prompt, segment id, acceptance status, and rejection reason. Prefer concrete prompts that produce vertical-safe subjects, clean upper/middle negative space for captions, and no fake logos, credentials, private data, or misleading real-brand screens.
+
+Reject outputs that look generic, distorted, over-branded, text-garbled, placeholder-like, or too visually weak for a finished reel. Do not use generated images as a substitute for missing user-provided product, presenter, brand, app, or location assets when the brief depends on those real assets.
 
 ### 4. Transform Image (Image-to-Image)
 Modify an existing image by providing a base image and a transformation strength (0.0 to 1.0):
