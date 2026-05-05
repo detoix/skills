@@ -184,7 +184,7 @@ def video_reason(item: dict[str, Any]) -> str:
     return "B-roll or alternate presenter candidate"
 
 
-def summarize(items: list[dict[str, Any]], fixture_label: str | None = None) -> dict[str, Any]:
+def summarize(items: list[dict[str, Any]], test_input_label: str | None = None) -> dict[str, Any]:
     counts: dict[str, int] = {}
     roles: dict[str, int] = {}
     for item in items:
@@ -199,8 +199,8 @@ def summarize(items: list[dict[str, Any]], fixture_label: str | None = None) -> 
         "selected_count": len(selected),
         "rejected_count": len(rejected),
     }
-    if fixture_label:
-        summary["fixture_label"] = fixture_label
+    if test_input_label:
+        summary["test_input_label"] = test_input_label
     return summary
 
 
@@ -245,8 +245,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--asset-root", required=True, help="Folder containing source assets to classify.")
     parser.add_argument("--output", required=True, help="Manifest JSON output path.")
     parser.add_argument(
-        "--fixture-label",
-        help="Optional label marking this manifest as a sample/test fixture instead of production user assets.",
+        "--test-input-label",
+        help="Optional label marking this manifest as disposable test input instead of production user assets.",
     )
     return parser.parse_args()
 
@@ -261,9 +261,9 @@ def main() -> int:
     items = [classify_path(path, root) for path in sorted(root.rglob("*")) if path.is_file()]
     manifest = {
         "asset_root": str(root),
-        "asset_set_type": "sample_fixture" if args.fixture_label else "user_provided_assets",
-        "fixture_label": args.fixture_label,
-        "summary": summarize(items, args.fixture_label),
+        "asset_set_type": "test_input" if args.test_input_label else "user_provided_assets",
+        "test_input_label": args.test_input_label,
+        "summary": summarize(items, args.test_input_label),
         "groups": grouped_manifest(items),
         "assets": items,
         "selected_assets": [item for item in items if item.get("usable")],

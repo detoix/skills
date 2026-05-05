@@ -38,7 +38,7 @@ Research inputs fetched during the May 5, 2026 pipeline update.
 
 ## Research-To-Implementation Requirements
 
-- Production asset intake must be explicit. The pipeline should ask for a user asset root and must not silently use sample fixture assets for production renders.
+- Production asset intake must be explicit. The pipeline should ask for a user asset root and must not silently reuse previous test inputs for production renders.
 - Generated visuals are a separate source class, not a fallback excuse. Use `z-image-turbo` when a generated still is the strongest creative source for a segment; reject generic or placeholder-looking images.
 - The composer must accept reviewed still images so generated visuals can be used directly in `B-ROLL`, `TEXT` backgrounds, and other visual layers.
 - Structural QA cannot pass a reel by itself. Human/aesthetic review is mandatory because automatic checks can miss cheap-looking visuals, poor art direction, bad pacing, and weak creative fit.

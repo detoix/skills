@@ -339,8 +339,8 @@ def build_findings(
     format_name: str | None,
     min_duration: float | None,
     max_duration: float | None,
-    human_aesthetic_pass: bool,
-    aesthetic_notes: str,
+    agent_visual_review_pass: bool,
+    visual_review_notes: str,
 ) -> list[dict[str, str]]:
     findings: list[dict[str, str]] = []
 
@@ -397,10 +397,10 @@ def build_findings(
     elif prefix_audit.get("prompt_prefix_absent") is None:
         add("WARN", "tts-prefix-unverified", "tts prompt prefix absence was not verified")
 
-    if not human_aesthetic_pass:
-        add("ERROR", "aesthetic-review-required", "human/aesthetic QA pass is required before a reel can pass")
-    if human_aesthetic_pass and len(aesthetic_notes.strip()) < 80:
-        add("ERROR", "aesthetic-notes-missing", "human/aesthetic QA pass requires concrete notes, not a one-line approval")
+    if not agent_visual_review_pass:
+        add("ERROR", "agent-visual-review-required", "agent visual review is required before a reel can pass")
+    if agent_visual_review_pass and len(visual_review_notes.strip()) < 80:
+        add("ERROR", "visual-review-notes-missing", "agent visual review requires concrete notes, not a one-line approval")
 
     for ref in generated_audit.get("missing_plan_refs", []):
         add("ERROR", "generated-image-unplanned", f"generated timeline image has no z-image plan entry: {ref}")
@@ -444,8 +444,8 @@ def write_markdown_report(
         f"- Manifest present: {prefix_audit.get('manifest_present')}",
         f"- Chunks checked: {prefix_audit.get('chunks_checked')}",
         f"- Prompt prefix absent: {prefix_audit.get('prompt_prefix_absent')}",
-        f"- Human/aesthetic pass: {manifest.get('human_aesthetic_pass')}",
-        f"- Aesthetic notes: {manifest.get('aesthetic_notes')}",
+        f"- Agent visual review pass: {manifest.get('agent_visual_review_pass')}",
+        f"- Visual review notes: {manifest.get('visual_review_notes')}",
         "",
         "## Findings",
         "",
@@ -505,7 +505,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--timeline", help="Timeline JSON. Defaults to <project-dir>/timeline.json when present")
     parser.add_argument("--output", help="QA manifest path. Defaults to <project-dir>/manifests/visual-qa.json")
     parser.add_argument("--status", choices=("pass", "fail", "needs_review"), default="needs_review")
-    parser.add_argument("--notes", default="", help="Human visual QA notes to record.")
+    parser.add_argument("--notes", default="", help="General QA notes to record.")
     parser.add_argument("--format", choices=("vertical", "landscape"), help="Expected render format for resolution checks.")
     parser.add_argument("--min-duration", type=float, help="Minimum acceptable duration in seconds.")
     parser.add_argument("--max-duration", type=float, help="Maximum acceptable duration in seconds.")
@@ -513,11 +513,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--z-image-plan", help="Optional z-image plan path. Defaults to <project-dir>/manifests/z-image-plan.json when present")
     parser.add_argument("--report-md", help="Optional Markdown QA report path.")
     parser.add_argument(
-        "--human-aesthetic-pass",
+        "--agent-visual-review-pass",
         action="store_true",
-        help="Mark the render as passing human/aesthetic review. Required for final pass status.",
+        help="Record that the agent visually reviewed the render and considers it acceptable. Required for final pass status.",
     )
-    parser.add_argument("--aesthetic-notes", default="", help="Concrete notes from manual visual/aesthetic review.")
+    parser.add_argument("--visual-review-notes", default="", help="Concrete notes from agent visual review.")
     return parser.parse_args()
 
 
@@ -572,8 +572,8 @@ def main() -> int:
         args.format,
         args.min_duration,
         args.max_duration,
-        args.human_aesthetic_pass,
-        args.aesthetic_notes,
+        args.agent_visual_review_pass,
+        args.visual_review_notes,
     )
     computed_status = "fail" if any(item["severity"] == "ERROR" for item in findings) else "pass"
     final_status = "fail" if computed_status == "fail" else args.status
@@ -584,8 +584,8 @@ def main() -> int:
         "status": final_status,
         "computed_status": computed_status,
         "notes": args.notes,
-        "human_aesthetic_pass": args.human_aesthetic_pass,
-        "aesthetic_notes": args.aesthetic_notes,
+        "agent_visual_review_pass": args.agent_visual_review_pass,
+        "visual_review_notes": args.visual_review_notes,
         "timeline_summary": timeline_summary,
         "tts_prefix_audit": prefix_audit,
         "generated_image_audit": generated_audit,

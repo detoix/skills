@@ -551,15 +551,15 @@ def preflight(project_dir: Path, report: Report, require_pexels: bool) -> None:
             report.error("pexels-key", "PEXELS_API_KEY missing")
 
 
-def validate_asset_manifest(manifest: Any, report: Report, format_mode: str | None, allow_fixture: bool) -> None:
+def validate_asset_manifest(manifest: Any, report: Report, format_mode: str | None, allow_test_input: bool) -> None:
     if not isinstance(manifest, dict):
         report.error("asset-manifest-shape", "asset manifest must be an object")
         return
     asset_set_type = manifest.get("asset_set_type")
-    if asset_set_type == "sample_fixture" and not allow_fixture:
+    if asset_set_type == "test_input" and not allow_test_input:
         report.error(
-            "sample-fixture-assets",
-            "asset manifest is marked sample_fixture; production runs require user-provided assets",
+            "test-input-assets",
+            "asset manifest is marked test_input; production runs require user-provided assets",
         )
     groups = manifest.get("groups")
     if not isinstance(groups, dict):
@@ -671,9 +671,9 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--require-pexels", action="store_true", help="Fail preflight if PEXELS_API_KEY is missing.")
     parser.add_argument(
-        "--allow-sample-fixture",
+        "--allow-test-input",
         action="store_true",
-        help="Allow asset manifests marked as sample_fixture. Use only for tests, never production runs.",
+        help="Allow asset manifests marked as test_input. Use only for tests, never production runs.",
     )
     parser.add_argument("--require-z-image-review", action="store_true", help="Fail if z-image candidates lack review status.")
     parser.add_argument("--json", action="store_true", help="Emit JSON findings.")
@@ -705,7 +705,7 @@ def main() -> int:
     if asset_manifest_path and args.mode in {"all", "preflight", "assets"}:
         manifest = load_json(asset_manifest_path, report, "asset manifest")
         if manifest is not None:
-            validate_asset_manifest(manifest, report, args.format, args.allow_sample_fixture)
+            validate_asset_manifest(manifest, report, args.format, args.allow_test_input)
 
     z_image_plan_path = Path(args.z_image_plan).resolve() if args.z_image_plan else None
     if z_image_plan_path and args.mode in {"all", "preflight", "assets"}:

@@ -81,7 +81,7 @@ Build a YouTube video as a project, not as a loose set of clips. Keep the whole 
 
 Before generating assets, the agent verifies the runtime and required inputs directly:
 
-- Real production runs must use user-provided project assets. Do not treat `C:\Users\kdeptula\Videos\avatar` as a production library; it is only a local fixture set for testing and regression checks.
+- Real production runs must use user-provided project assets. Do not rely on any local example folder unless the user explicitly provides it for that run.
 - If the user has not provided production assets, stop and ask for the asset root, presenter plates, voice sample, and exact voice-sample transcript before promising a production reel.
 - `youtube-scriptwriter`, `tts`, `latentsync`, `playwright-broll-recorder`, and `moviepy-video-composer` are available.
 - `codeformer-postprocess` is available if presenter restoration is expected.
@@ -106,12 +106,12 @@ Do not run a scripted preflight. If a required item is missing, stop before expe
        --asset-root <asset-root> `
        --output <project-dir>\manifests\assets-manifest.json
      ```
-   - For fixture tests only, mark sample assets explicitly:
+   - For test-only runs, mark disposable test inputs explicitly:
      ```powershell
      python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\asset_inventory.py `
-       --asset-root C:\Users\kdeptula\Videos\avatar `
-       --fixture-label avatar-sample-fixture `
-       --output C:\Users\kdeptula\Videos\ai-videos\avatar-intake\manifests\assets-manifest.json
+       --asset-root <test-asset-root> `
+       --test-input-label <test-run-label> `
+       --output <project-dir>\manifests\assets-manifest.json
      ```
    - Review the manifest before selecting presenter plates, voice samples, stills, overlays, music, B-roll candidates, or previous outputs for comparison.
 3. Call `youtube-scriptwriter` and use its structured output as the planning source of truth.
@@ -123,7 +123,7 @@ Do not run a scripted preflight. If a required item is missing, stop before expe
      --format <landscape-or-vertical> `
      --mode script
    ```
-   Validate asset intake before production work. This must fail for sample fixtures unless this is explicitly a test run:
+   Validate asset intake before production work. This must fail for manifests marked as test input unless this is explicitly a test run:
    ```powershell
    python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\pipeline_check.py `
      --project-dir <project-dir> `
@@ -131,7 +131,7 @@ Do not run a scripted preflight. If a required item is missing, stop before expe
      --format <landscape-or-vertical> `
      --mode assets
    ```
-   For fixture-only regression tests, add `--allow-sample-fixture` and label the report as a test artifact.
+   For test-only regression runs, add `--allow-test-input` and label the report as a test artifact.
 5. Call `tts` to generate chunked cloned speech from the scriptwriter payload, then verify every chunk is target-only. Trim only if a generated file actually contains a prompt/sample prefix.
 6. Validate or manually review all clean TTS chunks before using them for lip-sync or final narration assembly.
 7. Call `latentsync` to build synced presenter clips from the silent motion plates and clean chunk audio.
@@ -170,7 +170,7 @@ Do not run a scripted preflight. If a required item is missing, stop before expe
      --timeline <project-dir>\timeline.json `
      --status needs_review
    ```
-   - The helper cannot mark final success by itself. A final pass requires human/aesthetic review with concrete notes:
+   - The helper cannot mark final success by itself. A final pass requires agent visual review with concrete notes:
      ```powershell
      python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\visual_qa.py `
        --project-dir <project-dir> `
@@ -180,8 +180,8 @@ Do not run a scripted preflight. If a required item is missing, stop before expe
        --min-duration 60 `
        --max-duration 90 `
        --z-image-plan <project-dir>\manifests\z-image-plan.json `
-       --human-aesthetic-pass `
-       --aesthetic-notes "Specific notes covering hook, safe zones, caption readability, visual variety, generated visuals, presenter/PiP quality, and rejected frames." `
+       --agent-visual-review-pass `
+       --visual-review-notes "Specific notes covering hook, safe zones, caption readability, visual variety, generated visuals, presenter/PiP quality, and rejected frames." `
        --status pass
      ```
 14. Report any blockers immediately if a required runtime tool or asset is missing.
@@ -630,9 +630,9 @@ New-Item -ItemType Directory -Force "$projectDir\qa\final-frames" | Out-Null
 
 Use enough timestamps to cover the whole timeline. Do not inspect only one preview frame.
 
-Automated structural checks cannot mark a reel as production-ready. A final pass requires explicit human/aesthetic review notes. If a render looks generic, cheap, template-like, visually empty, or off-brand, mark it failed even when duration, resolution, and blank-frame checks pass.
+Automated structural checks cannot mark a reel as production-ready. A final pass requires explicit agent visual review notes. If a render looks generic, cheap, template-like, visually empty, or off-brand, mark it failed even when duration, resolution, and blank-frame checks pass.
 
-Use [references/professional-qa-rubric.md](references/professional-qa-rubric.md) before setting `--human-aesthetic-pass`.
+Use [references/professional-qa-rubric.md](references/professional-qa-rubric.md) before setting `--agent-visual-review-pass`.
 
 Reject and rerender when any frame shows:
 

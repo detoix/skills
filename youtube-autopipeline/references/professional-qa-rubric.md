@@ -1,6 +1,6 @@
 # Professional Reel QA Rubric
 
-Use this rubric before setting `--human-aesthetic-pass` in `visual_qa.py`. Structural QA is necessary but not sufficient.
+Use this rubric before setting `--agent-visual-review-pass` in `visual_qa.py`. Structural QA is necessary but not sufficient.
 
 ## Required Pass Conditions
 
@@ -12,7 +12,7 @@ Use this rubric before setting `--human-aesthetic-pass` in `visual_qa.py`. Struc
 - Audio: narration is intelligible, not prompt-prefixed, and not buried under music. YouTube filming guidance emphasizes low echo/background noise for useful sound. URL: https://support.google.com/youtube/answer/12948118?co=YOUTUBE._YTVideoType%3Dshorts&hl=en
 - Generated visuals: z-image outputs must look intentional, vertically composed, and segment-relevant. Reject generic filler, malformed images, fake logos, unreadable text, private data, or placeholder-looking art.
 - Generated visual provenance: every `broll/generated/` timeline reference must map to a reviewed accepted item in `manifests/z-image-plan.json`.
-- Asset truthfulness: real production runs use user-provided assets when the brief depends on a real person, product, brand, app, location, or voice. Sample fixtures are test-only.
+- Asset truthfulness: real production runs use user-provided assets when the brief depends on a real person, product, brand, app, location, or voice. Disposable test inputs are test-only and must not become skill assumptions.
 
 ## Automatic Failure Conditions
 
@@ -28,7 +28,7 @@ Use this rubric before setting `--human-aesthetic-pass` in `visual_qa.py`. Struc
 Record concrete notes, not “looks good.”
 
 ```text
-Human/aesthetic QA notes:
+Agent visual review notes:
 - Opening hook:
 - Safe-zone check:
 - Caption readability:

@@ -94,12 +94,12 @@ project-root/
 - Keep one manifest for TTS and one manifest for media assets.
 - Save checker output as `validation-report.json` when running `pipeline_check.py --json`.
 - Save asset intake output from `asset_inventory.py` as `manifests/assets-manifest.json`.
-- For sample fixture tests, run `asset_inventory.py` with `--fixture-label` so fixture assets cannot be confused with user-provided production assets.
-- Validate production asset manifests with `pipeline_check.py --asset-manifest`; only fixture tests may pass `--allow-sample-fixture`.
+- For test-only runs, run `asset_inventory.py` with `--test-input-label` so disposable test inputs cannot be confused with user-provided production assets.
+- Validate production asset manifests with `pipeline_check.py --asset-manifest`; only test runs may pass `--allow-test-input`.
 - Save z-image planning output from `z_image_plan.py` as `manifests/z-image-plan.json`; generated stills belong under `broll/generated/`.
 - Validate z-image plans with `pipeline_check.py --z-image-plan --require-z-image-review` before timeline use.
 - Save final-render frame QA output from `visual_qa.py` as `manifests/visual-qa.json`; the helper writes extracted frames under `qa/final-frames/<video-stem>/` and a matching `qa/contact-sheet-<video-stem>.jpg`.
-- Save the Markdown QA report beside the JSON report. Final pass status requires human/aesthetic review notes, not only structural checks.
+- Save the Markdown QA report beside the JSON report. Final pass status requires agent visual review notes, not only structural checks.
 - If the user provides soundtrack music, store it under `source-assets/` with a deterministic name such as `soundtrack.mp3` or `soundtrack.wav`.
 - For vertical mode, presenter source videos should be portrait (9:16) when available. Landscape plates are accepted but will be center-cropped.
 - For vertical mode, `presenter-profile.mp4` and the `synced/profile/` directory are optional. Omit them entirely when no 3/4-profile plate is provided.

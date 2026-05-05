@@ -17,10 +17,10 @@ Scope: `youtube-autopipeline`, `youtube-scriptwriter`, `tts`, `latentsync`, `cod
 ## Source Changes From Audit
 
 - `asset_inventory.py` now emits grouped categories for usable presenter plates, voice samples, transcripts, music, stills, overlays, previous outputs, and rejected assets.
-- `asset_inventory.py` can mark an asset root as a sample fixture so `C:\Users\kdeptula\Videos\avatar` is not confused with production user assets.
-- `pipeline_check.py` can validate asset manifests and blocks sample fixtures in production unless `--allow-sample-fixture` is explicitly passed.
+- `asset_inventory.py` can mark an asset root as disposable test input so test data is not confused with production user assets.
+- `pipeline_check.py` can validate asset manifests and blocks test input in production unless `--allow-test-input` is explicitly passed.
 - `visual_qa.py` now measures duration, expected resolution, timeline visual categories, distinct media references, caption lengths/positions, PiP entries, frame blankness/contrast, and TTS prompt-prefix status, then writes both JSON and Markdown QA reports.
-- `visual_qa.py` now refuses final pass status unless human/aesthetic review is explicitly recorded.
+- `visual_qa.py` now refuses final pass status unless agent visual review is explicitly recorded.
 - `z_image_plan.py` now creates a `z-image-turbo` prompt/command manifest from script segments and defines generated visual acceptance criteria.
 - `moviepy-video-composer` now accepts still image media paths, allowing reviewed z-image outputs to be used directly in visual timelines.
 
