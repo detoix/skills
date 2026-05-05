@@ -11,23 +11,28 @@ Generate scripts as production-ready assets, not as plain prose. Always optimize
 
 1. Collect the required inputs:
    - Topic
+   - Format mode: landscape or vertical
    - Target audience
    - Tone
    - Language
    - Target duration
-2. Default to the strict structured format in [references/output-schema.md](references/output-schema.md).
+2. Return the strict JSON object defined in [references/output-schema.md](references/output-schema.md).
 3. Enforce pacing rules before finalizing:
    - No static `A_ROLL` shot longer than 20 seconds
    - Insert a pattern interrupt every 5-15 seconds
-   - Alternate frequently across `A_ROLL`, `B_ROLL`, `PUNCH_IN`, `TEXT_GRAPHIC`, and `PIP`
+   - Alternate frequently across the visual modes supported by the selected format
 4. Write for spoken delivery, not essay reading:
    - Use short spoken sentences
    - Open with a fast hook
    - Keep transitions tight
    - Avoid long setup before payoff
-5. Produce two parts every time:
-   - `PART A`: A/V editing script with exact segment-by-segment timing and visual instructions
-   - `PART B`: Production payload for TTS, B-roll fetching, graphics, and assembly notes
+5. Produce one JSON object every time:
+   - `metadata`
+   - `segments`
+   - `tts_chunks`
+   - `broll_queries`
+   - `graphics`
+   - `assembly_notes`
 
 ## Operating Rules
 
@@ -49,12 +54,13 @@ This skill is instruction-first. Do not rely on external scripts or external API
 
 Always follow this contract:
 
-- return exactly the two-part structure described in [references/output-schema.md](references/output-schema.md)
+- return exactly the JSON structure described in [references/output-schema.md](references/output-schema.md)
 - keep segment timing explicit
 - never output a single uninterrupted block of talking-head narration
 - reject your own draft mentally if it violates the A-roll or interrupt rules
 - ask for or infer only these inputs:
   - Topic
+  - Format mode
   - Target audience
   - Tone
   - Language
@@ -68,7 +74,7 @@ Always follow this contract:
 4. Ensure no `A_ROLL` segment exceeds 20 seconds.
 5. Insert a pattern interrupt every 5-15 seconds.
 6. Alternate visual treatment aggressively enough to avoid static talking-head runs.
-7. Fill `PART B` so the output can drive TTS, B-roll fetch, text graphics, and assembly.
+7. Fill the production payload arrays so the output can drive TTS, B-roll fetch, text graphics, and assembly.
 8. Before finalizing, check:
    - no timing gaps
    - no overlong `A_ROLL`
@@ -79,18 +85,7 @@ Always follow this contract:
 
 ## Output Template
 
-Use this exact top-level shape:
-
-```text
-PART A: A/V Editing Script
-[ordered segments with explicit timing and fields from references/output-schema.md]
-
-PART B: Production Payload
-[tts_chunks]
-[broll_queries]
-[graphics]
-[assembly_notes]
-```
+Return only valid JSON in the top-level shape from [references/output-schema.md](references/output-schema.md). Add Markdown only if the caller explicitly asks for an additional human-readable rendering.
 
 ## Resources
 

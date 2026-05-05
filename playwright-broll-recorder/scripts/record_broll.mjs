@@ -10,8 +10,8 @@ function parseArgs(argv) {
   const options = {
     duration: 12,
     scroll: "constant",
-    viewport: "1440x900",
-    videoSize: "1280x720",
+    viewport: "1600x900",
+    videoSize: "1600x900",
     settleMs: 1500,
     screenshot: null,
     click: [],
@@ -105,7 +105,7 @@ function parseArgs(argv) {
 function parseSize(value, flagName) {
   const match = /^(\d+)x(\d+)$/i.exec(value || "");
   if (!match) {
-    throw new Error(`${flagName} must look like 1440x900`);
+    throw new Error(`${flagName} must look like 1600x900`);
   }
   return { width: Number(match[1]), height: Number(match[2]) };
 }
@@ -125,8 +125,8 @@ function printHelp() {
 Options:
   --duration <seconds>            Total clip length. Default: 12
   --scroll constant|static        Steady scroll or static capture. Default: constant
-  --viewport <width>x<height>     Browser viewport. Default: 1440x900
-  --video-size <width>x<height>   Output frame size. Default: 1280x720
+  --viewport <width>x<height>     Browser viewport. Default: 1600x900
+  --video-size <width>x<height>   Output frame size. Default: 1600x900
   --wait-for-selector <selector>  Wait for a selector before recording
   --click <selector>              Click selector before recording; repeatable
   --hide <selector>               Hide selector before recording; repeatable

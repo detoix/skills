@@ -19,7 +19,11 @@ API_URL = "https://api.pexels.com/v1/videos/search"
 DEFAULT_COUNT = 3
 DEFAULT_TIMEOUT = 60
 DEFAULT_PER_PAGE = 20
-ALLOWED_ORIENTATIONS = {"landscape", "portrait", "square"}
+ALLOWED_ORIENTATIONS = {"landscape", "portrait", "square", "vertical", "either"}
+ORIENTATION_ALIASES = {
+    "vertical": "portrait",
+    "either": None,
+}
 SKILL_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_HEADERS = {
     "Accept": "application/json",
@@ -60,7 +64,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--query", required=True, help="Pexels search query.")
     parser.add_argument("--output-dir", required=True, help="Directory for downloaded clips.")
     parser.add_argument("--count", type=int, default=DEFAULT_COUNT, help="How many clips to download.")
-    parser.add_argument("--orientation", choices=sorted(ALLOWED_ORIENTATIONS), help="Optional orientation filter.")
+    parser.add_argument(
+        "--orientation",
+        choices=sorted(ALLOWED_ORIENTATIONS),
+        help="Optional orientation filter. Accepts vertical as an alias for portrait; either disables the filter.",
+    )
     parser.add_argument("--min-duration", type=int, help="Optional minimum duration in seconds.")
     parser.add_argument("--max-duration", type=int, help="Optional maximum duration in seconds.")
     parser.add_argument("--page", type=int, default=1, help="Results page number.")
@@ -99,8 +107,9 @@ def build_url(args: argparse.Namespace) -> str:
         "per_page": max(DEFAULT_PER_PAGE, args.count * 3),
         "page": args.page,
     }
-    if args.orientation:
-        params["orientation"] = args.orientation
+    orientation = ORIENTATION_ALIASES.get(args.orientation, args.orientation)
+    if orientation:
+        params["orientation"] = orientation
     if args.min_duration is not None:
         params["min_duration"] = args.min_duration
     if args.max_duration is not None:

@@ -1,25 +1,70 @@
 # Output Schema
 
-Return exactly two top-level parts. This schema is for the agent's generated output, not for an external API wrapper.
+Return one strict JSON object. Do not use Markdown as the automation interface unless the caller explicitly asks for a human-readable rendering after the JSON.
 
-## PART A: A/V Editing Script
+When this output feeds `youtube-autopipeline`, validate the saved `script.json` before generating TTS or media:
 
-Use an ordered list of segments. Each segment must contain:
+```powershell
+python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\pipeline_check.py `
+  --project-dir <project-dir> `
+  --script <project-dir>\script.json `
+  --format <landscape-or-vertical> `
+  --mode script
+```
 
-- `segment_id`: Stable identifier such as `S01`
+## Top-Level Shape
+
+```json
+{
+  "metadata": {},
+  "segments": [],
+  "tts_chunks": [],
+  "broll_queries": [],
+  "graphics": [],
+  "assembly_notes": []
+}
+```
+
+## `metadata`
+
+Required fields:
+
+- `topic`
+- `target_audience`
+- `tone`
+- `language`
+- `format_mode`: `landscape` or `vertical`
+- `target_duration_seconds`
+- `estimated_duration_seconds`
+- `estimated_word_count`
+- `pattern_interrupt_interval_seconds`
+- `max_static_aroll_seconds`
+
+## `segments`
+
+Each item must contain:
+
+- `segment_id`: stable identifier such as `S01`
 - `start_seconds`
 - `end_seconds`
 - `duration_seconds`
-- `primary_visual`: One of `A_ROLL`, `B_ROLL`, `PUNCH_IN`, `TEXT_GRAPHIC`, `PIP`
+- `primary_visual`
 - `pattern_interrupt`: `true` or `false`
-- `pattern_interrupt_type`: Short label such as `hook`, `zoom`, `stat-overlay`, `cutaway`, `screen-demo`
-- `narration`: Spoken line for that segment
-- `on_screen_text`: Exact overlay copy, or `""`
-- `visual_direction`: Concrete editing instruction
-- `broll_search_query`: Search query or shot brief, or `""`
-- `avatar_direction`: Performance note for the avatar, or `""`
-- `sfx_cue`: Optional cue, or `""`
-- `editor_notes`: Practical assembly note
+- `pattern_interrupt_type`: short label such as `hook`, `zoom`, `stat-overlay`, `cutaway`, `screen-demo`
+- `narration`: spoken line for that segment
+- `on_screen_text`: exact overlay copy, or `""`
+- `visual_direction`: concrete editing instruction
+- `broll_search_query`: search query or shot brief, or `""`
+- `avatar_direction`: performance note for the avatar, or `""`
+- `sfx_cue`: optional cue, or `""`
+- `editor_notes`: practical assembly note
+
+Allowed `primary_visual` values:
+
+- landscape: `A_ROLL`, `B_ROLL`, `PUNCH_IN`, `TEXT_GRAPHIC`, `PIP`
+- vertical: `A_ROLL`, `B_ROLL`, `PUNCH_IN`, `TEXT`, `TEXT_GRAPHIC`, `PIP`, `STACK_3`
+
+Use `TEXT` directly for simple vertical keyword overlays. Use `TEXT_GRAPHIC` only when the intended graphic is richer than the composer-native `TEXT` segment.
 
 Rules:
 
@@ -28,11 +73,7 @@ Rules:
 - Do not allow long runs of the same visual mode without a justified change.
 - Keep narration conversational and easy for TTS.
 
-## PART B: Production Payload
-
-Return four payload blocks:
-
-### `tts_chunks`
+## `tts_chunks`
 
 Each item must contain:
 
@@ -42,51 +83,38 @@ Each item must contain:
 - `delivery_style`
 - `estimated_seconds`
 
-### `broll_queries`
+## `broll_queries`
 
 Each item must contain:
 
 - `segment_id`
 - `query`
+- `source_type`: `webpage`, `stock`, `screen-record`, or `manual`
 - `must_include`
 - `avoid`
+- `orientation_preference`: `landscape`, `vertical`, or `either`
 
-### `graphics`
+## `graphics`
 
 Each item must contain:
 
 - `segment_id`
 - `graphic_type`
 - `copy`
+- `composer_target`: `TEXT`, `B_ROLL`, `PIP`, or `manual`
 
-### `assembly_notes`
+## `assembly_notes`
 
-Short operational notes for the automation pipeline, such as:
+Each item must contain:
+
+- `segment_id`
+- `note`
+- `risk`: `none`, `fallback`, or `manual-review`
+
+Use assembly notes for:
 
 - where to use avatar footage
 - when to swap to PiP
-- when to layer captions or kinetic text
-- where a search query may need a generated motion graphic instead of stock footage
-
-## Metadata
-
-Include a `metadata` object with:
-
-- `topic`
-- `target_audience`
-- `tone`
-- `language`
-- `target_duration_seconds`
-- `estimated_duration_seconds`
-- `estimated_word_count`
-- `pattern_interrupt_interval_seconds`
-- `max_static_aroll_seconds`
-
-## Rendering Guidance
-
-If the caller wants Markdown, render:
-
-1. `PART A: A/V Editing Script`
-2. `PART B: Production Payload`
-
-Keep field names stable so the Markdown can be converted back to structured data later.
+- when to layer text
+- where a search query may need stock footage or manual asset selection
+- any fallback that the pipeline must not hide

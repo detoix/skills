@@ -34,7 +34,7 @@ If a task is being run from another workspace, do not assume a per-project `.\ve
 
 ### 2. Quick Selection Guide
 - Use **MOSS-TTS** when stability matters most or the text is longer.
-- Use **OmniVoice** when the user wants a voice described with explicit tags such as accent, gender, age, or pitch.
+- Use **OmniVoice** when the user wants a voice described with explicit tags such as accent, gender, age, or pitch.    
 - Use **VoxCPM2** when the user wants cloning from a real speech sample.
 - When the user provides both a speech sample and its exact transcription, use the `clone` CLI path as the default, not as an optional upgrade.
 - Do not ask for generic voice labels such as `male calm` or `female assertive` if a cloned voice is the goal.
@@ -90,25 +90,6 @@ Exact transcript of the sample audio
   --output 'C:\path\to\out.wav'
 ```
 
-Use this PowerShell here-string pattern when the text is multiline, contains punctuation-heavy Polish narration, or when reproducing a known-good local command exactly matters more than using intermediate text files.
-
-Optional micro-cue pattern for cloned speech:
-```powershell
-$text = @'
-(gentle wrap-up)Final target text
-'@
-```
-
-Use this only as a very soft, short parenthetical cue at the start of the text when the caller explicitly wants boundary-sensitive prosody nudges. Treat it as a subtle delivery hint, not full voice design.
-
-Prepared sample commands without execution:
-```bash
-.\venv\Scripts\python.exe generate_voxcpm_samples.py
-```
-
-**Valid English Tags (Strict):**
-`american accent`, `australian accent`, `british accent`, `canadian accent`, `chinese accent`, `indian accent`, `japanese accent`, `korean accent`, `portuguese accent`, `russian accent`, `female`, `male`, `child`, `teenager`, `young adult`, `middle-aged`, `elderly`, `very high pitch`, `high pitch`, `moderate pitch`, `low pitch`, `very low pitch`, `whisper`.
-
 ### 4. VoxCPM2 Practical Guidance
 - The local wrapper `generate_voxcpm.py` only exposes plain TTS and basic `--reference` cloning.
 - For cloning, prefer the upstream CLI entrypoint:
@@ -118,7 +99,7 @@ Prepared sample commands without execution:
 - If the user wants cloning and does not provide a transcript, ask for it explicitly before continuing.
 - Only fall back to basic `--reference` cloning if the user explicitly approves that downgrade.
 - Avoid adding style instructions if the goal is to preserve the sample's original speaking style as closely as possible.
-- When reproducing a known-good clone command, do not add extra tuning flags unless the user explicitly asks for them.
+- When reproducing a known-good clone command, do not add extra tuning flags unless the user explicitly asks for them. 
 - For the default `voxcpm.cli clone` path, do not add `--normalize`, `--control`, `--no-optimize`, custom `--cfg-value`, or custom `--inference-timesteps` unless the user explicitly requests experimentation.
 - If the caller supplies a parenthetical cue at the start of the text, treat it as a micro-prosody nudge only.
 - Keep such cues very short and sparse so the model stays close to the cloned speaker identity.
@@ -132,7 +113,27 @@ Prepared sample commands without execution:
 - Plain English and Polish TTS were verified to fit in VRAM at roughly `5247 MiB allocated` and `~5.6-5.7 GiB reserved`.
 - Start with plain TTS before cloning. Cloning is the next likely point of VRAM failure.
 
-### 5. Notes
+### 5. Target-Only Clone Outputs
+The required output for every cloned chunk is **target speech only**. The saved WAV must not include the prompt/sample transcript at the beginning.
+
+Use the default `voxcpm.cli clone` command with `--prompt-audio`, `--prompt-text`, and `--reference-audio`. On the current local VoxCPM2 CLI this normally writes target-only audio: prompt audio/text are used as conditioning inputs, while the saved waveform contains the requested `--text`.
+
+Do not trim by default. After generation, verify the raw output before using it:
+
+- Compare the raw output duration against the prompt sample duration and the expected target duration.
+- If the raw output is shorter than the prompt sample, or otherwise clearly target-only, copy it directly to the clean output path.
+- If the raw output audibly or durationally contains the prompt/sample prefix, trim only the prefix and save a clean target-only file.
+- Never pass a WAV containing prompt/sample speech to lip-sync, concatenation, or final narration.
+
+Keep a manifest field such as `trim_mode`:
+
+- `target_only`: raw output was already clean and was copied unchanged.
+- `trimmed_prefix`: raw output contained prompt/sample speech and was trimmed.
+- `manual_review`: automatic verification could not determine whether the prefix was present.
+
+Use prefix trimming only as a corrective step for observed prefix contamination, not as the normal VoxCPM2 clone path.
+
+### 6. Notes
 - VoxCPM2 uses the installed `voxcpm` package and the local wrapper `generate_voxcpm.py`.
 - The wrapper is convenient, but it does not expose the stronger `clone` workflow that uses prompt audio and a transcript.
 - When the user wants a cloned voice, use `python -m voxcpm.cli clone` instead of the wrapper unless they explicitly ask for a fallback.
@@ -146,4 +147,3 @@ Prepared sample commands without execution:
   - MOSS: `models/MOSS-TTS-GGUF/MOSS_TTS_Q4_K_M.gguf`
   - OmniVoice: `drbaph/OmniVoice-bf16`
   - VoxCPM2: `openbmb/VoxCPM2`
-

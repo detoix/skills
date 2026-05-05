@@ -10,10 +10,11 @@ Use this skill to turn a webpage into a saved video clip for editing. Prefer the
 ## Workflow
 
 1. Collect the recording inputs:
-   - URL
+   - URL, including `file:///...` URLs for project-local HTML/mock UI created as B-roll
    - output file path
    - clip duration
    - whether to use `constant` scroll or `static` hold
+   - target video language or locale when relevant
    - optional selector to wait for before recording
    - optional selectors to click or hide first
 2. Run [scripts/record_broll.mjs](scripts/record_broll.mjs).
@@ -28,8 +29,8 @@ Use this skill to turn a webpage into a saved video clip for editing. Prefer the
 - Default output format: `.webm`
 - Default duration: `12` seconds
 - Default mode: `constant`
-- Default viewport: `1440x900`
-- Default video frame: `1280x720`
+- Default viewport: `1600x900`
+- Default video frame: `1600x900`
 
 ## Use The Script
 
@@ -49,15 +50,25 @@ Useful options:
 - `--screenshot "C:\clips\preview.png"`: save a preview still for validation
 - `--scroll constant`: record with steady readable downward motion
 - `--scroll static`: hold a fixed frame and let the page's own motion play
-- `--viewport 1600x1000`: change browser viewport
-- `--video-size 1280x720`: change output video frame size
+- `--viewport 1600x900`: change browser viewport
+- `--video-size 1600x900`: change output video frame size
 
 ## Operating Rules
 
 - Use the script directly; do not improvise a separate Playwright flow unless you need behavior the script cannot provide.
+- `file:///...` inputs are valid for recording project-local HTML/mock UI created for B-roll.
 - Save clips as `.webm`. Do not promise `.mp4` unless the environment has a separate transcoding step.
 - Prefer 8-20 second clips for B-roll.
+- Keep the browser viewport and recorded video frame on the same aspect ratio. Default both to `16:9`.
+- For vertical full-screen B-roll, use a portrait viewport and video frame such as `--viewport 1080x1920 --video-size 1080x1920` when the page has a useful responsive layout.
+- For vertical `STACK_3` or wide UI context, keep landscape capture such as `1600x900` and let the composer place it in the stack.
+- Let the page fully load, apply required clicks/hides, and honor `--settle-ms` before the useful recording window begins.
+- Prefer pages whose visible language matches the video language or locale when a localized version exists.
+- When multiple candidate pages are available, prefer the one that feels culturally and regionally appropriate for the target audience instead of defaulting to generic English.
+- For localized videos, prefer localized docs, regional landing pages, country-specific pricing or onboarding flows, and UI text that matches the narration language when possible.
+- If the best visual source is only available in another language, treat that as a conscious fallback and note it instead of silently mixing languages.
 - Always capture a preview screenshot and inspect it before declaring success.
+- For project-local HTML/mock UI, the validation screenshot must show the intended scene, no overlapping scene states, text fitting in frame, no accidental real data, and an output aspect ratio that matches the planned timeline use.
 - Treat obvious failures as invalid even if the recorder exits cleanly: `404`, access denied pages, blank shells, login walls, broken hero sections, cookie walls covering the frame, or obviously off-topic content.
 - Treat final URL, page title, and HTTP status as validation signals. A saved file alone is not enough.
 - Choose `static` for docs pages, strong hero sections, dashboards, product UIs, or pages with their own animation.

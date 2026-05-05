@@ -34,6 +34,7 @@ Useful options:
 
 - `--min-duration 4`: reject very short clips
 - `--max-duration 20`: reject very long clips
+- `--orientation landscape|portrait|square|vertical|either`: filter by orientation; `vertical` maps to `portrait`, `either` omits the filter
 - `--page 1`: fetch a later result page
 - `--manifest path\to\manifest.json`: override manifest location
 - `--dry-run`: search and score results without downloading files
@@ -57,6 +58,7 @@ PEXELS_API_KEY=your_key_here
 - Use the script directly when possible.
 - Use the official API key in `PEXELS_API_KEY`.
 - Prefer landscape clips for YouTube unless the user explicitly wants vertical footage.
+- When called from `youtube-autopipeline`, pass scriptwriter `orientation_preference` directly; the downloader handles `vertical` and `either`.
 - Prefer a small number of strong matches over a large number of weak matches.
 - Keep the manifest because downstream video skills can use it to map query to downloaded files.
 - If the search results are poor, refine the query instead of downloading irrelevant clips.

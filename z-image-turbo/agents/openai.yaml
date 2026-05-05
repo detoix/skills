@@ -1,0 +1,4 @@
+interface:
+  display_name: "Z-Image-Turbo Generator"
+  short_description: "Fast image generation for 6GB VRAM GPUs"
+  default_prompt: "Use $z-image-turbo to generate an image from a description. Optimized for RTX 4050."

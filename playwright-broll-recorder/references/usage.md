@@ -12,8 +12,8 @@ node scripts/record_broll.mjs `
 
 - `--duration <seconds>`: total clip length, default `12`
 - `--scroll constant|static`: steady scroll or static capture
-- `--viewport <width>x<height>`: browser viewport, default `1440x900`
-- `--video-size <width>x<height>`: saved video frame, default `1280x720`
+- `--viewport <width>x<height>`: browser viewport, default `1600x900`
+- `--video-size <width>x<height>`: saved video frame, default `1600x900`
 - `--wait-for-selector <selector>`: wait until a target element is visible
 - `--click <selector>`: click a selector before recording; repeatable
 - `--hide <selector>`: hide elements before recording; repeatable
