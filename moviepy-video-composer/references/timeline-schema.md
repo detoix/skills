@@ -30,6 +30,8 @@ Pass the format on the command line:
 {
   "type": "B-ROLL",
   "clip_path": "assets/broll_hackers.mp4",
+  "caption_text": "STOP SCROLLING PAST THIS",
+  "caption_position": "top",
   "clip_start": 0.0,
   "loop_policy": "loop",
   "start_time": 15.5,
@@ -106,6 +108,10 @@ Optional square crop for the overlay:
 ## Notes
 
 - Paths may be absolute or relative to the project directory.
+- Any segment type may include `caption_text` for burned-in short-form captions.
+- `caption_position` accepts `top`, `center`, or `bottom`; use `top` by default in vertical PiP timelines so captions do not collide with the bottom presenter bubble or platform UI.
+- `caption_y` optionally overrides `caption_position` with an exact top pixel coordinate after visual inspection.
+- Keep `caption_text` short, high-contrast, and readable at phone size. Treat captions as production graphics, not transcripts dumped on screen.
 - `clip_start` is optional and defaults to `0.0`. It is the shared fallback offset for entries that do not provide more specific offsets.
 - `background_clip_start` and `overlay_clip_start` are optional PIP/TEXT offsets. They override `clip_start` for their layer.
 - `clip_start_top`, `clip_start_mid`, and `clip_start_bot` are optional `STACK_3` offsets. They override `clip_start` for each stacked clip.

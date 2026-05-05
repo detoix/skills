@@ -98,6 +98,13 @@ Do not run a scripted preflight. If a required item is missing, stop before expe
 
 1. Gather or infer the required inputs, including the format mode (landscape or vertical).
 2. Create a project directory and normalize the asset set.
+   - Inspect source media with:
+     ```powershell
+     python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\asset_inventory.py `
+       --asset-root <asset-root> `
+       --output <project-dir>\manifests\assets-manifest.json
+     ```
+   - Review the manifest before selecting presenter plates, voice samples, stills, overlays, music, B-roll candidates, or previous outputs for comparison.
 3. Call `youtube-scriptwriter` and use its structured output as the planning source of truth.
 4. Validate the script JSON:
    ```powershell
@@ -123,6 +130,13 @@ Do not run a scripted preflight. If a required item is missing, stop before expe
    ```
 12. Call `moviepy-video-composer` with the matching `--format` value.
 13. Run final visual QA on the rendered video by extracting representative frames across the timeline and inspecting them. If any frame fails the visual acceptance criteria, revise assets, typography, PiP crop/shape, layout, or timeline and rerender.
+   ```powershell
+   python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\visual_qa.py `
+     --project-dir <project-dir> `
+     --video <project-dir>\final_output.mp4 `
+     --timeline <project-dir>\timeline.json `
+     --status needs_review
+   ```
 14. Report any blockers immediately if a required runtime tool or asset is missing.
 
 ## Interview Rules
@@ -182,6 +196,7 @@ Keep all generated artifacts inside the project directory:
 - soundtrack asset if the user provided one
 - timeline
 - final render
+- asset inventory and final visual QA manifests
 
 If the user gives absolute paths to source assets, copy or reference them into the project contract consistently before continuing.
 
@@ -531,7 +546,15 @@ Extract representative frames from the final output:
 - every TEXT segment
 - final 2 seconds
 
-Save these frames under `qa/final-frames/` and inspect them before final delivery.
+Save these frames under `qa/final-frames/` and inspect them before final delivery. Prefer the reusable helper:
+
+```powershell
+python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\visual_qa.py `
+  --project-dir <project-dir> `
+  --video <project-dir>\final_output.mp4 `
+  --timeline <project-dir>\timeline.json `
+  --status needs_review
+```
 
 Example extraction pattern:
 
@@ -619,6 +642,8 @@ Vertical mode supports `TEXT` segments for on-screen keywords and captions:
 }
 ```
 
+Any timeline entry may also include `caption_text` for burned-in short-form captions. Keep the copy short, high-contrast, and phone-readable. In vertical PiP sections, default captions to `caption_position: "top"` so they do not collide with the circular presenter bubble or platform UI. If the checked B-roll frame already has important top text, either omit the redundant caption or set `caption_y` to a visually inspected non-overlapping band.
+
 Vertical mode supports `STACK_3` segments for showing three landscape clips simultaneously:
 
 ```json
@@ -682,3 +707,5 @@ If a step is partially available, continue as far as possible but state the exac
 - Project layout and filenames: [references/project-layout.md](references/project-layout.md)
 - Presenter generation strategy: [references/presenter-strategy.md](references/presenter-strategy.md)
 - Script-to-timeline conversion rules: [references/timeline-mapping.md](references/timeline-mapping.md)
+- Short-form production practices: [references/short-form-practices.md](references/short-form-practices.md)
+- Current local change notes: [references/changelog-2026-05-05.md](references/changelog-2026-05-05.md)

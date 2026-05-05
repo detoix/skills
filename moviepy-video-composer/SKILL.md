@@ -46,6 +46,7 @@ Both formats use [scripts/compose_video.py](scripts/compose_video.py).
   - `PIP`
   - `TEXT`
   - `STACK_3`
+- optional `caption_text` fields on any segment for burned-in short-form captions
 
 ## Use The Script
 
@@ -85,6 +86,9 @@ If paths are omitted, the script defaults to the project directory and common so
 - Apply circular masking to `PIP` overlays by default. The composer square-crops the overlay before masking so portrait, landscape, and square source plates render as circles.
 - Use optional PiP crop fields when the automatic center square crop does not keep the presenter's face centered.
 - Do not letterbox or pillarbox fullscreen clips unless the user explicitly asks for that treatment.
+- Add `caption_text` to normal timeline entries when the video needs short-form captions. Use `caption_position: "top"` in vertical PiP sections unless a checked frame proves another position is cleaner.
+- Use `caption_y` only after inspecting a validation screenshot or QA frame and choosing an exact non-overlapping caption band.
+- Keep caption copy short enough for phone viewing; use two compact lines rather than full transcript paragraphs.
 - Treat the narration track as the primary audio source.
 - If soundtrack music is present, use `ffmpeg` sidechain ducking so the music drops under narration and recovers in pauses.
 - Keep the music bed conservative by default so narration stays clearly dominant.
@@ -94,7 +98,7 @@ If paths are omitted, the script defaults to the project directory and common so
 
 ## Visual QA
 
-The composer workflow requires visual inspection of the rendered MP4, not just schema validation. Extract frames from the final output at regular intervals and around PIP/TEXT segments. Reject the render if the final composed image has overlapping text, clipped elements, unreadable captions, incorrect PiP shape, awkward subject crops, blank frames, or obviously unfinished mock visuals.
+The composer workflow requires visual inspection of the rendered MP4, not just schema validation. Extract frames from the final output at regular intervals and around PIP/TEXT/caption segments. Prefer `youtube-autopipeline\scripts\visual_qa.py` for extraction and manifest output. Reject the render if the final composed image has overlapping text, clipped elements, unreadable captions, incorrect PiP shape, awkward subject crops, blank frames, or obviously unfinished mock visuals.
 
 ## Resources
 

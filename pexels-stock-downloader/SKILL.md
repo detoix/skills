@@ -18,7 +18,8 @@ Use this skill to fetch stock video clips from Pexels with the official API. Pre
    - optional min and max duration
 3. Run [scripts/download_pexels_videos.py](scripts/download_pexels_videos.py).
 4. Verify the downloaded files and `pexels_manifest.json`.
-5. Report the saved paths and any weak matches back to the user.
+5. Inspect at least one preview frame from each accepted clip before using it in a reel timeline.
+6. Report the saved paths and any weak matches back to the user.
 
 ## Use The Script
 
@@ -62,6 +63,8 @@ PEXELS_API_KEY=your_key_here
 - Prefer a small number of strong matches over a large number of weak matches.
 - Keep the manifest because downstream video skills can use it to map query to downloaded files.
 - If the search results are poor, refine the query instead of downloading irrelevant clips.
+- For vertical reels, reject clips whose main subject will be lost by center-crop unless they are planned for `STACK_3`.
+- Record rejected weak matches in the project asset manifest so repeated searches do not reuse stale generic B-roll.
 
 ## References
 

@@ -31,6 +31,8 @@ Run the generation script. It will automatically detect and use the local models
 python scripts/generate.py --prompt "A futuristic city in the style of cyberpunk" --output "city.png"
 ```
 
+For YouTube reel B-roll, save generated assets inside the active project directory, usually `broll/generated/` or `source-assets/generated/`, and record them in the project asset manifest. Prefer concrete prompts that produce vertical-safe subjects, clean negative space for captions, and no fake logos, credentials, or misleading real-brand screens.
+
 ### 4. Transform Image (Image-to-Image)
 Modify an existing image by providing a base image and a transformation strength (0.0 to 1.0):
 ```bash

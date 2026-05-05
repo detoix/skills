@@ -20,6 +20,7 @@ SCRIPT_VISUALS = {
 }
 TIMELINE_TYPES = {"A-ROLL", "B-ROLL", "PIP", "TEXT", "STACK_3"}
 LOOP_POLICIES = {"loop", "error"}
+CAPTION_POSITIONS = {"top", "center", "bottom"}
 PRESENTER_TYPES = {"A-ROLL", "PIP"}
 REQUIRED_SKILLS = (
     "youtube-scriptwriter",
@@ -346,6 +347,21 @@ def validate_timeline(timeline: Any, project_dir: Path, report: Report, audio_pa
             media_fields.append(("clip_path_top", "STACK_3 top", as_number(entry.get("clip_start_top")) or clip_start, loop_policy))
             media_fields.append(("clip_path_mid", "STACK_3 mid", as_number(entry.get("clip_start_mid")) or clip_start, loop_policy))
             media_fields.append(("clip_path_bot", "STACK_3 bot", as_number(entry.get("clip_start_bot")) or clip_start, loop_policy))
+
+        caption = entry.get("caption_text")
+        if caption is not None:
+            if not isinstance(caption, str) or not caption.strip():
+                report.error("caption-empty", f"{context}.caption_text must be non-empty when provided")
+            elif len(caption.strip()) > 84:
+                report.warn("caption-long", f"{context}.caption_text is long; keep captions short enough for phone viewing")
+            position = entry.get("caption_position")
+            if position is not None and position not in CAPTION_POSITIONS:
+                report.error("caption-position", f"{context}.caption_position must be one of {sorted(CAPTION_POSITIONS)}")
+            caption_y = as_number(entry.get("caption_y"))
+            if "caption_y" in entry and caption_y is None:
+                report.error("caption-y", f"{context}.caption_y must be numeric when provided")
+            elif caption_y is not None and caption_y < 0:
+                report.error("caption-y", f"{context}.caption_y must be non-negative")
 
         for field, label, start_offset, policy in media_fields:
             path = resolve_path(project_dir, entry.get(field))

@@ -13,6 +13,7 @@ project-root/
   manifests/
     tts-manifest.json
     assets-manifest.json
+    visual-qa.json
   source-assets/
     presenter-front.mp4
     presenter-profile.mp4
@@ -35,6 +36,10 @@ project-root/
   timeline.json
   final_audio.wav
   final_output.mp4
+  qa/
+    final-frames/
+      final_output/
+    contact-sheet-final_output.jpg
 ```
 
 ## Vertical (9:16) Layout
@@ -48,6 +53,7 @@ project-root/
   manifests/
     tts-manifest.json
     assets-manifest.json
+    visual-qa.json
   source-assets/
     presenter-front.mp4
     presenter-profile.mp4        (optional - omit if no PiP needed)
@@ -70,6 +76,10 @@ project-root/
   timeline.json
   final_audio.wav
   final_output.mp4
+  qa/
+    final-frames/
+      final_output/
+    contact-sheet-final_output.jpg
 ```
 
 ## Rules
@@ -79,6 +89,8 @@ project-root/
 - Use stable IDs that match script segment ids or chunk ids.
 - Keep one manifest for TTS and one manifest for media assets.
 - Save checker output as `validation-report.json` when running `pipeline_check.py --json`.
+- Save asset intake output from `asset_inventory.py` as `manifests/assets-manifest.json`.
+- Save final-render frame QA output from `visual_qa.py` as `manifests/visual-qa.json`; the helper writes extracted frames under `qa/final-frames/<video-stem>/` and a matching `qa/contact-sheet-<video-stem>.jpg`.
 - If the user provides soundtrack music, store it under `source-assets/` with a deterministic name such as `soundtrack.mp3` or `soundtrack.wav`.
 - For vertical mode, presenter source videos should be portrait (9:16) when available. Landscape plates are accepted but will be center-cropped.
 - For vertical mode, `presenter-profile.mp4` and the `synced/profile/` directory are optional. Omit them entirely when no 3/4-profile plate is provided.

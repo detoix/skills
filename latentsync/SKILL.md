@@ -28,6 +28,15 @@ cd official-latentsync
     --guidance_scale 1.5
 ```
 
+### 2. Verify Output
+
+Do not assume LatentSync succeeded because inference printed progress. After every run:
+
+1. Verify `--video_out_path` exists and is non-empty.
+2. Use `ffprobe` to compare output duration with the input audio duration.
+3. Save the command, exit status, output path, and duration check in the project manifest or stage log.
+4. If the output file is missing, zero-byte, or duration-mismatched, treat the sync as failed and do not pass that segment to the composer.
+
 ## Key Features
 - **Patched Pipeline**: Handles partial chunks/padding. Output duration matches input audio exactly.
 - **Audio Fidelity**: Uses original source audio for final mux instead of 16kHz internal degraded audio.

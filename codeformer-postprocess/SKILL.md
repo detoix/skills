@@ -35,6 +35,16 @@ Run from the implementation root when possible:
 Set-Location "%USERPROFILE%\Downloads\speech-gen"
 ```
 
+### 2. Verify Output
+
+After every restoration pass:
+
+- verify the restored MP4 exists and is non-empty
+- compare duration and resolution with the input presenter clip using `ffprobe`
+- extract at least one face frame for visual inspection before replacing the original synced clip
+- keep the original synced clip when restoration introduces identity drift, waxy detail, or temporal instability
+- record accepted and rejected restored clips in the project manifest
+
 ## Options
 - **Fidelity (`--fidelity`)**:
   - `0.6`: Balanced local default for this machine and workflow.

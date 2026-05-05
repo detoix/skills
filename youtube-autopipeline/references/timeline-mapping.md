@@ -29,6 +29,8 @@ Map to:
 }
 ```
 
+Add `caption_text` when the segment needs burned-in captions. Keep caption copy shorter than the narration and place it at `top` in vertical PiP layouts unless QA frames prove another placement is clean.
+
 ### B_ROLL
 
 Map to:
@@ -213,6 +215,8 @@ Use `TEXT` segments for:
 - keyword hits that reinforce the narration
 - section titles or topic markers
 - call-to-action phrases at the end
+
+Use `caption_text` on ordinary `A-ROLL`, `B-ROLL`, `PIP`, and `STACK_3` entries for subtitles or hook captions. Use `TEXT` entries for full-screen kinetic keyword beats.
 
 ### STACK_3
 

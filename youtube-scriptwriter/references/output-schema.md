@@ -72,6 +72,7 @@ Rules:
 - A pattern interrupt must occur every 5-15 seconds.
 - Do not allow long runs of the same visual mode without a justified change.
 - Keep narration conversational and easy for TTS.
+- Keep `on_screen_text` short enough to map directly to `caption_text` or a `TEXT` segment in vertical reels.
 
 ## `tts_chunks`
 

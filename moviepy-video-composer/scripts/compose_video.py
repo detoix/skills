@@ -98,6 +98,10 @@ class TimelineEntry:
     text: str | None = None
     text_color: str | None = None
     font: str | None = None
+    caption_text: str | None = None
+    caption_color: str | None = None
+    caption_position: str | None = None
+    caption_y: int | None = None
     clip_start: float = 0.0
     background_clip_start: float | None = None
     overlay_clip_start: float | None = None
@@ -244,6 +248,10 @@ def load_timeline(timeline_path: Path) -> list[TimelineEntry]:
                 text=item.get("text"),
                 text_color=item.get("text_color"),
                 font=item.get("font"),
+                caption_text=item.get("caption_text"),
+                caption_color=item.get("caption_color"),
+                caption_position=item.get("caption_position"),
+                caption_y=int(item["caption_y"]) if "caption_y" in item else None,
                 clip_start=float(item.get("clip_start", 0.0)),
                 background_clip_start=float(item["background_clip_start"]) if "background_clip_start" in item else None,
                 overlay_clip_start=float(item["overlay_clip_start"]) if "overlay_clip_start" in item else None,
@@ -540,8 +548,14 @@ def build_text_clip(project_dir: Path, entry: TimelineEntry):
         "cover",
     )
 
-    text_box_height = int(OUTPUT_HEIGHT * 0.32)
-    font_size = max(48, int(OUTPUT_HEIGHT * 0.085))
+    text_box_height = int(OUTPUT_HEIGHT * 0.18)
+    font_size = max(48, min(86, int(OUTPUT_WIDTH / max(10, len(entry.text)) * 1.12)))
+    text_backdrop = (
+        ColorClip(size=(OUTPUT_WIDTH, text_box_height), color=(0, 0, 0))
+        .with_opacity(0.46)
+        .with_duration(entry.duration)
+        .with_position(("center", "center"))
+    )
     text_clip = TextClip(
         text=entry.text,
         font=entry.font or DEFAULT_FONT,
@@ -554,10 +568,59 @@ def build_text_clip(project_dir: Path, entry: TimelineEntry):
     ).with_duration(entry.duration).with_position(("center", "center"))
 
     composite = CompositeVideoClip(
-        [fitted_background, text_clip],
+        [fitted_background, text_backdrop, text_clip],
         size=(OUTPUT_WIDTH, OUTPUT_HEIGHT),
     ).with_duration(entry.duration)
-    return composite, [composite, text_clip, background_clip, background_source, fitted_background, *background_handles]
+    return composite, [composite, text_clip, text_backdrop, background_clip, background_source, fitted_background, *background_handles]
+
+
+def caption_y_position(entry: TimelineEntry, caption_height: int) -> int:
+    if entry.caption_y is not None:
+        return max(0, min(entry.caption_y, OUTPUT_HEIGHT - caption_height))
+
+    position = entry.caption_position
+    normalized = (position or "top").lower()
+    top_safe = int(OUTPUT_HEIGHT * 0.10)
+    center_y = int((OUTPUT_HEIGHT - caption_height) / 2)
+    bottom_safe = int(OUTPUT_HEIGHT - caption_height - OUTPUT_HEIGHT * 0.16)
+    if normalized == "top":
+        return top_safe
+    if normalized == "center":
+        return center_y
+    if normalized == "bottom":
+        return bottom_safe
+    raise ValueError("caption_position must be one of: top, center, bottom")
+
+
+def add_caption_overlay(segment, entry: TimelineEntry):
+    if not entry.caption_text:
+        return segment, []
+
+    caption = entry.caption_text.strip()
+    if not caption:
+        return segment, []
+
+    max_width = int(OUTPUT_WIDTH * 0.84)
+    box_height = int(OUTPUT_HEIGHT * 0.16)
+    font_size = 58 if OUTPUT_HEIGHT > OUTPUT_WIDTH else 44
+    caption_clip = TextClip(
+        text=caption,
+        font=entry.font or DEFAULT_FONT,
+        font_size=font_size,
+        color=entry.caption_color or "#ffffff",
+        stroke_color="#000000",
+        stroke_width=3,
+        method="caption",
+        size=(max_width, box_height),
+        text_align="center",
+        vertical_align="center",
+    ).with_duration(entry.duration)
+    y = caption_y_position(entry, box_height)
+    composite = CompositeVideoClip(
+        [segment, caption_clip.with_position(("center", y))],
+        size=(OUTPUT_WIDTH, OUTPUT_HEIGHT),
+    ).with_duration(entry.duration)
+    return composite, [composite, caption_clip]
 
 
 def build_stack_3_clip(project_dir: Path, entry: TimelineEntry):
@@ -764,8 +827,9 @@ def compose_video(
                 segment, handles = build_stack_3_clip(project_dir, entry)
             else:
                 raise ValueError(f"Unsupported timeline type: {entry.type}")
+            segment, caption_handles = add_caption_overlay(segment, entry)
             visual_segments.append(segment)
-            opened.extend(handles)
+            opened.extend([*handles, *caption_handles])
 
         final_video = concatenate_videoclips(visual_segments, method="compose")
         output_path.parent.mkdir(parents=True, exist_ok=True)
