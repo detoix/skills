@@ -101,7 +101,8 @@ If paths are omitted, the script defaults to the project directory and common so
 - Treat the narration track as the primary audio source.
 - Validate narration and soundtrack with `ffprobe`; both must contain an audio stream with positive duration.
 - If soundtrack music is present, use `ffmpeg` sidechain ducking so the music drops under narration and recovers in pauses.
-- Keep the music bed conservative by default so narration stays clearly dominant.
+- For short-form videos, keep the music clearly audible as part of the pacing and energy, while still keeping narration intelligible. The default mix should sound like an active Shorts/Reels music bed, not a barely audible safety track.
+- Use conservative music only when the user asks for a quiet/corporate/explainer mix or when the narration is hard to understand.
 - Normalize narration and apply final peak safety during the audio mix stage.
 - Write `manifests/audio-mix-manifest.json` with narration probe data, music probe data, ducking settings, fallback status, and output path.
 - Attach the final mixed audio after the visual timeline is assembled.

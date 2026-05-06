@@ -24,7 +24,7 @@ cd official-latentsync
     --video_path "../input.mov" `
     --audio_path "../input.wav" `
     --video_out_path "../output_synced.mp4" `
-    --inference_steps 25 `
+    --inference_steps 40 `
     --guidance_scale 1.5
 ```
 

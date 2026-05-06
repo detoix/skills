@@ -98,7 +98,7 @@ Before generating assets, the agent verifies the runtime and required inputs dir
 - If the user has not provided the required identity assets, stop and ask for the asset root, presenter plates, voice sample, and exact voice-sample transcript before promising a production reel.
 - `youtube-scriptwriter`, `tts`, `latentsync`, `animated-broll-boards`, `playwright-broll-recorder`, `moviepy-video-composer`, and `reel-captions` are available.
 - `codeformer-postprocess` is available if presenter restoration is expected.
-- `pexels-stock-downloader` is available and `PEXELS_API_KEY` is configured before promising non-web stock footage.
+- `pexels-stock-downloader` is available and Pexels authentication is available via `PEXELS_API_KEY` in the process environment or any `.env` location supported by `pexels-stock-downloader` before promising non-web stock footage.
 - The known FFmpeg directory is on `PATH` before `latentsync` or `codeformer-postprocess`:
   ```powershell
   $env:PATH = "$env:USERPROFILE\Documents\FFmpeg\ffmpeg-master-latest-win64-gpl\bin;$env:PATH"
@@ -150,6 +150,7 @@ Do not run a scripted preflight. If a required item is missing, stop before expe
      --format <landscape-or-vertical> `
      --mode script
    ```
+   Before TTS, perform language QA on `script.json`: verify that `metadata.language` matches the actual language of `segments[].narration`, `tts_chunks[].voice_text`, `segments[].on_screen_text`, and `graphics[].copy`; verify that the text preserves the normal writing system, accents, diacritics, punctuation, and encoding conventions for that language. For non-English scripts, ASCII-only narration is a QA failure unless the target language normally uses ASCII-only writing or the text is intentionally a quoted literal such as code, IDs, URLs, brand names, ingredient names, or other fixed strings. If the script appears transliterated, ASCII-stripped, mojibake-corrupted, accidentally mixed-language, or otherwise unnatural for the declared language, stop and fix `script.json` before generating audio.
    Validate asset intake before production work. This must fail for manifests marked as test input unless this is explicitly a test run:
    ```powershell
    python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\pipeline_check.py `
@@ -160,10 +161,19 @@ Do not run a scripted preflight. If a required item is missing, stop before expe
    ```
    For test-only regression runs, add `--allow-test-input` and label the report as a test artifact.
 6. Call `tts` to generate chunked cloned speech from the scriptwriter payload, then verify every chunk is target-only. Trim only if a generated file actually contains a prompt/sample prefix.
-7. Validate or manually review all clean TTS chunks before using them for lip-sync or final narration assembly.
-8. Call `latentsync` to build synced presenter clips from the silent motion plates and clean chunk audio.
-9. When presenter clips look soft, compressed, or artifacted after lip-sync, call `codeformer-postprocess` on the synced presenter outputs before timeline assembly.
-10. Build B-roll with the source that matches the segment intent.
+7. Run pronunciation QA on all clean TTS chunks before using them for lip-sync or final narration assembly. The QA must transcribe `<project-dir>\tts\clean\*.wav`, compare each result with `script.json` `tts_chunks[].voice_text`, and fail before `latentsync` if spoken words are materially missing or changed. Use `metadata.language`; do not hardcode Polish or any other language. This QA reads audio for ASR only and must not convert, normalize, denoise, overwrite, or otherwise modify the audio files:
+   ```powershell
+   python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\tts_pronunciation_qa.py `
+     --project-dir <project-dir> `
+     --script <project-dir>\script.json `
+     --tts-dir <project-dir>\tts\clean `
+     --language <metadata.language> `
+     --output <project-dir>\manifests\tts-pronunciation-qa.json
+   ```
+8. Presenter Plate Variety QA must pass before `latentsync`. Read `manifests/assets-manifest.json`, create `manifests/presenter-plan.json`, and treat presenter source identity by tool-computed `sha256`, not by filename. The agent must not hand-author `sha256`; hashes must come from the asset manifest or a file-hashing tool. If the same presenter video `sha256` is assigned more than once in the film, the agent must add a `repeat_decisions` entry with the repeated `sha256`, all uses, and a concrete reason for repeating that source. Repeats are allowed when justified; there is no hard maximum repeat count. Do not claim two files add presenter variety when their `sha256` is identical.
+9. Call `latentsync` to build synced presenter clips from the silent motion plates and clean chunk audio.
+10. When presenter clips look soft, compressed, or artifacted after lip-sync, call `codeformer-postprocess` on the synced presenter outputs before timeline assembly.
+11. Build B-roll with the source that matches the segment intent.
    - For abstract UI boards, checklists, timelines, comparisons, maps, process diagrams, counters, logistics, cost/risk boards, and other infographic-style sections, call `animated-broll-boards` as an art-direction workflow. Create a custom motion scene from a creative brief; do not route the segment to a checklist/timeline/template layout. Production reels must use animated `.webm` board clips for these sections, not ad hoc static PNG/Pillow boards.
    - Call `playwright-broll-recorder` for real webpage/app B-roll and for recording local HTML scenes when needed.
    - Call `pexels-stock-downloader` when non-web stock footage is needed.
@@ -182,12 +192,12 @@ Do not run a scripted preflight. If a required item is missing, stop before expe
        --mode assets `
        --require-z-image-review
      ```
-11. Build `timeline.json` using the schema matching the format mode.
+12. Build `timeline.json` using the schema matching the format mode.
    - Do not use `caption_text` for spoken narration captions when creating reels, Shorts, TikToks, or other modern short-form outputs. Spoken captions belong to the `reel-captions` stage after base render.
    - Keep `TEXT` entries only for intentional graphic beats, labels, title cards, and comparison graphics.
    - For reels, choose B-roll section patterns from [references/broll-section-library.md](references/broll-section-library.md). Treat it as a menu, not a ranking.
-   - Write `<project-dir>\manifests\selected-visuals.json` before final timeline use. Each accepted non-presenter visual needs `section_pattern`, `source_type`, `canonical_id`, `accepted`, `reason`, and `risk`. Animated-board visuals also require `creative_concept`, `visual_metaphor`, and `motion_summary`.
-12. Validate the timeline and final audio before composition:
+   - Write `<project-dir>\manifests\selected-visuals.json` before final timeline use as an intent manifest. Each accepted non-presenter visual needs `segment_id`, `local_path` or `source_url`, `section_pattern`, `duration_seconds`, `intended_use`, `accepted`, `reason`, and `risk`. Do not hand-author `source_type`, `sha256`, `provenance`, or other identity fields as validation truth; those fields must come from an automatic resolver/indexer. Animated-board visuals also require `board_id`, `creative_concept`, `visual_metaphor`, and `motion_summary`.
+13. Validate the timeline and final audio before composition:
    ```powershell
    python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\pipeline_check.py `
      --project-dir <project-dir> `
@@ -195,15 +205,15 @@ Do not run a scripted preflight. If a required item is missing, stop before expe
      --audio <project-dir>\final_audio.wav `
      --mode timeline
    ```
-   Validate selected visuals before production render:
+   Resolve selected visuals, then validate the resolved manifest before production render. If `<project-dir>\manifests\selected-visuals.resolved.json` is missing, treat selected-visuals validation as blocked, not pass:
    ```powershell
    python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\pipeline_check.py `
      --project-dir <project-dir> `
-     --selected-visuals <project-dir>\manifests\selected-visuals.json `
+     --selected-visuals <project-dir>\manifests\selected-visuals.resolved.json `
      --mode assets
    ```
-13. Call `moviepy-video-composer` with the matching `--format` value to render the uncaptioned base video. Pass `<project-dir>\source-assets\soundtrack.<ext>` when the music manifest is enabled; pass `--music NONE` when it is disabled. The composer writes `<project-dir>\manifests\audio-mix-manifest.json`.
-14. Call `reel-captions` to generate word-level ASS captions from the approved transcript and burn them into the base render. The captioned output is the delivery candidate and preserves the already mixed narration/music audio. Production runs require WhisperX forced alignment; if WhisperX is unavailable, install it before captioning or stop and report the blocker. Do not use `--words-json` for production unless it is a real precomputed timing file explicitly approved by the user.
+14. Call `moviepy-video-composer` with the matching `--format` value to render the uncaptioned base video. Pass `<project-dir>\source-assets\soundtrack.<ext>` when the music manifest is enabled; pass `--music NONE` when it is disabled. The composer writes `<project-dir>\manifests\audio-mix-manifest.json`.
+15. Call `reel-captions` to generate word-level ASS captions from the approved transcript and burn them into the base render. The captioned output is the delivery candidate and preserves the already mixed narration/music audio. Production runs require WhisperX forced alignment; if WhisperX is unavailable, install it before captioning or stop and report the blocker. Do not use `--words-json` for production unless it is a real precomputed timing file explicitly approved by the user.
    ```powershell
    & "<caption-python>" C:\Users\kdeptula\skills\reel-captions\scripts\generate_reel_captions.py `
      --project-dir <project-dir> `
@@ -214,7 +224,7 @@ Do not run a scripted preflight. If a required item is missing, stop before expe
      --language pl
    ```
    Use the target language code from the script metadata. Use `--transcript` instead of `--script` only when no script JSON exists. If captions are explicitly disabled by the user, record that exception in the final QA notes.
-15. Run final visual QA on the captioned video by extracting representative frames across the timeline and inspecting them. If any frame fails the visual acceptance criteria, revise assets, typography, PiP crop/shape, captions, layout, or timeline and rerender.
+16. Run final visual QA on the captioned video by extracting representative frames across the timeline and inspecting them. If any frame fails the visual acceptance criteria, revise assets, typography, PiP crop/shape, captions, layout, or timeline and rerender.
    ```powershell
     python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\visual_qa.py `
      --project-dir <project-dir> `
@@ -321,6 +331,7 @@ Call `tts` and use its local VoxCPM path. Generate audio in chunks from the scri
 
 Operating rules:
 
+- do not start TTS until language QA has passed for `script.json`; regenerate or manually fix script text first if narration is transliterated, ASCII-stripped, mojibake-corrupted, accidentally mixed-language, or unnatural for `metadata.language`
 - clone from the provided speech sample
 - use the `VoxCPM` clone path with `prompt-audio + prompt-text + reference-audio`
 - treat the exact speech-sample transcription as required input for the default cloning path
@@ -333,6 +344,7 @@ Operating rules:
 - concatenate clean chunk audio into a continuous master track only after all clean chunks are verified
 - keep a manifest that maps `chunk_id` to segment ids, raw output, clean output, `trim_mode`, trim point when applicable, and output duration
 - reject a clean chunk if its duration, spoken content, or leading prompt/sample fragment does not match the `tts_chunk` intent; regenerate or ask for review before lip-sync
+- run `scripts\tts_pronunciation_qa.py` against the clean chunks before `latentsync`; if WhisperX/ASR is unavailable or the report status is not `pass`, stop instead of silently continuing
 
 Do not ask the user to pick a generic voice style such as male or female when a cloned presenter voice is expected.
 
@@ -547,11 +559,11 @@ Before fetching, generating, or recording B-roll, create a compact visual strate
 The visual strategy must define:
 
 - overall visual style and mood
-- source mix
-- segment-level visual source choice
-- why each source type was chosen
+- planned resolved `source_type` mix
+- segment-level visual asset choice
+- why each visual asset was chosen
 - known tradeoffs or fallback risks
-- canonical uniqueness key for every non-presenter visual asset, such as provider id, source URL, local absolute path, or generated asset id
+- candidate source locator for every non-presenter visual asset, such as provider id, source URL, local absolute path, or generated asset id; final identity must come from resolver/indexer output
 
 The agent may freely combine:
 
@@ -573,20 +585,26 @@ The agent may freely combine:
 
 ### B-Roll Source Mix And Uniqueness
 
-Do not default to one visual source type just because it is available or convenient. A single-source B-roll strategy is allowed only when the source is clearly the strongest creative and factual choice for every B-roll segment. Otherwise, deliberately mix sources such as verified stills, stock motion, generated stills, animated typography, local motion graphics, or screen captures.
+Use a deliberate mix of resolved `source_type` values. Supported B-roll `source_type` values are exactly: `webpage`, `stock`, `screen-record`, `generated-image`, `manual`, `local-html`, `motion-graphic`, and `animated-board`. Do not treat repeated assets, renamed assets, or multiple assets from one resolved `source_type` as source diversity.
 
-Before building `timeline.json`, create or update a selected-visuals manifest that lists each non-presenter visual asset with:
+Before building `timeline.json`, create or update `manifests\selected-visuals.json` as an intent manifest that lists each non-presenter visual asset with:
 
 - `segment_id`
 - `section_pattern`
-- `source_type`
-- `canonical_id`
 - `source_url` or `local_path`
+- `duration_seconds`
 - `accepted`
+- `intended_use`
 - `reason`
 - `risk`
 
-Enforce uniqueness on `canonical_id`, not filename. Renamed downloads, copied files, or identical provider URLs are the same asset and must not be treated as unique B-roll. Reusing a visual asset in more than one segment is allowed only when it is an explicit callback or background bed; record that reason in the manifest and avoid presenting it as fresh B-roll.
+Agent-authored manifests are intent manifests, not validation truth. Do not use agent-authored `source_type`, `sha256`, `provenance`, or other identity fields as validation evidence. Validation must use resolver/indexer output only. If `manifests\selected-visuals.resolved.json` is missing, selected-visuals validation must be treated as blocked, not pass.
+
+`manifests\selected-visuals.resolved.json` is the validation manifest. It must be generated by a resolver/indexer from the intent manifest and the referenced assets. For each accepted visual, it must provide the resolved `source_type`, resolved identity, and provenance. For local files it must compute `sha256` from file bytes. For remote/provider assets it must derive identity from provider id, source URL, or another resolver-owned canonical key. The agent must not fill these fields manually.
+
+Selected visuals must satisfy a proportional source-mix rule using only `source_type` values from `manifests\selected-visuals.resolved.json`: for every started 20 seconds of accepted B-roll duration, use at least one distinct resolved `source_type`. For example, 1-20 seconds requires one source type, 21-40 seconds requires two, 41-60 seconds requires three, and so on. Do not cap this requirement. Materials from `broll/boards/**` are one resolved `source_type`/provenance regardless of board names, descriptions, or creative concepts.
+
+Enforce reuse on resolved identity, not filename. Same `sha256` means same asset, regardless of filename, path, slot, `source_type`, or description. Renamed downloads, copied files, or identical provider URLs are the same asset and must not be treated as unique B-roll. If a resolved asset identity is reused beyond the allowed threshold, add a top-level `reuse_decisions` entry with the resolved identity, `uses`, and a concrete `reason`.
 
 For factual nature, science, history, product, location, or how-to explainers, separate factual evidence visuals from illustrative visuals:
 
@@ -599,13 +617,13 @@ If a stock provider returns the same clip across multiple queries, reject duplic
 
 ### Animated Boards With animated-broll-boards
 
-Use `animated-broll-boards` when an animated explanatory board is the strongest visual choice for the segment. The agent must still choose the source type per segment based on clarity, factual fit, pacing, and overall visual variety. The skill is not a template library. Each board needs a segment-specific visual metaphor and custom HTML/CSS/JS motion.
+Use `animated-broll-boards` when an animated explanatory board is the strongest visual choice for the segment. The agent must still choose the visual source per segment based on clarity, factual fit, pacing, and overall visual variety; resolved `source_type` is assigned by provenance rules, not by agent wording. The skill is not a template library. Each board needs a segment-specific visual metaphor and custom HTML/CSS/JS motion.
 
 Rules:
 
 - Save outputs under `<project-dir>\broll\boards\<board-id>\`.
 - Render boards as `.webm` clips from project-local `HTML/CSS/JS`.
-- Record accepted board clips in `manifests\selected-visuals.json` with `source_type: "animated-board"`, `canonical_id: "<board-id>"`, `local_path: "broll/boards/<board-id>/<board-id>.webm"`, `creative_concept`, `visual_metaphor`, `motion_summary`, and `risk: "synthetic explanatory motion graphic"`.
+- Record accepted board clips in `manifests\selected-visuals.json` with a full intent entry: `segment_id`, `section_pattern`, `local_path: "broll/boards/<board-id>/<board-id>.webm"`, `duration_seconds`, `accepted: true`, `intended_use`, `reason`, `risk: "synthetic explanatory motion graphic"`, `board_id: "<board-id>"`, `creative_concept`, `visual_metaphor`, and `motion_summary`. Do not write `source_type`; the resolver must assign `source_type: "animated-board"` from the path/provenance.
 - Run `qa_board.mjs` and inspect the preview before timeline use.
 - Do not create production abstract/UI/infographic B-roll as ad hoc static PNG/Pillow boards. Static PNGs are allowed only as tiny auxiliary assets or when the user explicitly requests a still.
 - Reject boards that look like old infographics, test harnesses, template placeholders, generic cards, clipart layouts, repeated component layouts, or low-effort mock UI.
@@ -628,7 +646,7 @@ Rules:
 - When generated stills need motion in a reel, pre-render short motion clips from the accepted stills before timeline assembly, or use the composer `STILL_MOTION` primitive. Acceptable motion treatments include slow push-in, slow pull-back, subtle pan, swipe transition, parallax-style crop, or split-panel comparison. Motion must stay inside image bounds.
 - Record generated-still motion clips with both the original still path and the rendered motion clip path in the selected-visuals manifest.
 
-Choose the source type per segment using these criteria:
+Choose the visual source per segment using these criteria:
 
 - Does it make the point clear in under two seconds?
 - Does it look strong in the requested aspect ratio?
@@ -649,7 +667,7 @@ Use the strongest visual source for the segment. A fixed source order is not req
 - Use animated typography when the idea is short, punchy, and stronger as a kinetic text beat than as literal footage.
 - Use split, stack, grid, and still-motion patterns when they make comparison, proof, examples, or rhythm stronger than a single fullscreen clip.
 
-Avoid relying on one visual source type unless it is clearly the strongest creative choice. Prefer a deliberate mix of sources, textures, and shot types.
+Prefer a deliberate mix of visual assets, textures, and shot types. Do not use one resolved `source_type` to satisfy resolved source diversity.
 
 If the most literal asset choice is boring, choose a more cinematic, graphic, kinetic, or emotionally legible option. The goal is a finished social video, not merely a valid assembled timeline.
 
@@ -698,7 +716,7 @@ Do not substitute vague B-roll. If a query cannot be satisfied from the availabl
 
 Translate the scriptwriter output into `timeline.json` using the schema that matches the format mode, then call `moviepy-video-composer` with the matching `--format` value.
 
-For modern reels, use [references/broll-section-library.md](references/broll-section-library.md) as the section-pattern library. Do not make any pattern or source type globally preferred. Choose by segment intent and record the selected pattern in `manifests\selected-visuals.json`. Before writing `timeline.json`, choose a deliberate composition pattern for each segment from the section library; do not collapse the reel into only fullscreen and PiP layouts unless that is explicitly the strongest edit plan.
+For modern reels, use [references/broll-section-library.md](references/broll-section-library.md) as the section-pattern library. Do not make any pattern or resolved `source_type` globally preferred. Choose by segment intent and record the selected pattern in `manifests\selected-visuals.json`. Before writing `timeline.json`, choose a deliberate composition pattern for each segment from the section library; do not collapse the reel into only fullscreen and PiP layouts unless that is explicitly the strongest edit plan.
 
 If the user supplied a soundtrack, run `scripts/music_intake.py` and pass the ingested `source-assets\soundtrack.<ext>` file to the composer. Do not normalize or mix it in the orchestrator. Audio normalization, sidechain ducking, final mix safety, and `audio-mix-manifest.json` belong to the composer step.
 

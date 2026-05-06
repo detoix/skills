@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import shutil
 import subprocess
@@ -15,6 +16,14 @@ VIDEO_EXTENSIONS = {".mp4", ".mov", ".mkv", ".webm"}
 AUDIO_EXTENSIONS = {".wav", ".mp3", ".m4a", ".aac", ".flac", ".ogg"}
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
 TEXT_EXTENSIONS = {".txt", ".md", ".json", ".csv", ".srt", ".vtt"}
+
+
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def find_tool(name: str) -> str | None:
@@ -108,6 +117,7 @@ def classify_path(path: Path, root: Path) -> dict[str, Any]:
         "name": path.name,
         "extension": suffix,
         "size_bytes": path.stat().st_size,
+        "sha256": sha256_file(path),
     }
 
     if suffix in VIDEO_EXTENSIONS:

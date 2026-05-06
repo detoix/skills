@@ -63,11 +63,19 @@ Use it to create a custom animated scene for a specific reel segment. The agent 
      --board-id <board-id>
    ```
 7. Record the accepted board in `manifests\selected-visuals.json` with:
-   - `source_type: "animated-board"`
+   - `segment_id`
+   - `section_pattern`
+   - `local_path: "broll/boards/<board-id>/<board-id>.webm"`
+   - `duration_seconds`
+   - `accepted: true`
+   - `intended_use`
+   - `reason`
+   - `risk: "synthetic explanatory motion graphic"`
+   - `board_id`
    - `creative_concept`
    - `visual_metaphor`
    - `motion_summary`
-   - `local_path: "broll/boards/<board-id>/<board-id>.webm"`
+   Do not hand-author `source_type`; the pipeline resolver/indexer must derive `source_type: "animated-board"` from the board path/provenance.
 
 ## Output Contract
 

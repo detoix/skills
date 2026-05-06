@@ -4,7 +4,9 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import math
 import os
 import shutil
 import subprocess
@@ -757,6 +759,95 @@ def validate_music_manifest(manifest: Any, project_dir: Path, report: Report) ->
         report.error("music-duration", f"music file has non-positive probed duration: {project_path}")
 
 
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def normalize_sha(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    lowered = value.strip().lower()
+    if len(lowered) == 64 and all(char in "0123456789abcdef" for char in lowered):
+        return lowered
+    return None
+
+
+def validate_presenter_plan(manifest: Any, project_dir: Path, report: Report) -> None:
+    if not isinstance(manifest, dict):
+        report.error("presenter-plan-shape", "presenter plan must be an object")
+        return
+    assignments = manifest.get("assignments")
+    if not isinstance(assignments, list):
+        report.error("presenter-plan-assignments", "presenter plan must include assignments array")
+        return
+
+    repeated_decisions = manifest.get("repeat_decisions", [])
+    if repeated_decisions is None:
+        repeated_decisions = []
+    if not isinstance(repeated_decisions, list):
+        report.error("presenter-repeat-decisions", "presenter plan repeat_decisions must be an array when present")
+        repeated_decisions = []
+    decisions_by_sha: dict[str, dict[str, Any]] = {}
+    for index, decision in enumerate(repeated_decisions):
+        context = f"repeat_decisions[{index}]"
+        if not isinstance(decision, dict):
+            report.error("presenter-repeat-decision-shape", f"{context} must be an object")
+            continue
+        sha = normalize_sha(decision.get("sha256"))
+        if sha is None:
+            report.error("presenter-repeat-decision-sha", f"{context}.sha256 must be a 64-character hex digest")
+            continue
+        decisions_by_sha[sha] = decision
+
+    uses_by_sha: dict[str, list[dict[str, Any]]] = {}
+    for index, assignment in enumerate(assignments):
+        context = f"assignments[{index}]"
+        if not isinstance(assignment, dict):
+            report.error("presenter-assignment-shape", f"{context} must be an object")
+            continue
+        source = assignment.get("source")
+        if not isinstance(source, str) or not source.strip():
+            report.error("presenter-assignment-source", f"{context}.source must be a non-empty path")
+            continue
+        source_path = resolve_path(project_dir, source)
+        if source_path is None or not source_path.exists() or not source_path.is_file():
+            report.error("presenter-assignment-missing", f"{context}.source not found: {source}")
+            continue
+        sha = normalize_sha(assignment.get("sha256")) or sha256_file(source_path)
+        uses_by_sha.setdefault(sha, []).append(
+            {
+                "index": index,
+                "source": source,
+                "chunk_id": assignment.get("chunk_id"),
+                "segment_id": assignment.get("segment_id"),
+            }
+        )
+
+    for sha, uses in sorted(uses_by_sha.items()):
+        if len(uses) <= 1:
+            continue
+        decision = decisions_by_sha.get(sha)
+        if not decision:
+            used = ", ".join(str(use.get("source")) for use in uses)
+            report.error(
+                "presenter-repeat-undecided",
+                f"presenter source sha256 {sha} is used {len(uses)} times without repeat_decisions entry; sources: {used}",
+            )
+            continue
+        reason = str(decision.get("reason", "")).strip()
+        if len(reason) < 20:
+            report.error("presenter-repeat-reason", f"repeat_decisions entry for sha256 {sha} needs a concrete reason")
+        selected_uses = decision.get("uses")
+        if not isinstance(selected_uses, list) or len(selected_uses) < len(uses):
+            report.warn(
+                "presenter-repeat-uses",
+                f"repeat_decisions entry for sha256 {sha} should list all repeated uses for review",
+            )
+
 def validate_selected_visuals_manifest(manifest: Any, report: Report) -> None:
     if not isinstance(manifest, dict):
         report.error("selected-visuals-shape", "selected visuals manifest must be an object")
@@ -767,6 +858,8 @@ def validate_selected_visuals_manifest(manifest: Any, report: Report) -> None:
         return
     accepted_patterns: set[str] = set()
     accepted_canonicals: dict[str, int] = {}
+    source_type_durations: dict[str, float] = {}
+    accepted_source_types: set[str] = set()
     for index, item in enumerate(items):
         context = f"selected_visuals.items[{index}]"
         if not isinstance(item, dict):
@@ -794,13 +887,59 @@ def validate_selected_visuals_manifest(manifest: Any, report: Report) -> None:
                 )
         if item.get("accepted") is True:
             accepted_patterns.add(str(pattern))
+            if isinstance(source_type, str) and source_type in BROLL_SOURCE_TYPES:
+                accepted_source_types.add(source_type)
             if isinstance(canonical_id, str) and canonical_id:
                 accepted_canonicals[canonical_id] = accepted_canonicals.get(canonical_id, 0) + 1
+            duration = as_number(item.get("duration_seconds"))
+            if duration is None:
+                report.error("visual-duration", f"{context}.duration_seconds is required for accepted visuals")
+            elif duration <= 0:
+                report.error("visual-duration", f"{context}.duration_seconds must be positive")
+            elif isinstance(source_type, str) and source_type in BROLL_SOURCE_TYPES:
+                source_type_durations[source_type] = source_type_durations.get(source_type, 0.0) + duration
             if not str(item.get("reason", "")).strip():
                 report.error("visual-reason", f"{context}.reason must explain why the visual fits")
-    duplicates = sorted(key for key, count in accepted_canonicals.items() if count > 1)
-    for canonical_id in duplicates:
-        report.error("duplicate-canonical-id", f"accepted selected visuals reuse canonical_id: {canonical_id}")
+
+    reuse_decisions = manifest.get("reuse_decisions", [])
+    if reuse_decisions is None:
+        reuse_decisions = []
+    if not isinstance(reuse_decisions, list):
+        report.error("visual-reuse-decisions", "selected visuals reuse_decisions must be an array when present")
+        reuse_decisions = []
+    reuse_by_id: dict[str, dict[str, Any]] = {}
+    for index, decision in enumerate(reuse_decisions):
+        context = f"reuse_decisions[{index}]"
+        if not isinstance(decision, dict):
+            report.error("visual-reuse-decision-shape", f"{context} must be an object")
+            continue
+        canonical_id = decision.get("canonical_id")
+        if not isinstance(canonical_id, str) or not canonical_id.strip():
+            report.error("visual-reuse-decision-id", f"{context}.canonical_id must be non-empty")
+            continue
+        reuse_by_id[canonical_id] = decision
+
+    repeated = sorted(key for key, count in accepted_canonicals.items() if count > 2)
+    for canonical_id in repeated:
+        decision = reuse_by_id.get(canonical_id)
+        if not decision:
+            report.error(
+                "visual-reuse-undecided",
+                f"accepted selected visuals reuse canonical_id {canonical_id!r} more than twice without reuse_decisions entry",
+            )
+            continue
+        if len(str(decision.get("reason", "")).strip()) < 20:
+            report.error("visual-reuse-reason", f"reuse_decisions entry for {canonical_id!r} needs a concrete reason")
+
+    broll_duration = sum(source_type_durations.values())
+    if broll_duration > 0:
+        required_source_types = int(math.ceil(broll_duration / 20.0))
+        if len(accepted_source_types) < required_source_types:
+            report.error(
+                "low-source-type-variety",
+                f"selected visuals use {len(accepted_source_types)} source_type values for {broll_duration:.2f}s of B-roll; "
+                f"required at least {required_source_types} (one per started 20 seconds)",
+            )
     target_duration = as_number(manifest.get("target_duration_seconds"))
     creative_reason = str(manifest.get("single_pattern_reason", "")).strip()
     if target_duration is not None and target_duration > 45 and len(accepted_patterns) < 3 and not creative_reason:
@@ -864,6 +1003,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--timeline", help="Path to timeline.json to validate.")
     parser.add_argument("--asset-manifest", help="Path to assets-manifest.json to validate.")
     parser.add_argument("--music-manifest", help="Path to music-manifest.json to validate.")
+    parser.add_argument("--presenter-plan", help="Path to presenter-plan.json to validate.")
     parser.add_argument("--selected-visuals", help="Path to selected-visuals manifest to validate.")
     parser.add_argument("--z-image-plan", help="Path to z-image-plan.json to validate.")
     parser.add_argument("--audio", help="Path to final narration audio for duration validation.")
@@ -917,6 +1057,12 @@ def main() -> int:
         manifest = load_json(music_manifest_path, report, "music manifest")
         if manifest is not None:
             validate_music_manifest(manifest, project_dir, report)
+
+    presenter_plan_path = Path(args.presenter_plan).resolve() if args.presenter_plan else None
+    if presenter_plan_path and args.mode in {"all", "preflight", "assets"}:
+        manifest = load_json(presenter_plan_path, report, "presenter plan")
+        if manifest is not None:
+            validate_presenter_plan(manifest, project_dir, report)
 
     selected_visuals_path = Path(args.selected_visuals).resolve() if args.selected_visuals else None
     if selected_visuals_path and args.mode in {"all", "preflight", "assets"}:
