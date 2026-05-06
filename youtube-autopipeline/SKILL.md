@@ -61,6 +61,16 @@ python C:\Users\kdeptula\skills\moviepy-video-composer\scripts\compose_video.py 
 
 Use `--music NONE` to skip background music entirely.
 
+When the user supplies local background music, ingest it first:
+
+```powershell
+python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\music_intake.py `
+  --project-dir <project-dir> `
+  --music <local-audio-path>
+```
+
+The helper copies the file to `<project-dir>\source-assets\soundtrack.<ext>` and writes `<project-dir>\manifests\music-manifest.json`. Licensing, rights, and attribution are the user's responsibility; the pipeline records optional title/artist/notes but does not license-gate production.
+
 ## Sub-Workflow Skills
 
 Use these skills as the default sub-workflow:
@@ -71,7 +81,9 @@ Use these skills as the default sub-workflow:
 - `codeformer-postprocess` for optional presenter face restoration after lip-sync
 - `playwright-broll-recorder` for webpage and screen-record B-roll
 - `pexels-stock-downloader` for non-web stock B-roll
+- `animated-broll-boards` for polished animated HTML/CSS/JS boards, synthetic UI, checklists, timelines, comparisons, process diagrams, maps, counters, and other abstract motion-graphic B-roll
 - `moviepy-video-composer` for final assembly in landscape and vertical modes
+- `reel-captions` for modern word-level caption alignment and hard-burned captioned reel exports
 
 Only do work manually when a required sub-skill is missing or clearly cannot satisfy the current step.
 
@@ -81,9 +93,10 @@ Build a YouTube video as a project, not as a loose set of clips. Keep the whole 
 
 Before generating assets, the agent verifies the runtime and required inputs directly:
 
-- Real production runs must use user-provided project assets. Do not rely on any local example folder unless the user explicitly provides it for that run.
-- If the user has not provided production assets, stop and ask for the asset root, presenter plates, voice sample, and exact voice-sample transcript before promising a production reel.
-- `youtube-scriptwriter`, `tts`, `latentsync`, `playwright-broll-recorder`, and `moviepy-video-composer` are available.
+- Real production runs must use user-provided identity assets: presenter plates, voice sample, exact voice-sample transcript, and optional music.
+- User-provided identity assets do not limit B-roll creativity. B-roll may be sourced, recorded, generated, composited, mocked, or built as motion graphics when that is the strongest creative and factual choice for the segment.
+- If the user has not provided the required identity assets, stop and ask for the asset root, presenter plates, voice sample, and exact voice-sample transcript before promising a production reel.
+- `youtube-scriptwriter`, `tts`, `latentsync`, `animated-broll-boards`, `playwright-broll-recorder`, `moviepy-video-composer`, and `reel-captions` are available.
 - `codeformer-postprocess` is available if presenter restoration is expected.
 - `pexels-stock-downloader` is available and `PEXELS_API_KEY` is configured before promising non-web stock footage.
 - The known FFmpeg directory is on `PATH` before `latentsync` or `codeformer-postprocess`:
@@ -92,6 +105,7 @@ Before generating assets, the agent verifies the runtime and required inputs dir
   ```
 - The local TTS environment exists at `%USERPROFILE%\Downloads\speech-gen\venv`.
 - The composer Python environment can import `moviepy`.
+- The caption runtime can import `whisperx`. Production reels must use WhisperX forced alignment unless the user explicitly approves a real precomputed word-timing file. Do not use uniformly distributed or heuristic word timings for production captions.
 - The required presenter plates, speech sample, and exact speech-sample transcript are present.
 
 Do not run a scripted preflight. If a required item is missing, stop before expensive generation unless the user explicitly approves a degraded path.
@@ -114,8 +128,21 @@ Do not run a scripted preflight. If a required item is missing, stop before expe
        --output <project-dir>\manifests\assets-manifest.json
      ```
    - Review the manifest before selecting presenter plates, voice samples, stills, overlays, music, B-roll candidates, or previous outputs for comparison.
-3. Call `youtube-scriptwriter` and use its structured output as the planning source of truth.
-4. Validate the script JSON:
+3. Ingest user-provided local background music, or explicitly disable it when no music should be mixed:
+   ```powershell
+   python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\music_intake.py `
+     --project-dir <project-dir> `
+     --music <local-audio-path-or-NONE>
+   ```
+   Validate the resulting manifest when music was part of the project contract:
+   ```powershell
+   python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\pipeline_check.py `
+     --project-dir <project-dir> `
+     --music-manifest <project-dir>\manifests\music-manifest.json `
+     --mode assets
+   ```
+4. Call `youtube-scriptwriter` and use its structured output as the planning source of truth.
+5. Validate the script JSON:
    ```powershell
    python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\pipeline_check.py `
      --project-dir <project-dir> `
@@ -132,18 +159,21 @@ Do not run a scripted preflight. If a required item is missing, stop before expe
      --mode assets
    ```
    For test-only regression runs, add `--allow-test-input` and label the report as a test artifact.
-5. Call `tts` to generate chunked cloned speech from the scriptwriter payload, then verify every chunk is target-only. Trim only if a generated file actually contains a prompt/sample prefix.
-6. Validate or manually review all clean TTS chunks before using them for lip-sync or final narration assembly.
-7. Call `latentsync` to build synced presenter clips from the silent motion plates and clean chunk audio.
-8. When presenter clips look soft, compressed, or artifacted after lip-sync, call `codeformer-postprocess` on the synced presenter outputs before timeline assembly.
-9. Call `playwright-broll-recorder` for webpage B-roll and call `pexels-stock-downloader` when non-web stock footage is needed.
-   - When the script needs abstract, synthetic, product-neutral, conceptual, or visually controlled B-roll, create a `z-image-turbo` plan:
+6. Call `tts` to generate chunked cloned speech from the scriptwriter payload, then verify every chunk is target-only. Trim only if a generated file actually contains a prompt/sample prefix.
+7. Validate or manually review all clean TTS chunks before using them for lip-sync or final narration assembly.
+8. Call `latentsync` to build synced presenter clips from the silent motion plates and clean chunk audio.
+9. When presenter clips look soft, compressed, or artifacted after lip-sync, call `codeformer-postprocess` on the synced presenter outputs before timeline assembly.
+10. Build B-roll with the source that matches the segment intent.
+   - For abstract UI boards, checklists, timelines, comparisons, maps, process diagrams, counters, logistics, cost/risk boards, and other infographic-style sections, call `animated-broll-boards`. Production reels must use animated `.webm` board clips for these sections, not ad hoc static PNG/Pillow boards.
+   - Call `playwright-broll-recorder` for real webpage/app B-roll and for recording local HTML scenes when needed.
+   - Call `pexels-stock-downloader` when non-web stock footage is needed.
+   - When the script needs photographic, cinematic, illustrative, product-neutral, or non-UI generated visual support, create a `z-image-turbo` plan:
      ```powershell
      python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\z_image_plan.py `
        --project-dir <project-dir> `
        --script <project-dir>\script.json
      ```
-   - Generate only the selected images with `z-image-turbo`, review them, record accepted/rejected outputs in the asset manifest, then use accepted stills as timeline `B-ROLL`, `TEXT` backgrounds, or generated visual inserts.
+   - Generate only the selected images with `z-image-turbo`, review them, record accepted/rejected outputs in the asset manifest, then use accepted stills as timeline `B-ROLL`, `TEXT` backgrounds, or generated visual inserts. Do not use `z-image-turbo` as the default path for UI boards, diagrams, checklists, timelines, or synthetic dashboard-style visuals.
    - Validate the generated-image plan before using outputs in the timeline:
      ```powershell
      python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\pipeline_check.py `
@@ -152,8 +182,12 @@ Do not run a scripted preflight. If a required item is missing, stop before expe
        --mode assets `
        --require-z-image-review
      ```
-10. Build `timeline.json` using the schema matching the format mode.
-11. Validate the timeline and final audio before composition:
+11. Build `timeline.json` using the schema matching the format mode.
+   - Do not use `caption_text` for spoken narration captions when creating reels, Shorts, TikToks, or other modern short-form outputs. Spoken captions belong to the `reel-captions` stage after base render.
+   - Keep `TEXT` entries only for intentional graphic beats, labels, title cards, and comparison graphics.
+   - For reels, choose B-roll section patterns from [references/broll-section-library.md](references/broll-section-library.md). Treat it as a menu, not a ranking.
+   - Write `<project-dir>\manifests\selected-visuals.json` before final timeline use. Each accepted non-presenter visual needs `section_pattern`, `source_type`, `canonical_id`, `accepted`, `reason`, and `risk`.
+12. Validate the timeline and final audio before composition:
    ```powershell
    python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\pipeline_check.py `
      --project-dir <project-dir> `
@@ -161,12 +195,30 @@ Do not run a scripted preflight. If a required item is missing, stop before expe
      --audio <project-dir>\final_audio.wav `
      --mode timeline
    ```
-12. Call `moviepy-video-composer` with the matching `--format` value.
-13. Run final visual QA on the rendered video by extracting representative frames across the timeline and inspecting them. If any frame fails the visual acceptance criteria, revise assets, typography, PiP crop/shape, layout, or timeline and rerender.
+   Validate selected visuals before production render:
+   ```powershell
+   python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\pipeline_check.py `
+     --project-dir <project-dir> `
+     --selected-visuals <project-dir>\manifests\selected-visuals.json `
+     --mode assets
+   ```
+13. Call `moviepy-video-composer` with the matching `--format` value to render the uncaptioned base video. Pass `<project-dir>\source-assets\soundtrack.<ext>` when the music manifest is enabled; pass `--music NONE` when it is disabled. The composer writes `<project-dir>\manifests\audio-mix-manifest.json`.
+14. Call `reel-captions` to generate word-level ASS captions from the approved transcript and burn them into the base render. The captioned output is the delivery candidate and preserves the already mixed narration/music audio. Production runs require WhisperX forced alignment; if WhisperX is unavailable, install it before captioning or stop and report the blocker. Do not use `--words-json` for production unless it is a real precomputed timing file explicitly approved by the user.
+   ```powershell
+   & "<caption-python>" C:\Users\kdeptula\skills\reel-captions\scripts\generate_reel_captions.py `
+     --project-dir <project-dir> `
+     --audio <project-dir>\final_audio.wav `
+     --video <project-dir>\final_output.mp4 `
+     --script <project-dir>\script.json `
+     --output <project-dir>\final_output_captioned.mp4 `
+     --language pl
+   ```
+   Use the target language code from the script metadata. Use `--transcript` instead of `--script` only when no script JSON exists. If captions are explicitly disabled by the user, record that exception in the final QA notes.
+15. Run final visual QA on the captioned video by extracting representative frames across the timeline and inspecting them. If any frame fails the visual acceptance criteria, revise assets, typography, PiP crop/shape, captions, layout, or timeline and rerender.
    ```powershell
     python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\visual_qa.py `
      --project-dir <project-dir> `
-     --video <project-dir>\final_output.mp4 `
+     --video <project-dir>\final_output_captioned.mp4 `
      --timeline <project-dir>\timeline.json `
      --status needs_review
    ```
@@ -174,17 +226,17 @@ Do not run a scripted preflight. If a required item is missing, stop before expe
      ```powershell
      python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\visual_qa.py `
        --project-dir <project-dir> `
-       --video <project-dir>\final_output.mp4 `
+       --video <project-dir>\final_output_captioned.mp4 `
        --timeline <project-dir>\timeline.json `
        --format vertical `
        --min-duration 60 `
        --max-duration 90 `
        --z-image-plan <project-dir>\manifests\z-image-plan.json `
        --agent-visual-review-pass `
-       --visual-review-notes "Specific notes covering hook, safe zones, caption readability, visual variety, generated visuals, presenter/PiP quality, and rejected frames." `
+       --visual-review-notes "Specific notes covering hook, word-level caption sync/readability/safe zones, visual variety, generated visuals, presenter/PiP quality, and rejected frames." `
        --status pass
      ```
-14. Report any blockers immediately if a required runtime tool or asset is missing.
+16. Report any blockers immediately if a required runtime tool or asset is missing.
 
 ## Interview Rules
 
@@ -206,7 +258,7 @@ Infer the format from context clues when the user does not state it explicitly:
 - keywords like "youtube video", "landscape", "16:9", "widescreen" -> landscape mode
 - no clear signal -> default to landscape, but confirm if the user mentions mobile-first or social platforms
 
-Interview for production assets whenever they are missing. The required assets depend on the format mode:
+Interview for required identity assets whenever they are missing. These are the presenter, voice, and optional music/brand assets needed to keep the production tied to the user. The required identity assets depend on the format mode:
 
 ### Landscape Mode Assets
 
@@ -241,6 +293,7 @@ Keep all generated artifacts inside the project directory:
 - synced presenter clips
 - B-roll clips
 - soundtrack asset if the user provided one
+- music and audio mix manifests
 - timeline
 - final render
 - asset inventory and final visual QA manifests
@@ -498,12 +551,14 @@ The visual strategy must define:
 - segment-level visual source choice
 - why each source type was chosen
 - known tradeoffs or fallback risks
+- canonical uniqueness key for every non-presenter visual asset, such as provider id, source URL, local absolute path, or generated asset id
 
 The agent may freely combine:
 
 - real webpage, app, documentation, or article captures
 - stock footage
 - generated bitmap visuals or generated video-like assets
+- animated board clips from `animated-broll-boards`
 - project-local HTML/mock UI
 - animated typography
 - simple motion graphics
@@ -511,12 +566,55 @@ The agent may freely combine:
 - avatar-only sections
 - screen recordings
 - composited layouts
+- split-screen sections
+- two-stack and three-stack sections
+- four-grid comparison/collage sections
+- bounded still-image camera motion
+
+### B-Roll Source Mix And Uniqueness
+
+Do not default to one visual source type just because it is available or convenient. For videos longer than 45 seconds, a single-source B-roll strategy is allowed only when the source is clearly the strongest creative and factual choice for every B-roll segment. Otherwise, deliberately mix sources such as verified stills, stock motion, generated stills, animated typography, local motion graphics, or screen captures.
+
+Before building `timeline.json`, create or update a selected-visuals manifest that lists each non-presenter visual asset with:
+
+- `segment_id`
+- `section_pattern`
+- `source_type`
+- `canonical_id`
+- `source_url` or `local_path`
+- `accepted`
+- `reason`
+- `risk`
+
+Enforce uniqueness on `canonical_id`, not filename. Renamed downloads, copied files, or identical provider URLs are the same asset and must not be treated as unique B-roll. Reusing a visual asset in more than one segment is allowed only when it is an explicit callback or background bed; record that reason in the manifest and avoid presenting it as fresh B-roll.
+
+For factual nature, science, history, product, location, or how-to explainers, separate factual evidence visuals from illustrative visuals:
+
+- Use verified or authoritative visuals for identification, comparison, measurements, UI facts, product details, locations, or claims where the image itself carries factual meaning.
+- Use stock footage only when the subject match is visually clear enough after frame inspection.
+- Use generated visuals as illustrative or cinematic support unless the user explicitly accepts synthetic factual stand-ins.
+- Never use generic stock footage as visual proof of a specific species, product, place, person, or interface.
+
+If a stock provider returns the same clip across multiple queries, reject duplicates before timeline assembly and refine the source strategy instead of filling the reel with repeated footage.
+
+### Animated Boards With animated-broll-boards
+
+Use `animated-broll-boards` as the default production path for synthetic UI boards, checklists, timelines, comparisons, process diagrams, logistics maps, metric boards, bar comparisons, risk matrices, myth/fact boards, and other abstract explanatory visuals that would otherwise become static infographic PNGs.
+
+Rules:
+
+- Save outputs under `<project-dir>\broll\boards\<board-id>\`.
+- Render boards as `.webm` clips from project-local `HTML/CSS/JS`.
+- Record accepted board clips in `manifests\selected-visuals.json` with `source_type: "animated-board"`, `canonical_id: "<board-id>"`, `local_path: "broll/boards/<board-id>/<board-id>.webm"`, and `risk: "synthetic explanatory motion graphic"`.
+- Run `qa_board.mjs` and inspect the preview before timeline use.
+- Do not create production abstract/UI/infographic B-roll as ad hoc static PNG/Pillow boards. Static PNGs are allowed only as tiny auxiliary assets or when the user explicitly requests a still.
+- Reject boards that look like old infographics, test harnesses, template placeholders, generic cards, clipart layouts, or low-effort mock UI.
 
 ### Generated Visuals With z-image-turbo
 
-Use `z-image-turbo` as a first-class source when real footage, screen capture, or stock video would be generic, misleading, unavailable, or visually weak. Generated stills are acceptable for abstract explainers, metaphor shots, privacy-safe synthetic UI backgrounds, product-neutral mood scenes, and graphic inserts.
+Use `z-image-turbo` as a first-class source when real footage, screen capture, or stock video would be generic, misleading, unavailable, or visually weak. Generated stills are acceptable for photographic, cinematic, illustrative, metaphor, product-neutral mood scenes, and non-UI graphic inserts. For synthetic UI, checklist, timeline, comparison, process, map, logistics, cost/risk, and dashboard-style boards, use `animated-broll-boards` instead.
 
-Do not use generated images as a cheap replacement for missing user assets. If a production brief requires the user's product, location, face, brand, or app, ask for those assets.
+Do not use generated images as a cheap replacement for missing required identity or factual assets. If a production brief requires the user's actual product, location, face, brand, app, or another real-world subject whose appearance is the point of the video, ask for those assets. Otherwise, generated visuals and local motion graphics are valid B-roll choices for abstract, conceptual, educational, or product-neutral segments.
 
 Rules:
 
@@ -527,6 +625,8 @@ Rules:
 - Keep prompts vertical-safe: central subject, clean upper/middle negative space, no fake logos, no credentials, no private data, no implied real-brand UI unless explicitly requested.
 - Review generated images before using them. Reject generic, distorted, illegible, branded, unsafe, or visually cheap outputs.
 - Accepted generated stills can be referenced directly by the composer as `B-ROLL` or `TEXT` background media.
+- When generated stills need motion in a reel, pre-render short motion clips from the accepted stills before timeline assembly, or use the composer `STILL_MOTION` primitive. Acceptable motion treatments include slow push-in, slow pull-back, subtle pan, swipe transition, parallax-style crop, or split-panel comparison. Motion must stay inside image bounds.
+- Record generated-still motion clips with both the original still path and the rendered motion clip path in the selected-visuals manifest.
 
 Choose the source type per segment using these criteria:
 
@@ -543,9 +643,11 @@ Use the strongest visual source for the segment. A fixed source order is not req
 
 - Use real webpages, docs, or product-neutral captures when authority, credibility, or recognizable context matters.
 - Use stock footage when human behavior, physical context, pacing texture, or cinematic energy matters.
-- Use generated visuals when the topic is abstract and real footage would be dull, generic, or unavailable.
-- Use project-local HTML/mock UI when an exact concept, fake app flow, neutral diagram, or privacy-safe screen demonstration is needed.
+- Use generated visuals when the topic needs photographic, cinematic, illustrative, or mood support and real footage would be dull, generic, or unavailable.
+- Use `animated-broll-boards` when an exact concept, fake app flow, neutral diagram, checklist, timeline, comparison, counter, process, map, logistics, or privacy-safe screen demonstration is needed.
+- Use project-local HTML/mock UI outside `animated-broll-boards` only when the board skill cannot express the required custom scene.
 - Use animated typography when the idea is short, punchy, and stronger as a kinetic text beat than as literal footage.
+- Use split, stack, grid, and still-motion patterns when they make comparison, proof, examples, or rhythm stronger than a single fullscreen clip.
 
 For videos longer than 45 seconds, avoid relying on one visual source type unless it is clearly the strongest creative choice. Prefer a deliberate mix of sources, textures, and shot types.
 
@@ -555,6 +657,7 @@ Local HTML/mock UI guardrails:
 
 - Do not present local HTML as a real product or real site.
 - Avoid real brands, real credentials, real user data, and implied vendor endorsement unless the user explicitly requested them.
+- Prefer `animated-broll-boards` for production local HTML motion graphics. Handwritten one-off HTML is a fallback for custom scenes the board skill cannot express.
 - Save local HTML/mock UI files inside the project directory, then record them with `playwright-broll-recorder` using a `file:///...` URL.
 - Capture and inspect a validation screenshot before accepting the clip.
 - Record the local HTML/mock UI fallback in `assembly_notes` or the asset manifest so the source is transparent.
@@ -595,11 +698,13 @@ Do not substitute vague B-roll. If a query cannot be satisfied from the availabl
 
 Translate the scriptwriter output into `timeline.json` using the schema that matches the format mode, then call `moviepy-video-composer` with the matching `--format` value.
 
-If the user supplied a soundtrack, keep it as a project asset and pass it to the composer as optional background music. Do not try to normalize or mix it in the orchestrator. Audio normalization, sidechain ducking, and final mix safety belong to the composer step.
+For modern reels, use [references/broll-section-library.md](references/broll-section-library.md) as the section-pattern library. Do not make any pattern or source type globally preferred. Choose by segment intent and record the selected pattern in `manifests\selected-visuals.json`.
+
+If the user supplied a soundtrack, run `scripts/music_intake.py` and pass the ingested `source-assets\soundtrack.<ext>` file to the composer. Do not normalize or mix it in the orchestrator. Audio normalization, sidechain ducking, final mix safety, and `audio-mix-manifest.json` belong to the composer step.
 
 ## Final Visual QA
 
-Final render existence, duration, and resolution are not enough. Before delivering `final_output.mp4`, the agent must visually inspect the actual rendered result.
+Final render existence, duration, and resolution are not enough. Before delivering the video, the agent must visually inspect the actual rendered result. For captioned reels, inspect `final_output_captioned.mp4`; inspect `final_output.mp4` only when captions are explicitly disabled.
 
 Extract representative frames from the final output:
 
@@ -614,7 +719,7 @@ Save these frames under `qa/final-frames/` and inspect them before final deliver
 ```powershell
 python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\visual_qa.py `
   --project-dir <project-dir> `
-  --video <project-dir>\final_output.mp4 `
+  --video <project-dir>\final_output_captioned.mp4 `
   --timeline <project-dir>\timeline.json `
   --status needs_review
 ```
@@ -624,8 +729,8 @@ Example extraction pattern:
 ```powershell
 $ffmpeg = "$env:USERPROFILE\Documents\FFmpeg\ffmpeg-master-latest-win64-gpl\bin\ffmpeg.exe"
 New-Item -ItemType Directory -Force "$projectDir\qa\final-frames" | Out-Null
-& $ffmpeg -y -ss 00:00:02 -i "$projectDir\final_output.mp4" -frames:v 1 "$projectDir\qa\final-frames\frame_002s.png"
-& $ffmpeg -y -ss 00:00:10 -i "$projectDir\final_output.mp4" -frames:v 1 "$projectDir\qa\final-frames\frame_010s.png"
+& $ffmpeg -y -ss 00:00:02 -i "$projectDir\final_output_captioned.mp4" -frames:v 1 "$projectDir\qa\final-frames\frame_002s.png"
+& $ffmpeg -y -ss 00:00:10 -i "$projectDir\final_output_captioned.mp4" -frames:v 1 "$projectDir\qa\final-frames\frame_010s.png"
 ```
 
 Use enough timestamps to cover the whole timeline. Do not inspect only one preview frame.
@@ -637,6 +742,7 @@ Use [references/professional-qa-rubric.md](references/professional-qa-rubric.md)
 Reject and rerender when any frame shows:
 
 - overlapping text, captions, cards, PiP, or UI elements
+- word-level captions out of sync with narration or active-word highlighting that distracts from readability
 - text too large for its container or clipped by the frame
 - dense text that cannot be read at phone size
 - PiP rendered as a tall rounded rectangle when it should be circular
@@ -647,10 +753,11 @@ Reject and rerender when any frame shows:
 - real-brand or credential exposure that was not explicitly intended
 - black/blank/error/loading frames
 - low-effort generated stills, generic stock, placeholder-looking motion graphics, or any frame that looks like a test harness rather than a finished reel
+- static PNG/Pillow UI boards used as production abstract/infographic B-roll without explicit user approval
 
 If a frame fails, do not explain it away. Fix the visual cause and rerender. Record visual QA results in `manifests/visual-qa.json` with inspected frame paths, pass/fail status, and any rerender actions.
 
-For generated HTML/mock UI, inspect both the source validation screenshot and the final rendered frame where it appears. Passing the isolated source screenshot is not sufficient, because final overlays, TEXT entries, PIP, scaling, and timeline composition can introduce new failures.
+For animated boards and generated HTML/mock UI, inspect both the source validation screenshot and the final rendered frame where it appears. Passing the isolated source screenshot is not sufficient, because final overlays, TEXT entries, PIP, scaling, and timeline composition can introduce new failures.
 
 ### Landscape Timeline
 
@@ -674,7 +781,11 @@ Use these mappings by default:
 - `A_ROLL` -> full-screen synced straight-to-camera clip (portrait or center-cropped), rotating across selected front-facing plates when multiple usable plates exist
 - `B_ROLL` -> full-screen B-roll clip (center-cropped to vertical)
 - `PIP` -> full-screen background plus synced overlay at `("center", "bottom")`, scale `0.34`, rotating across selected profile/three-quarter plates when multiple usable plates exist
+- `SPLIT_2` -> two-panel section for presenter/demo, before/after, this/that, myth/fact, or proof/context
+- `STACK_2` -> two horizontal clips stacked vertically
 - `STACK_3` -> three landscape clips stacked vertically (no cropping)
+- `GRID_4` -> four-tile comparison/collage
+- `STILL_MOTION` -> local/generated still with bounded virtual camera motion
 - `TEXT` -> keyword or caption text overlay on a background clip
 
 ### Timeline Safety Fields
@@ -685,6 +796,10 @@ Use these composer controls consistently:
 - `background_clip_start`: PIP/TEXT background offset
 - `overlay_clip_start`: PIP presenter overlay offset
 - `clip_start_top`, `clip_start_mid`, `clip_start_bot`: per-layer `STACK_3` offsets
+- `clip_start_a`, `clip_start_b`: per-panel `SPLIT_2` offsets
+- `clip_start_1`, `clip_start_2`, `clip_start_3`, `clip_start_4`: per-panel `GRID_4` offsets
+- `split_axis`: `vertical` for left/right panels or `horizontal` for top/bottom panels
+- `motion_type`: `push-in`, `pull-back`, `pan-left`, `pan-right`, `pan-up`, `pan-down`, `diagonal-drift`, or `swipe-in` for `STILL_MOTION`
 - `loop_policy`: `loop` or `error`
 - `background_loop_policy`, `overlay_loop_policy`: per-layer PIP loop controls
 
@@ -710,7 +825,7 @@ Vertical mode supports `TEXT` segments for on-screen keywords and captions:
 }
 ```
 
-Any timeline entry may also include `caption_text` for burned-in short-form captions. Keep the copy short, high-contrast, and phone-readable. In vertical PiP sections, default captions to `caption_position: "top"` so they do not collide with the circular presenter bubble or platform UI. If the checked B-roll frame already has important top text, either omit the redundant caption or set `caption_y` to a visually inspected non-overlapping band.
+Do not use `caption_text` for spoken short-form captions. Use `reel-captions` after base render to create word-level captions from the approved transcript. `caption_text` may still be used sparingly for non-spoken labels or temporary test renders, but production reels should reserve timeline text for intentional graphics.
 
 Vertical mode supports `STACK_3` segments for showing three landscape clips simultaneously:
 
@@ -725,6 +840,8 @@ Vertical mode supports `STACK_3` segments for showing three landscape clips simu
   "end_time": 10.0
 }
 ```
+
+Vertical mode also supports `STACK_2`, `SPLIT_2`, `GRID_4`, and `STILL_MOTION` for modern B-roll sections. Use these when the segment benefits from comparison, multiple examples, evidence boards, presenter/demo pairing, or subtle motion on stills.
 
 Use [references/timeline-mapping.md](references/timeline-mapping.md) for the exact conversion rules per format mode.
 
@@ -744,6 +861,7 @@ When a direct zoom effect is not available in the current composer, create varie
 In vertical mode, also use these additional variety tools:
 
 - interleave `A-ROLL` (full screen) with `STACK_3` to avoid monotony
+- use `STACK_2`, `SPLIT_2`, `GRID_4`, and `STILL_MOTION` when they make the idea faster or more varied
 - use `TEXT` segments to break up visual repetition with keyword hits
 - keep individual segments short (3-8 seconds) to maintain mobile attention
 - ensure `(end_time - start_time)` is strictly less than or equal to the source video duration for all clip-based segments to prevent awkward short-loop artifacts
@@ -773,6 +891,7 @@ If a step is partially available, continue as far as possible but state the exac
 ## Resources
 
 - Project layout and filenames: [references/project-layout.md](references/project-layout.md)
+- B-roll section pattern library: [references/broll-section-library.md](references/broll-section-library.md)
 - Presenter generation strategy: [references/presenter-strategy.md](references/presenter-strategy.md)
 - Script-to-timeline conversion rules: [references/timeline-mapping.md](references/timeline-mapping.md)
 - Short-form production practices: [references/short-form-practices.md](references/short-form-practices.md)

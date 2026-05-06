@@ -5,7 +5,7 @@ import uuid
 from PIL import Image
 from diffusers import ZImagePipeline, ZImageImg2ImgPipeline
 
-def generate_image(prompt, base_image_path=None, strength=0.6, output_path=None, steps=8, negative_prompt=None, model_id="Tongyi-MAI/Z-Image-Turbo"):
+def generate_image(prompt, base_image_path=None, strength=0.6, output_path=None, steps=8, negative_prompt=None, model_id="Tongyi-MAI/Z-Image-Turbo", width=None, height=None):
     """
     Generates an image from a prompt (and optionally a base image) with RTX 4050 6GB VRAM optimizations.
     """
@@ -13,6 +13,7 @@ def generate_image(prompt, base_image_path=None, strength=0.6, output_path=None,
         output_path = f"generated_{uuid.uuid4().hex[:8]}.png"
     
     output_path = os.path.abspath(output_path)
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
     
     # Check for local model folder first
     script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -52,6 +53,10 @@ def generate_image(prompt, base_image_path=None, strength=0.6, output_path=None,
             "guidance_scale": 0.0,
             "num_inference_steps": steps
         }
+        if width:
+            kwargs["width"] = width
+        if height:
+            kwargs["height"] = height
         
         if negative_prompt:
             kwargs["negative_prompt"] = negative_prompt
@@ -88,6 +93,8 @@ if __name__ == "__main__":
     parser.add_argument("--neg", type=str, default=None, help="Negative prompt")
     parser.add_argument("--output", type=str, default=None, help="Output file path (.png)")
     parser.add_argument("--model", type=str, default="Tongyi-MAI/Z-Image-Turbo", help="Model ID")
+    parser.add_argument("--width", type=int, default=None, help="Output width in pixels")
+    parser.add_argument("--height", type=int, default=None, help="Output height in pixels")
     
     args = parser.parse_args()
-    generate_image(args.prompt, args.image, args.strength, args.output, args.steps, args.neg, args.model)
+    generate_image(args.prompt, args.image, args.strength, args.output, args.steps, args.neg, args.model, args.width, args.height)

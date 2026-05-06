@@ -229,7 +229,20 @@ def timeline_asset_categories(timeline: list[dict[str, Any]]) -> dict[str, Any]:
         end = float(entry.get("end_time", start))
         segment_durations.append({"index": index, "type": entry_type, "duration_seconds": round(end - start, 3)})
 
-        for field in ("clip_path", "background_path", "overlay_path", "clip_path_top", "clip_path_mid", "clip_path_bot"):
+        for field in (
+            "clip_path",
+            "background_path",
+            "overlay_path",
+            "clip_path_top",
+            "clip_path_mid",
+            "clip_path_bot",
+            "clip_path_a",
+            "clip_path_b",
+            "clip_path_1",
+            "clip_path_2",
+            "clip_path_3",
+            "clip_path_4",
+        ):
             value = entry.get(field)
             if isinstance(value, str) and value:
                 media_refs.add(value)
@@ -263,6 +276,14 @@ def timeline_asset_categories(timeline: list[dict[str, Any]]) -> dict[str, Any]:
             )
         elif entry_type == "STACK_3":
             categories.add("stacked_broll")
+        elif entry_type == "STACK_2":
+            categories.add("stacked_broll")
+        elif entry_type == "SPLIT_2":
+            categories.add("split_screen")
+        elif entry_type == "GRID_4":
+            categories.add("grid_collage")
+        elif entry_type == "STILL_MOTION":
+            categories.add("still_motion")
 
         caption = entry.get("caption_text")
         if isinstance(caption, str) and caption.strip():
@@ -285,6 +306,37 @@ def timeline_asset_categories(timeline: list[dict[str, Any]]) -> dict[str, Any]:
         "pip_entries": pip_entries,
         "text_entries": text_entries,
         "segment_durations": segment_durations,
+    }
+
+
+def selected_visuals_summary(manifest: dict[str, Any] | None) -> dict[str, Any]:
+    if not manifest or not isinstance(manifest.get("items"), list):
+        return {
+            "manifest_present": False,
+            "section_patterns": [],
+            "source_types": [],
+            "accepted_count": 0,
+            "duplicate_canonical_ids": [],
+            "target_duration_seconds": None,
+            "single_pattern_reason": None,
+        }
+    accepted = [item for item in manifest["items"] if isinstance(item, dict) and item.get("accepted") is True]
+    patterns = sorted({str(item.get("section_pattern")) for item in accepted if item.get("section_pattern")})
+    source_types = sorted({str(item.get("source_type")) for item in accepted if item.get("source_type")})
+    canonical_counts: dict[str, int] = {}
+    for item in accepted:
+        canonical_id = item.get("canonical_id")
+        if isinstance(canonical_id, str) and canonical_id:
+            canonical_counts[canonical_id] = canonical_counts.get(canonical_id, 0) + 1
+    duplicates = sorted(key for key, count in canonical_counts.items() if count > 1)
+    return {
+        "manifest_present": True,
+        "section_patterns": patterns,
+        "source_types": source_types,
+        "accepted_count": len(accepted),
+        "duplicate_canonical_ids": duplicates,
+        "target_duration_seconds": manifest.get("target_duration_seconds"),
+        "single_pattern_reason": manifest.get("single_pattern_reason"),
     }
 
 
@@ -336,6 +388,7 @@ def build_findings(
     timeline_summary: dict[str, Any],
     prefix_audit: dict[str, Any],
     generated_audit: dict[str, Any],
+    selected_visuals: dict[str, Any],
     format_name: str | None,
     min_duration: float | None,
     max_duration: float | None,
@@ -367,6 +420,20 @@ def build_findings(
         add("WARN", "low-visual-variety", f"only {len(categories)} visual categories used: {sorted(categories)}")
     if timeline_summary.get("distinct_media_reference_count", 0) < 4:
         add("WARN", "low-asset-variety", "timeline uses fewer than four distinct media references")
+    if selected_visuals.get("duplicate_canonical_ids"):
+        add("ERROR", "duplicate-canonical-id", f"selected visuals reuse canonical ids: {selected_visuals['duplicate_canonical_ids']}")
+    selected_duration = selected_visuals.get("target_duration_seconds")
+    if selected_duration is None:
+        selected_duration = duration
+    try:
+        selected_duration_number = float(selected_duration)
+    except (TypeError, ValueError):
+        selected_duration_number = duration
+    if selected_duration_number > 45 and selected_visuals.get("manifest_present") and len(selected_visuals.get("section_patterns", [])) < 3:
+        if not str(selected_visuals.get("single_pattern_reason") or "").strip():
+            add("ERROR", "low-section-pattern-variety", "reels over 45 seconds require at least three accepted section patterns or a single-pattern reason")
+    if selected_visuals.get("manifest_present") and len(selected_visuals.get("source_types", [])) < 2 and selected_duration_number > 45:
+        add("WARN", "low-source-variety", "selected visuals use fewer than two source types for a reel over 45 seconds")
 
     for item in timeline_summary.get("caption_entries", []):
         if item["characters"] > 64:
@@ -418,6 +485,7 @@ def write_markdown_report(
     timeline_summary: dict[str, Any],
     prefix_audit: dict[str, Any],
     generated_audit: dict[str, Any],
+    selected_visuals: dict[str, Any],
     findings: list[dict[str, str]],
 ) -> None:
     lines = [
@@ -438,6 +506,8 @@ def write_markdown_report(
         f"- PiP entries checked: {len(timeline_summary.get('pip_entries', []))}",
         f"- TEXT entries checked: {len(timeline_summary.get('text_entries', []))}",
         f"- Generated image refs: {len(generated_audit.get('generated_refs_in_timeline', []))}",
+        f"- Section patterns: `{', '.join(selected_visuals.get('section_patterns', []))}`",
+        f"- Source types: `{', '.join(selected_visuals.get('source_types', []))}`",
         "",
         "## TTS Prefix",
         "",
@@ -511,6 +581,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-duration", type=float, help="Maximum acceptable duration in seconds.")
     parser.add_argument("--tts-manifest", help="Optional TTS manifest path. Defaults to <project-dir>/manifests/tts-manifest.json")
     parser.add_argument("--z-image-plan", help="Optional z-image plan path. Defaults to <project-dir>/manifests/z-image-plan.json when present")
+    parser.add_argument("--selected-visuals", help="Optional selected visuals manifest path. Defaults to <project-dir>/manifests/selected-visuals.json when present")
     parser.add_argument("--report-md", help="Optional Markdown QA report path.")
     parser.add_argument(
         "--agent-visual-review-pass",
@@ -541,6 +612,8 @@ def main() -> int:
     tts_manifest = load_json_object(tts_manifest_path)
     z_image_plan_path = Path(args.z_image_plan).resolve() if args.z_image_plan else project_dir / "manifests" / "z-image-plan.json"
     z_image_plan = load_json_object(z_image_plan_path)
+    selected_visuals_path = Path(args.selected_visuals).resolve() if args.selected_visuals else project_dir / "manifests" / "selected-visuals.json"
+    selected_visuals_manifest = load_json_object(selected_visuals_path)
     timestamps = collect_timestamps(duration, timeline)
     frame_entries: list[dict[str, Any]] = []
     frame_paths: list[Path] = []
@@ -563,12 +636,14 @@ def main() -> int:
     timeline_summary = timeline_asset_categories(timeline)
     prefix_audit = tts_prefix_audit(tts_manifest)
     generated_audit = z_image_audit(project_dir, timeline, z_image_plan)
+    selected_summary = selected_visuals_summary(selected_visuals_manifest)
     findings = build_findings(
         metadata,
         frame_entries,
         timeline_summary,
         prefix_audit,
         generated_audit,
+        selected_summary,
         args.format,
         args.min_duration,
         args.max_duration,
@@ -589,6 +664,7 @@ def main() -> int:
         "timeline_summary": timeline_summary,
         "tts_prefix_audit": prefix_audit,
         "generated_image_audit": generated_audit,
+        "selected_visuals_summary": selected_summary,
         "findings": findings,
         "frames": frame_entries,
         "contact_sheet": sheet_path,
@@ -605,7 +681,7 @@ def main() -> int:
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     report_md = Path(args.report_md).resolve() if args.report_md else output.with_suffix(".md")
-    write_markdown_report(report_md, manifest, timeline_summary, prefix_audit, generated_audit, findings)
+    write_markdown_report(report_md, manifest, timeline_summary, prefix_audit, generated_audit, selected_summary, findings)
     print(f"Wrote visual QA manifest: {output}")
     print(f"Wrote visual QA report: {report_md}")
     print(f"Extracted frames: {len(frame_entries)}")

@@ -1,0 +1,15 @@
+{
+  "name": "animated-broll-boards",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Generate and record polished animated HTML/CSS/JS B-roll boards",
+  "type": "module",
+  "scripts": {
+    "create": "node scripts/create_board.mjs",
+    "render": "node scripts/render_board.mjs",
+    "qa": "node scripts/qa_board.mjs"
+  },
+  "dependencies": {
+    "playwright": "^1.59.1"
+  }
+}

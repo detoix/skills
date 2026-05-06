@@ -13,12 +13,14 @@ from pathlib import Path
 from typing import Any, Iterable
 
 import numpy as np
-from moviepy import ColorClip, CompositeVideoClip, ImageClip, VideoFileClip, concatenate_videoclips, TextClip
+from moviepy import ColorClip, CompositeVideoClip, ImageClip, VideoClip, VideoFileClip, concatenate_videoclips, TextClip
 
 
-SUPPORTED_TYPES = {"A-ROLL", "B-ROLL", "PIP", "TEXT", "STACK_3"}
+SUPPORTED_TYPES = {"A-ROLL", "B-ROLL", "PIP", "TEXT", "STACK_2", "STACK_3", "SPLIT_2", "GRID_4", "STILL_MOTION"}
 LOOP_POLICIES = {"loop", "error"}
+SPLIT_AXES = {"horizontal", "vertical"}
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
+STILL_MOTION_TYPES = {"push-in", "pull-back", "pan-left", "pan-right", "pan-up", "pan-down", "diagonal-drift", "swipe-in"}
 DEFAULT_FPS = 30
 DEFAULT_CODEC = "libx264"
 DEFAULT_AUDIO_CODEC = "aac"
@@ -35,8 +37,16 @@ DEFAULT_AUDIO_CANDIDATES = ("final_audio.mp3", "final_audio.wav")
 DEFAULT_MUSIC_CANDIDATES = (
     "source-assets/soundtrack.mp3",
     "source-assets/soundtrack.wav",
+    "source-assets/soundtrack.m4a",
+    "source-assets/soundtrack.aac",
+    "source-assets/soundtrack.flac",
+    "source-assets/soundtrack.ogg",
     "soundtrack.mp3",
     "soundtrack.wav",
+    "soundtrack.m4a",
+    "soundtrack.aac",
+    "soundtrack.flac",
+    "soundtrack.ogg",
 )
 VOICE_LOUDNORM = "loudnorm=I=-16:LRA=11:TP=-1.5"
 MUSIC_BASE_GAIN = 0.14
@@ -89,8 +99,16 @@ class TimelineEntry:
     clip_path_top: str | None = None
     clip_path_mid: str | None = None
     clip_path_bot: str | None = None
+    clip_path_a: str | None = None
+    clip_path_b: str | None = None
+    clip_path_1: str | None = None
+    clip_path_2: str | None = None
+    clip_path_3: str | None = None
+    clip_path_4: str | None = None
     background_path: str | None = None
     overlay_path: str | None = None
+    split_axis: str = "vertical"
+    motion_type: str = "push-in"
     overlay_scale: float | None = None
     overlay_position: tuple[str | int, str | int] | None = None
     overlay_crop_x: int | None = None
@@ -109,6 +127,12 @@ class TimelineEntry:
     clip_start_top: float | None = None
     clip_start_mid: float | None = None
     clip_start_bot: float | None = None
+    clip_start_a: float | None = None
+    clip_start_b: float | None = None
+    clip_start_1: float | None = None
+    clip_start_2: float | None = None
+    clip_start_3: float | None = None
+    clip_start_4: float | None = None
     loop_policy: str = "loop"
     background_loop_policy: str | None = None
     overlay_loop_policy: str | None = None
@@ -229,6 +253,12 @@ def load_timeline(timeline_path: Path) -> list[TimelineEntry]:
         ):
             if policy is not None and policy not in LOOP_POLICIES:
                 raise ValueError(f"Timeline entry {index} has invalid {field_name}: {policy!r}")
+        split_axis = item.get("split_axis", "vertical")
+        if split_axis not in SPLIT_AXES:
+            raise ValueError(f"Timeline entry {index} has invalid split_axis: {split_axis!r}")
+        motion_type = item.get("motion_type", "push-in")
+        if motion_type not in STILL_MOTION_TYPES:
+            raise ValueError(f"Timeline entry {index} has invalid motion_type: {motion_type!r}")
 
         entries.append(
             TimelineEntry(
@@ -239,8 +269,16 @@ def load_timeline(timeline_path: Path) -> list[TimelineEntry]:
                 clip_path_top=item.get("clip_path_top"),
                 clip_path_mid=item.get("clip_path_mid"),
                 clip_path_bot=item.get("clip_path_bot"),
+                clip_path_a=item.get("clip_path_a"),
+                clip_path_b=item.get("clip_path_b"),
+                clip_path_1=item.get("clip_path_1"),
+                clip_path_2=item.get("clip_path_2"),
+                clip_path_3=item.get("clip_path_3"),
+                clip_path_4=item.get("clip_path_4"),
                 background_path=item.get("background_path"),
                 overlay_path=item.get("overlay_path"),
+                split_axis=split_axis,
+                motion_type=motion_type,
                 overlay_scale=float(item["overlay_scale"]) if "overlay_scale" in item else None,
                 overlay_position=parsed_position,
                 overlay_crop_x=int(item["overlay_crop_x"]) if "overlay_crop_x" in item else None,
@@ -259,6 +297,12 @@ def load_timeline(timeline_path: Path) -> list[TimelineEntry]:
                 clip_start_top=float(item["clip_start_top"]) if "clip_start_top" in item else None,
                 clip_start_mid=float(item["clip_start_mid"]) if "clip_start_mid" in item else None,
                 clip_start_bot=float(item["clip_start_bot"]) if "clip_start_bot" in item else None,
+                clip_start_a=float(item["clip_start_a"]) if "clip_start_a" in item else None,
+                clip_start_b=float(item["clip_start_b"]) if "clip_start_b" in item else None,
+                clip_start_1=float(item["clip_start_1"]) if "clip_start_1" in item else None,
+                clip_start_2=float(item["clip_start_2"]) if "clip_start_2" in item else None,
+                clip_start_3=float(item["clip_start_3"]) if "clip_start_3" in item else None,
+                clip_start_4=float(item["clip_start_4"]) if "clip_start_4" in item else None,
                 loop_policy=loop_policy,
                 background_loop_policy=background_loop_policy,
                 overlay_loop_policy=overlay_loop_policy,
@@ -293,6 +337,21 @@ def require_ffmpeg() -> str:
         return ffmpeg_path
 
 
+def require_ffprobe() -> str:
+    ffprobe_path = shutil.which("ffprobe")
+    if ffprobe_path:
+        return ffprobe_path
+    ffmpeg_path = shutil.which("ffmpeg")
+    if ffmpeg_path:
+        candidate = Path(ffmpeg_path).with_name("ffprobe.exe")
+        if candidate.exists():
+            return str(candidate)
+    local = Path.home() / "Documents" / "FFmpeg" / "ffmpeg-master-latest-win64-gpl" / "bin" / "ffprobe.exe"
+    if local.exists():
+        return str(local)
+    raise RuntimeError("ffprobe is required to validate narration and soundtrack audio streams.")
+
+
 def run_ffmpeg(command: list[str]) -> None:
     try:
         subprocess.run(command, check=True, capture_output=True, text=True)
@@ -301,13 +360,84 @@ def run_ffmpeg(command: list[str]) -> None:
         raise RuntimeError(f"ffmpeg command failed: {message}") from exc
 
 
+def probe_audio_file(path: Path, label: str) -> dict[str, Any]:
+    ffprobe = require_ffprobe()
+    command = [
+        ffprobe,
+        "-v",
+        "error",
+        "-show_streams",
+        "-show_format",
+        "-of",
+        "json",
+        str(path),
+    ]
+    try:
+        completed = subprocess.run(command, check=True, capture_output=True, text=True)
+        data = json.loads(completed.stdout)
+    except (subprocess.CalledProcessError, json.JSONDecodeError) as exc:
+        raise RuntimeError(f"Could not probe {label}: {path}") from exc
+    audio_stream = next((stream for stream in data.get("streams", []) if stream.get("codec_type") == "audio"), None)
+    if not audio_stream:
+        raise ValueError(f"{label} has no audio stream: {path}")
+    fmt = data.get("format") or {}
+    try:
+        duration = float(fmt.get("duration") or audio_stream.get("duration") or 0)
+    except (TypeError, ValueError):
+        duration = 0.0
+    if duration <= 0:
+        raise ValueError(f"{label} has non-positive duration: {path}")
+    return {
+        "path": str(path),
+        "duration_seconds": round(duration, 3),
+        "codec": audio_stream.get("codec_name"),
+        "sample_rate": int(audio_stream["sample_rate"]) if audio_stream.get("sample_rate") else None,
+        "channels": int(audio_stream.get("channels") or 0),
+    }
+
+
+def write_audio_mix_manifest(
+    project_dir: Path,
+    output_path: Path,
+    target_duration: float,
+    narration_probe: dict[str, Any],
+    music_probe: dict[str, Any] | None,
+    mix_mode: str,
+) -> Path:
+    manifest = {
+        "output_path": str(output_path),
+        "target_duration_seconds": round(target_duration, 3),
+        "narration": narration_probe,
+        "music": {
+            "enabled": music_probe is not None,
+            "probe": music_probe,
+            "base_gain": MUSIC_BASE_GAIN if music_probe is not None else None,
+            "ducking": {
+                "enabled": music_probe is not None and mix_mode == "sidechain",
+                "threshold": DUCK_THRESHOLD,
+                "ratio": DUCK_RATIO,
+                "attack_ms": DUCK_ATTACK_MS,
+                "release_ms": DUCK_RELEASE_MS,
+            },
+        },
+        "voice_loudnorm": VOICE_LOUDNORM,
+        "final_peak_limit": FINAL_PEAK_LIMIT,
+        "mix_mode": mix_mode,
+        "audio_codec": DEFAULT_AUDIO_CODEC,
+    }
+    output = project_dir / "manifests" / "audio-mix-manifest.json"
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    return output
+
+
 def mux_with_processed_audio(
     video_path: Path,
     audio_path: Path,
     music_path: Path | None,
     output_path: Path,
     target_duration: float,
-) -> None:
+) -> str:
     ffmpeg = require_ffmpeg()
     duration = f"{target_duration:.3f}"
 
@@ -334,14 +464,14 @@ def mux_with_processed_audio(
             str(output_path),
         ]
         run_ffmpeg(command)
-        return
+        return "narration_only"
 
     filter_complex = (
         f"[1:a]atrim=0:{duration},asetpts=N/SR/TB,volume={MUSIC_BASE_GAIN}[musicbed];"
-        f"[2:a]{VOICE_LOUDNORM}[voice];"
-        f"[musicbed][voice]sidechaincompress="
+        f"[2:a]{VOICE_LOUDNORM},asplit=2[voice_sc][voice_mix];"
+        f"[musicbed][voice_sc]sidechaincompress="
         f"threshold={DUCK_THRESHOLD}:ratio={DUCK_RATIO}:attack={DUCK_ATTACK_MS}:release={DUCK_RELEASE_MS}[ducked];"
-        f"[ducked][voice]amix=inputs=2:normalize=0,"
+        f"[ducked][voice_mix]amix=inputs=2:normalize=0,"
         f"alimiter=limit={FINAL_PEAK_LIMIT}[mix]"
     )
     command = [
@@ -370,6 +500,7 @@ def mux_with_processed_audio(
     ]
     try:
         run_ffmpeg(command)
+        return "sidechain"
     except RuntimeError:
         # Fallback: if sidechain ducking fails in ffmpeg, keep the music bed quiet
         # and produce a safe final mix rather than failing the entire render.
@@ -404,6 +535,7 @@ def mux_with_processed_audio(
             str(output_path),
         ]
         run_ffmpeg(fallback_command)
+        return "fallback_quiet_mix"
 
 
 def trim_or_loop_clip(clip: VideoFileClip, target_duration: float, loop_policy: str, label: str):
@@ -629,6 +761,41 @@ def add_caption_overlay(segment, entry: TimelineEntry):
     return composite, [composite, caption_clip]
 
 
+def build_panel_clip(project_dir: Path, raw_path: str | None, duration: float, start_offset: float, loop_policy: str, label: str, size: tuple[int, int]):
+    path = resolve_media_path(project_dir, raw_path, label)
+    clip, source = normalize_video_clip(path, duration, start_offset, loop_policy, label)
+    fitted, handles = scale_clip_to_canvas(clip, size, "cover")
+    return fitted, [clip, source, fitted, *handles]
+
+
+def build_stack_2_clip(project_dir: Path, entry: TimelineEntry):
+    panel_h = OUTPUT_HEIGHT // 2
+    top, top_handles = build_panel_clip(
+        project_dir,
+        entry.clip_path_top,
+        entry.duration,
+        entry.clip_offset("clip_start_top"),
+        entry.loop_policy,
+        "STACK_2 top clip",
+        (OUTPUT_WIDTH, panel_h),
+    )
+    bot, bot_handles = build_panel_clip(
+        project_dir,
+        entry.clip_path_bot,
+        entry.duration,
+        entry.clip_offset("clip_start_bot"),
+        entry.loop_policy,
+        "STACK_2 bottom clip",
+        (OUTPUT_WIDTH, OUTPUT_HEIGHT - panel_h),
+    )
+    background = ColorClip(size=(OUTPUT_WIDTH, OUTPUT_HEIGHT), color=(0, 0, 0)).with_duration(entry.duration)
+    composite = CompositeVideoClip(
+        [background, top.with_position((0, 0)), bot.with_position((0, panel_h))],
+        size=(OUTPUT_WIDTH, OUTPUT_HEIGHT),
+    ).with_duration(entry.duration)
+    return composite, [composite, background, *top_handles, *bot_handles]
+
+
 def build_stack_3_clip(project_dir: Path, entry: TimelineEntry):
     top_path = resolve_media_path(project_dir, entry.clip_path_top, "clip_path_top")
     mid_path = resolve_media_path(project_dir, entry.clip_path_mid, "clip_path_mid")
@@ -686,6 +853,144 @@ def build_stack_3_clip(project_dir: Path, entry: TimelineEntry):
         bot_source,
         bot_resized,
     ]
+
+
+def build_split_2_clip(project_dir: Path, entry: TimelineEntry):
+    if entry.split_axis == "horizontal":
+        panel_h = OUTPUT_HEIGHT // 2
+        size_a = (OUTPUT_WIDTH, panel_h)
+        size_b = (OUTPUT_WIDTH, OUTPUT_HEIGHT - panel_h)
+        pos_a = (0, 0)
+        pos_b = (0, panel_h)
+    else:
+        panel_w = OUTPUT_WIDTH // 2
+        size_a = (panel_w, OUTPUT_HEIGHT)
+        size_b = (OUTPUT_WIDTH - panel_w, OUTPUT_HEIGHT)
+        pos_a = (0, 0)
+        pos_b = (panel_w, 0)
+
+    panel_a, handles_a = build_panel_clip(
+        project_dir,
+        entry.clip_path_a,
+        entry.duration,
+        entry.clip_offset("clip_start_a"),
+        entry.loop_policy,
+        "SPLIT_2 panel A",
+        size_a,
+    )
+    panel_b, handles_b = build_panel_clip(
+        project_dir,
+        entry.clip_path_b,
+        entry.duration,
+        entry.clip_offset("clip_start_b"),
+        entry.loop_policy,
+        "SPLIT_2 panel B",
+        size_b,
+    )
+    background = ColorClip(size=(OUTPUT_WIDTH, OUTPUT_HEIGHT), color=(0, 0, 0)).with_duration(entry.duration)
+    composite = CompositeVideoClip(
+        [background, panel_a.with_position(pos_a), panel_b.with_position(pos_b)],
+        size=(OUTPUT_WIDTH, OUTPUT_HEIGHT),
+    ).with_duration(entry.duration)
+    return composite, [composite, background, *handles_a, *handles_b]
+
+
+def build_grid_4_clip(project_dir: Path, entry: TimelineEntry):
+    panel_w = OUTPUT_WIDTH // 2
+    panel_h = OUTPUT_HEIGHT // 2
+    panel_specs = [
+        ("clip_path_1", "clip_start_1", (0, 0), (panel_w, panel_h), "GRID_4 clip 1"),
+        ("clip_path_2", "clip_start_2", (panel_w, 0), (OUTPUT_WIDTH - panel_w, panel_h), "GRID_4 clip 2"),
+        ("clip_path_3", "clip_start_3", (0, panel_h), (panel_w, OUTPUT_HEIGHT - panel_h), "GRID_4 clip 3"),
+        ("clip_path_4", "clip_start_4", (panel_w, panel_h), (OUTPUT_WIDTH - panel_w, OUTPUT_HEIGHT - panel_h), "GRID_4 clip 4"),
+    ]
+    layers = []
+    handles = []
+    for path_field, start_field, position, size, label in panel_specs:
+        panel, panel_handles = build_panel_clip(
+            project_dir,
+            getattr(entry, path_field),
+            entry.duration,
+            entry.clip_offset(start_field),
+            entry.loop_policy,
+            label,
+            size,
+        )
+        layers.append(panel.with_position(position))
+        handles.extend(panel_handles)
+    background = ColorClip(size=(OUTPUT_WIDTH, OUTPUT_HEIGHT), color=(0, 0, 0)).with_duration(entry.duration)
+    composite = CompositeVideoClip([background, *layers], size=(OUTPUT_WIDTH, OUTPUT_HEIGHT)).with_duration(entry.duration)
+    return composite, [composite, background, *handles, *layers]
+
+
+def cover_crop_box(image_size: tuple[int, int], output_size: tuple[int, int], scale: float) -> tuple[float, float, float, float]:
+    width, height = image_size
+    out_w, out_h = output_size
+    aspect = out_w / out_h
+    if width / height > aspect:
+        crop_h = height * scale
+        crop_w = crop_h * aspect
+    else:
+        crop_w = width * scale
+        crop_h = crop_w / aspect
+    if crop_w > width or crop_h > height:
+        raise ValueError("requested still-motion crop exceeds image bounds")
+    x = (width - crop_w) / 2
+    y = (height - crop_h) / 2
+    return (x, y, crop_w, crop_h)
+
+
+def motion_crop_boxes(image_size: tuple[int, int], output_size: tuple[int, int], motion_type: str) -> tuple[tuple[float, float, float, float], tuple[float, float, float, float]]:
+    base = cover_crop_box(image_size, output_size, 1.0)
+    moving = cover_crop_box(image_size, output_size, 0.84)
+    width, height = image_size
+    x, y, w, h = moving
+    max_x = width - w
+    max_y = height - h
+
+    if motion_type == "push-in":
+        return base, moving
+    if motion_type == "pull-back":
+        return moving, base
+    if motion_type == "pan-left":
+        return (max_x, y, w, h), (0, y, w, h)
+    if motion_type == "pan-right":
+        return (0, y, w, h), (max_x, y, w, h)
+    if motion_type == "pan-up":
+        return (x, max_y, w, h), (x, 0, w, h)
+    if motion_type == "pan-down":
+        return (x, 0, w, h), (x, max_y, w, h)
+    if motion_type == "diagonal-drift":
+        return (0, 0, w, h), (max_x, max_y, w, h)
+    if motion_type == "swipe-in":
+        return (0, y, w, h), (max_x, y, w, h)
+    raise ValueError(f"Unsupported still motion type: {motion_type!r}")
+
+
+def build_still_motion_clip(project_dir: Path, entry: TimelineEntry):
+    path = resolve_media_path(project_dir, entry.clip_path, "STILL_MOTION clip_path")
+    if path.suffix.lower() not in IMAGE_EXTENSIONS:
+        return build_standard_clip(project_dir, entry)
+
+    try:
+        from PIL import Image
+    except ImportError as exc:
+        raise RuntimeError("Pillow is required for direct STILL_MOTION image rendering.") from exc
+
+    image = Image.open(path).convert("RGB")
+    start_box, end_box = motion_crop_boxes(image.size, (OUTPUT_WIDTH, OUTPUT_HEIGHT), entry.motion_type)
+
+    def make_frame(t: float):
+        progress = 0.0 if entry.duration <= 0 else max(0.0, min(1.0, t / entry.duration))
+        eased = progress * progress * (3 - 2 * progress)
+        box = tuple(start_box[i] + (end_box[i] - start_box[i]) * eased for i in range(4))
+        left, top, width, height = box
+        crop = image.crop((int(round(left)), int(round(top)), int(round(left + width)), int(round(top + height))))
+        resized = crop.resize((OUTPUT_WIDTH, OUTPUT_HEIGHT), Image.Resampling.LANCZOS)
+        return np.array(resized)
+
+    clip = VideoClip(make_frame, duration=entry.duration)
+    return clip, [clip]
 
 
 def crop_to_square(clip, crop_x: int, crop_y: int, crop_size: int | None = None):
@@ -813,8 +1118,11 @@ def compose_video(
 ) -> Path:
     entries = load_timeline(timeline_path)
     ensure_file(audio_path, "Audio file")
+    narration_probe = probe_audio_file(audio_path, "Audio file")
+    music_probe = None
     if music_path is not None:
         ensure_file(music_path, "Music file")
+        music_probe = probe_audio_file(music_path, "Music file")
 
     opened: list[Any] = []
     visual_segments = []
@@ -829,8 +1137,16 @@ def compose_video(
                 segment, handles = build_pip_clip(project_dir, entry)
             elif entry.type == "TEXT":
                 segment, handles = build_text_clip(project_dir, entry)
+            elif entry.type == "STACK_2":
+                segment, handles = build_stack_2_clip(project_dir, entry)
             elif entry.type == "STACK_3":
                 segment, handles = build_stack_3_clip(project_dir, entry)
+            elif entry.type == "SPLIT_2":
+                segment, handles = build_split_2_clip(project_dir, entry)
+            elif entry.type == "GRID_4":
+                segment, handles = build_grid_4_clip(project_dir, entry)
+            elif entry.type == "STILL_MOTION":
+                segment, handles = build_still_motion_clip(project_dir, entry)
             else:
                 raise ValueError(f"Unsupported timeline type: {entry.type}")
             segment, caption_handles = add_caption_overlay(segment, entry)
@@ -849,7 +1165,8 @@ def compose_video(
             codec=DEFAULT_CODEC,
             audio=False,
         )
-        mux_with_processed_audio(temp_video_path, audio_path, music_path, output_path, entries[-1].end_time)
+        mix_mode = mux_with_processed_audio(temp_video_path, audio_path, music_path, output_path, entries[-1].end_time)
+        write_audio_mix_manifest(project_dir, output_path, entries[-1].end_time, narration_probe, music_probe, mix_mode)
         return output_path
     finally:
         close_all([final_video, *visual_segments, *opened])

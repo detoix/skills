@@ -1,0 +1,7 @@
+interface:
+  display_name: "Animated B-roll Boards"
+  short_description: "Polished animated HTML boards for reels"
+  brand_color: "#38BDF8"
+  default_prompt: "Use $animated-broll-boards to create a polished animated vertical B-roll board for this reel segment."
+policy:
+  allow_implicit_invocation: true

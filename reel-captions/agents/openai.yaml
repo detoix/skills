@@ -1,0 +1,4 @@
+interface:
+  display_name: "Reel Captions"
+  short_description: "Word-level captions for vertical reels"
+  default_prompt: "Use $reel-captions to add modern word-by-word captions to a rendered reel."

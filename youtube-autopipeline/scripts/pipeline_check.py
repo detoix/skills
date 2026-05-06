@@ -16,20 +16,55 @@ from typing import Any
 
 SCRIPT_VISUALS = {
     "landscape": {"A_ROLL", "B_ROLL", "PUNCH_IN", "TEXT_GRAPHIC", "PIP"},
-    "vertical": {"A_ROLL", "B_ROLL", "PUNCH_IN", "TEXT", "TEXT_GRAPHIC", "PIP", "STACK_3"},
+    "vertical": {"A_ROLL", "B_ROLL", "PUNCH_IN", "TEXT", "TEXT_GRAPHIC", "PIP", "STACK_2", "STACK_3", "SPLIT_2", "GRID_4", "STILL_MOTION"},
 }
-TIMELINE_TYPES = {"A-ROLL", "B-ROLL", "PIP", "TEXT", "STACK_3"}
+TIMELINE_TYPES = {"A-ROLL", "B-ROLL", "PIP", "TEXT", "STACK_2", "STACK_3", "SPLIT_2", "GRID_4", "STILL_MOTION"}
 LOOP_POLICIES = {"loop", "error"}
+SPLIT_AXES = {"horizontal", "vertical"}
+STILL_MOTION_TYPES = {"push-in", "pull-back", "pan-left", "pan-right", "pan-up", "pan-down", "diagonal-drift", "swipe-in"}
 CAPTION_POSITIONS = {"top", "center", "bottom"}
 PRESENTER_TYPES = {"A-ROLL", "PIP"}
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
-BROLL_SOURCE_TYPES = {"webpage", "stock", "screen-record", "generated-image", "manual"}
+AUDIO_EXTENSIONS = {".mp3", ".wav", ".m4a", ".aac", ".flac", ".ogg"}
+BROLL_SOURCE_TYPES = {"webpage", "stock", "screen-record", "generated-image", "manual", "local-html", "motion-graphic", "animated-board"}
 GRAPHIC_TARGETS = {"TEXT", "B_ROLL", "PIP", "manual"}
 ASSEMBLY_RISKS = {"none", "fallback", "manual-review"}
+SECTION_PATTERNS = {
+    "fullscreen-stock",
+    "fullscreen-manual",
+    "fullscreen-webpage",
+    "fullscreen-generated-motion",
+    "pip-presenter-broll",
+    "pip-presenter-screen",
+    "split-presenter-demo",
+    "split-comparison",
+    "stack-2",
+    "stack-3",
+    "grid-4",
+    "custom-html-capture",
+    "animated-board-capture",
+    "pip-presenter-over-animated-board",
+    "receipt-highlight",
+    "kinetic-text",
+    "before-after",
+    "this-vs-that",
+    "myth-fact",
+    "mistake-fix",
+    "step-by-step",
+    "checklist",
+    "countdown",
+    "map-path",
+    "timeline",
+    "zoomed-detail",
+    "product-in-use",
+    "reaction-reference",
+    "seamless-loop",
+}
 REQUIRED_SKILLS = (
     "youtube-scriptwriter",
     "tts",
     "latentsync",
+    "animated-broll-boards",
     "playwright-broll-recorder",
     "moviepy-video-composer",
 )
@@ -342,6 +377,44 @@ def media_duration(path: Path, report: Report) -> float | None:
         return None
 
 
+def probe_audio(path: Path, report: Report) -> dict[str, Any] | None:
+    ffprobe = find_ffprobe()
+    if not ffprobe:
+        report.warn("ffprobe-missing", "ffprobe not found; audio streams could not be checked")
+        return None
+    command = [
+        ffprobe,
+        "-v",
+        "error",
+        "-show_streams",
+        "-show_format",
+        "-of",
+        "json",
+        str(path),
+    ]
+    try:
+        completed = subprocess.run(command, check=True, capture_output=True, text=True)
+        data = json.loads(completed.stdout)
+    except (subprocess.CalledProcessError, json.JSONDecodeError) as exc:
+        report.warn("audio-probe-unavailable", f"could not probe audio for {path}: {exc}")
+        return None
+    audio_stream = next((stream for stream in data.get("streams", []) if stream.get("codec_type") == "audio"), None)
+    if not audio_stream:
+        report.error("audio-stream-missing", f"no audio stream found in {path}")
+        return None
+    fmt = data.get("format") or {}
+    try:
+        duration = float(fmt.get("duration") or audio_stream.get("duration") or 0)
+    except (TypeError, ValueError):
+        duration = 0.0
+    return {
+        "duration_seconds": duration,
+        "codec": audio_stream.get("codec_name"),
+        "sample_rate": int(audio_stream["sample_rate"]) if audio_stream.get("sample_rate") else None,
+        "channels": int(audio_stream.get("channels") or 0),
+    }
+
+
 def validate_loop_policy(value: Any, report: Report, context: str) -> str:
     if value is None:
         return "loop"
@@ -349,6 +422,11 @@ def validate_loop_policy(value: Any, report: Report, context: str) -> str:
         report.error("loop-policy", f"{context} must be one of {sorted(LOOP_POLICIES)}")
         return "loop"
     return str(value)
+
+
+def path_looks_like_presenter(path: Path) -> bool:
+    lowered = str(path).lower()
+    return any(marker in lowered for marker in ("synced", "presenter", "avatar", "profile", "a-roll", "aroll"))
 
 
 def validate_timeline(timeline: Any, project_dir: Path, report: Report, audio_path: Path | None = None) -> None:
@@ -402,10 +480,27 @@ def validate_timeline(timeline: Any, project_dir: Path, report: Report, audio_pa
             media_fields.append(("background_path", "TEXT background", clip_start, background_loop))
             if not isinstance(entry.get("text"), str) or not entry.get("text", "").strip():
                 report.error("text-empty", f"{context}.text must be non-empty")
+        elif entry_type == "STACK_2":
+            media_fields.append(("clip_path_top", "STACK_2 top", as_number(entry.get("clip_start_top")) or clip_start, loop_policy))
+            media_fields.append(("clip_path_bot", "STACK_2 bottom", as_number(entry.get("clip_start_bot")) or clip_start, loop_policy))
         elif entry_type == "STACK_3":
             media_fields.append(("clip_path_top", "STACK_3 top", as_number(entry.get("clip_start_top")) or clip_start, loop_policy))
             media_fields.append(("clip_path_mid", "STACK_3 mid", as_number(entry.get("clip_start_mid")) or clip_start, loop_policy))
             media_fields.append(("clip_path_bot", "STACK_3 bot", as_number(entry.get("clip_start_bot")) or clip_start, loop_policy))
+        elif entry_type == "SPLIT_2":
+            if entry.get("split_axis", "vertical") not in SPLIT_AXES:
+                report.error("split-axis", f"{context}.split_axis must be one of {sorted(SPLIT_AXES)}")
+            media_fields.append(("clip_path_a", "SPLIT_2 panel A", as_number(entry.get("clip_start_a")) or clip_start, loop_policy))
+            media_fields.append(("clip_path_b", "SPLIT_2 panel B", as_number(entry.get("clip_start_b")) or clip_start, loop_policy))
+        elif entry_type == "GRID_4":
+            media_fields.append(("clip_path_1", "GRID_4 clip 1", as_number(entry.get("clip_start_1")) or clip_start, loop_policy))
+            media_fields.append(("clip_path_2", "GRID_4 clip 2", as_number(entry.get("clip_start_2")) or clip_start, loop_policy))
+            media_fields.append(("clip_path_3", "GRID_4 clip 3", as_number(entry.get("clip_start_3")) or clip_start, loop_policy))
+            media_fields.append(("clip_path_4", "GRID_4 clip 4", as_number(entry.get("clip_start_4")) or clip_start, loop_policy))
+        elif entry_type == "STILL_MOTION":
+            if entry.get("motion_type", "push-in") not in STILL_MOTION_TYPES:
+                report.error("still-motion-type", f"{context}.motion_type must be one of {sorted(STILL_MOTION_TYPES)}")
+            media_fields.append(("clip_path", "STILL_MOTION clip", clip_start, loop_policy))
 
         caption = entry.get("caption_text")
         if caption is not None:
@@ -430,6 +525,8 @@ def validate_timeline(timeline: Any, project_dir: Path, report: Report, audio_pa
             if not path.exists() or not path.is_file():
                 report.error("media-missing", f"{context} {label} not found: {path}")
                 continue
+            if path_looks_like_presenter(path) and policy != "error":
+                report.error("presenter-loop-policy", f"{context} {field} looks like presenter media and must use loop_policy/error")
             if start_offset < 0:
                 report.error("clip-start", f"{context} {field} start offset must be non-negative")
                 continue
@@ -607,6 +704,102 @@ def validate_asset_manifest(manifest: Any, report: Report, format_mode: str | No
             report.error("asset-profile-landscape", "landscape mode requires a landscape profile presenter plate")
 
 
+def validate_music_manifest(manifest: Any, project_dir: Path, report: Report) -> None:
+    if not isinstance(manifest, dict):
+        report.error("music-manifest-shape", "music manifest must be an object")
+        return
+    enabled = manifest.get("enabled")
+    if not isinstance(enabled, bool):
+        report.error("music-enabled", "music manifest enabled must be true or false")
+        return
+    if enabled is False:
+        return
+
+    require_keys(
+        manifest,
+        (
+            "original_path",
+            "project_path",
+            "sha256",
+            "duration_seconds",
+            "codec",
+            "sample_rate",
+            "channels",
+            "size_bytes",
+        ),
+        report,
+        "music manifest",
+    )
+    project_path = resolve_path(project_dir, manifest.get("project_path"))
+    if project_path is None:
+        report.error("music-path", "music manifest project_path must be non-empty")
+        return
+    if project_path.suffix.lower() not in AUDIO_EXTENSIONS:
+        report.error("music-extension", f"music file extension must be one of {sorted(AUDIO_EXTENSIONS)}")
+    if not project_path.exists() or not project_path.is_file():
+        report.error("music-missing", f"music file not found: {project_path}")
+        return
+
+    duration = as_number(manifest.get("duration_seconds"))
+    if duration is None or duration <= 0:
+        report.error("music-duration", "music manifest duration_seconds must be positive")
+    channels = as_number(manifest.get("channels"))
+    if channels is None or channels <= 0:
+        report.error("music-channels", "music manifest channels must be positive")
+    sample_rate = as_number(manifest.get("sample_rate"))
+    if sample_rate is None or sample_rate <= 0:
+        report.error("music-sample-rate", "music manifest sample_rate must be positive")
+    if not isinstance(manifest.get("sha256"), str) or len(manifest.get("sha256", "")) != 64:
+        report.error("music-sha256", "music manifest sha256 must be a 64-character hex digest")
+
+    probe = probe_audio(project_path, report)
+    if probe and probe["duration_seconds"] <= 0:
+        report.error("music-duration", f"music file has non-positive probed duration: {project_path}")
+
+
+def validate_selected_visuals_manifest(manifest: Any, report: Report) -> None:
+    if not isinstance(manifest, dict):
+        report.error("selected-visuals-shape", "selected visuals manifest must be an object")
+        return
+    items = manifest.get("items")
+    if not isinstance(items, list):
+        report.error("selected-visuals-items", "selected visuals manifest must include an items array")
+        return
+    accepted_patterns: set[str] = set()
+    accepted_canonicals: dict[str, int] = {}
+    for index, item in enumerate(items):
+        context = f"selected_visuals.items[{index}]"
+        if not isinstance(item, dict):
+            report.error("selected-visuals-item", f"{context} must be an object")
+            continue
+        require_keys(item, ("segment_id", "section_pattern", "source_type", "canonical_id", "accepted", "reason", "risk"), report, context)
+        pattern = item.get("section_pattern")
+        source_type = item.get("source_type")
+        canonical_id = item.get("canonical_id")
+        if pattern not in SECTION_PATTERNS:
+            report.error("section-pattern", f"{context}.section_pattern must be one of {sorted(SECTION_PATTERNS)}")
+        if source_type not in BROLL_SOURCE_TYPES:
+            report.error("visual-source-type", f"{context}.source_type must be one of {sorted(BROLL_SOURCE_TYPES)}")
+        if not isinstance(canonical_id, str) or not canonical_id.strip():
+            report.error("canonical-id", f"{context}.canonical_id must be non-empty")
+        if item.get("accepted") is True:
+            accepted_patterns.add(str(pattern))
+            if isinstance(canonical_id, str) and canonical_id:
+                accepted_canonicals[canonical_id] = accepted_canonicals.get(canonical_id, 0) + 1
+            if not str(item.get("reason", "")).strip():
+                report.error("visual-reason", f"{context}.reason must explain why the visual fits")
+    duplicates = sorted(key for key, count in accepted_canonicals.items() if count > 1)
+    for canonical_id in duplicates:
+        report.error("duplicate-canonical-id", f"accepted selected visuals reuse canonical_id: {canonical_id}")
+    target_duration = as_number(manifest.get("target_duration_seconds"))
+    creative_reason = str(manifest.get("single_pattern_reason", "")).strip()
+    if target_duration is not None and target_duration > 45 and len(accepted_patterns) < 3 and not creative_reason:
+        report.error(
+            "low-section-variety",
+            "selected visuals for reels over 45 seconds require at least three section patterns or single_pattern_reason",
+        )
+
+
 def validate_z_image_plan(plan: Any, report: Report, require_review: bool) -> None:
     if not isinstance(plan, dict):
         report.error("z-image-plan-shape", "z-image plan must be an object")
@@ -660,6 +853,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--script", help="Path to script.json to validate.")
     parser.add_argument("--timeline", help="Path to timeline.json to validate.")
     parser.add_argument("--asset-manifest", help="Path to assets-manifest.json to validate.")
+    parser.add_argument("--music-manifest", help="Path to music-manifest.json to validate.")
+    parser.add_argument("--selected-visuals", help="Path to selected-visuals manifest to validate.")
     parser.add_argument("--z-image-plan", help="Path to z-image-plan.json to validate.")
     parser.add_argument("--audio", help="Path to final narration audio for duration validation.")
     parser.add_argument("--format", choices=("landscape", "vertical"), help="Expected output format.")
@@ -706,6 +901,18 @@ def main() -> int:
         manifest = load_json(asset_manifest_path, report, "asset manifest")
         if manifest is not None:
             validate_asset_manifest(manifest, report, args.format, args.allow_test_input)
+
+    music_manifest_path = Path(args.music_manifest).resolve() if args.music_manifest else None
+    if music_manifest_path and args.mode in {"all", "preflight", "assets"}:
+        manifest = load_json(music_manifest_path, report, "music manifest")
+        if manifest is not None:
+            validate_music_manifest(manifest, project_dir, report)
+
+    selected_visuals_path = Path(args.selected_visuals).resolve() if args.selected_visuals else None
+    if selected_visuals_path and args.mode in {"all", "preflight", "assets"}:
+        manifest = load_json(selected_visuals_path, report, "selected visuals manifest")
+        if manifest is not None:
+            validate_selected_visuals_manifest(manifest, report)
 
     z_image_plan_path = Path(args.z_image_plan).resolve() if args.z_image_plan else None
     if z_image_plan_path and args.mode in {"all", "preflight", "assets"}:

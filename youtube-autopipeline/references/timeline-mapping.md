@@ -59,6 +59,19 @@ Reviewed generated stills from `z-image-turbo` can also be used as `clip_path` v
 
 Do not set `clip_start` on still images.
 
+Animated board clips from `animated-broll-boards` should be used as normal video `clip_path` values:
+
+```json
+{
+  "type": "B-ROLL",
+  "clip_path": "broll/boards/S03_process/S03_process.webm",
+  "clip_start": 0.0,
+  "loop_policy": "loop",
+  "start_time": 5.0,
+  "end_time": 11.0
+}
+```
+
 ### PIP
 
 Map to:
