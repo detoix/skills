@@ -12,7 +12,7 @@ Use this rubric before setting `--agent-visual-review-pass` in `visual_qa.py`. S
 - Audio: narration is intelligible, not prompt-prefixed, and not buried under music. YouTube filming guidance emphasizes low echo/background noise for useful sound. URL: https://support.google.com/youtube/answer/12948118?co=YOUTUBE._YTVideoType%3Dshorts&hl=en
 - Generated visuals: z-image outputs must look intentional, vertically composed, and segment-relevant. Reject generic filler, malformed images, fake logos, unreadable text, private data, or placeholder-looking art.
 - Generated visual provenance: every `broll/generated/` timeline reference must map to a reviewed accepted item in `manifests/z-image-plan.json`.
-- Animated boards: `broll/boards/` outputs must be polished motion-design clips with readable text, visible animation, and a passing `board-qa.json`. Static PNG/Pillow UI boards fail production QA unless the user explicitly requested a still.
+- Animated boards: `broll/boards/` outputs must be custom art-directed motion-design clips with readable text, visible animation, creative metadata, and a passing `board-qa.json`. Static PNG/Pillow UI boards and template-like checklist/timeline/card-stack boards fail production QA unless the user explicitly requested a still.
 - Asset truthfulness: real production runs use user-provided assets when the brief depends on a real person, product, brand, app, location, or voice. Disposable test inputs are test-only and must not become skill assumptions.
 
 ## Automatic Failure Conditions
@@ -20,6 +20,7 @@ Use this rubric before setting `--agent-visual-review-pass` in `visual_qa.py`. S
 - Any frame looks like a test harness, template placeholder, empty colored card, broken web page, loading page, or generic stock filler.
 - Any text overlaps captions, PiP, platform UI danger zones, or other text.
 - Any abstract/UI/infographic B-roll is an ad hoc static PNG/Pillow board without explicit user approval.
+- Any animated board is only a generic checklist/timeline/dashboard/card-stack template rather than a custom motion scene with a clear visual metaphor.
 - PiP is not circular when the plan calls for a talking-head bubble.
 - Presenter face is awkwardly cropped, too soft, identity-drifted, or visibly lip-sync-broken.
 - Generated imagery is used to avoid asking for required user assets.

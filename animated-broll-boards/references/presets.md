@@ -1,6 +1,6 @@
 # Visual Presets
 
-Use presets as controlled design directions. Keep the scene custom to the segment; do not make repeated boards look cloned.
+Use presets only as loose art-direction hints. They are not themes, templates, or layout systems. The final scene must still be custom to the segment.
 
 ## `premium-saas`
 
@@ -8,15 +8,15 @@ Default for abstract ideas, metrics, dashboards, and neutral explainers.
 
 - Dark ink background, crisp panels, electric cyan/lime accents.
 - Large modern sans typography, restrained depth, thin grid/axis details.
-- Best for: metrics, comparison, process, risk, timelines.
+- Best for: abstract explainers, fictional interfaces, metrics, comparison, process, risk, timelines.
 
 ## `construction-tech`
 
 For building, logistics, manufacturing, architecture, prefab, energy, and field operations.
 
 - Deep graphite background, safety-lime/blue/amber accents, blueprint grid lines.
-- Use line paths, module blocks, site/factory labels, checklist ticks, route nodes.
-- Avoid literal clipart houses unless simplified into modern icons.
+- Use line paths, module blocks, site/factory labels, route nodes, blueprint transforms, material flow.
+- Avoid literal clipart houses and repeated card stacks.
 
 ## `real-estate-premium`
 

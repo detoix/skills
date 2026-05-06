@@ -1,93 +1,106 @@
 ---
 name: animated-broll-boards
-description: Create high-quality animated HTML/CSS/JS B-roll boards for reels, Shorts, and video explainers. Use when Codex needs polished motion graphics, synthetic UI boards, checklists, timelines, comparisons, dashboards, process diagrams, logistics maps, metric beats, risk matrices, or other abstract/infographic B-roll that should be recorded as video instead of static PNG.
+description: Create original, high-quality animated HTML/CSS/JS B-roll motion scenes for reels, Shorts, and video explainers. Use when Codex needs custom art-directed synthetic UI, kinetic typography, abstract explainers, process visuals, diagrams, dashboards, maps, comparisons, or motion-graphic B-roll recorded as video instead of static PNG.
 ---
 
 # Animated B-roll Boards
 
-Use this skill to produce polished synthetic motion-graphic B-roll from local `HTML/CSS/JS`, then record it as `.webm` for timeline use.
+This skill is an art-direction workflow, not a template generator.
+
+Use it to create a custom animated scene for a specific reel segment. The agent must design the visual idea, composition, typography, and motion language, then write dedicated project-local `HTML/CSS/JS`.
+
+## Hard Rules
+
+- No fallback mode.
+- No template mode.
+- No static PNG UI boards.
+- No Pillow-generated production boards.
+- Do not use fixed component/layout generators as the creative output.
+- Narrative labels like `checklist`, `timeline`, `process-flow`, or `comparison` are intent hints only; they are not layout instructions.
+- Every accepted board must have a real visual metaphor and custom motion beats.
+- Preserve user-facing copy exactly as provided in `copy_blocks`, including Unicode, accents, diacritics, casing, punctuation, and non-Latin scripts. ASCII-only defaults apply only to code identifiers and filenames, not visible text.
 
 ## Workflow
 
-1. Choose a board type and preset:
-   - Board types: `hero-metric`, `comparison-split`, `checklist`, `process-flow`, `timeline`, `logistics-map`, `bar-comparison`, `risk-matrix`, `myth-fact`
-   - Presets: `premium-saas`, `construction-tech`, `real-estate-premium`, `bold-reel`, `minimal-editorial`
-2. Create the board:
+1. Write `<project-dir>\broll\boards\<board-id>\board-creative-brief.json`.
+   It must include:
+   - `intent`
+   - `audience`
+   - `visual_metaphor`
+   - `art_direction`
+   - `composition`
+   - `motion_beats`
+   - `copy_blocks`
+   - `avoid`
+   - `acceptance_notes`
+   Optional:
+   - `format`: `vertical` or `landscape`
+   - `duration`
+   - `narrative_intent`
+   - `preset`
+2. Initialize the board contract:
    ```powershell
    node C:\Users\kdeptula\skills\animated-broll-boards\scripts\create_board.mjs `
      --project-dir <project-dir> `
-     --board-id S03_process `
-     --type process-flow `
-     --preset construction-tech `
-     --format vertical `
-     --duration 6 `
-     --title "Szybszy start" `
-     --subtitle "Fundament i elementy domu powstają równolegle" `
-     --items "Działka|Fabryka|Transport|Montaż"
+     --board-id <board-id> `
+     --data-json <project-dir>\broll\boards\<board-id>\board-creative-brief.json
    ```
-3. Run board QA before recording:
+3. Replace the generated `index.html` shell with a custom scene.
+   - Use bespoke HTML/CSS/JS for that segment.
+   - Use motion primitives such as line drawing, masking, stagger, parallax, count-up, path movement, morphing, scroll-free camera moves, or state transitions.
+   - Keep text readable at phone scale.
+4. Re-run the initializer with the same arguments so `board-manifest.json` records the final `scene_hash`. The initializer must not overwrite an existing `index.html`.
+5. Run QA:
    ```powershell
    node C:\Users\kdeptula\skills\animated-broll-boards\scripts\qa_board.mjs `
      --project-dir <project-dir> `
-     --board-id S03_process
+     --board-id <board-id>
    ```
-4. Render the board:
+6. Render:
    ```powershell
    node C:\Users\kdeptula\skills\animated-broll-boards\scripts\render_board.mjs `
      --project-dir <project-dir> `
-     --board-id S03_process
+     --board-id <board-id>
    ```
-5. Add the `.webm` output to `timeline.json` as `B-ROLL`, `PIP`, `SPLIT_2`, `STACK_2`, or `GRID_4` input as appropriate.
+7. Record the accepted board in `manifests\selected-visuals.json` with:
+   - `source_type: "animated-board"`
+   - `creative_concept`
+   - `visual_metaphor`
+   - `motion_summary`
+   - `local_path: "broll/boards/<board-id>/<board-id>.webm"`
 
 ## Output Contract
 
+- Creative brief: `<project-dir>\broll\boards\<board-id>\board-creative-brief.json`
 - HTML scene: `<project-dir>\broll\boards\<board-id>\index.html`
 - Manifest: `<project-dir>\broll\boards\<board-id>\board-manifest.json`
 - Preview screenshot: `<project-dir>\broll\boards\<board-id>\preview.png`
 - Clip: `<project-dir>\broll\boards\<board-id>\<board-id>.webm`
 
-Record accepted visuals in `manifests\selected-visuals.json`:
+## Design Standard
 
-```json
-{
-  "section_pattern": "custom-html-capture",
-  "source_type": "animated-board",
-  "canonical_id": "<board-id>",
-  "local_path": "broll/boards/<board-id>/<board-id>.webm",
-  "risk": "synthetic explanatory motion graphic"
-}
-```
-
-## Design Rules
-
-- Treat every board as a finished motion-design scene, not a static infographic.
-- Use real hierarchy: large headline, concise supporting copy, clear component structure, consistent spacing.
-- Include visible motion: reveal, count-up, line draw, progress fill, stagger, parallax, or state transition.
-- Keep critical text in vertical safe zones and readable on a phone.
-- Prefer modern UI composition over clipart: typography, shapes, lines, grids, counters, labels, charts, paths.
-- Default to `premium-saas`; use topic presets when they improve fit.
-
-## Do Not
-
-- Do not generate ad hoc static PNG UI boards for production reels.
-- Do not use Pillow as the primary board design tool.
-- Do not use bevels, clipart, heavy outlines, random gradients, tiny text, placeholder cards, or generic template-looking layouts.
-- Do not imply a board is a real product, real app, real map, real dashboard, or real data source unless the user supplied that factual source.
+- The board must look like a finished modern motion-design shot, not a dashboard template.
+- Use topic-specific metaphor and composition, not generic card stacks.
+- Prefer real visual systems: blueprints transforming into modules, production lanes, dependency paths, editorial proof marks, signal/risk interfaces, material flows, kinetic headline reveals.
+- Use strong hierarchy, modern spacing, responsive-safe dimensions, and controlled easing.
+- Avoid 2000s traits: bevels, clipart, heavy outlines, random gradients, generic rounded cards, tiny copy, fake app chrome, weak spacing.
 
 ## Failure Rules
 
-Fail and revise when:
+QA must fail when:
 
-- screenshot or final frames look like a test harness, template, old infographic, or unfinished mockup
-- text clips, overlaps, or is too small for phone playback
-- the board has no visible animation
-- output is static PNG/still for an abstract UI board without explicit user approval
-- `.webm` output is missing, blank, wrong resolution, or materially wrong duration
+- the starter shell is still present
+- placeholder/test/template copy appears
+- old template classes appear, such as `.flow`, `.checklist`, `.timeline`, `.matrix`, `.myth`
+- there are fewer than four animated elements
+- sampled frames show insufficient change
+- text clips, overlaps, or is too small
+- creative brief lacks `visual_metaphor` or `motion_beats`
+- output is a static still or PNG for an abstract UI/motion board
 
 ## Resources
 
-- Generator: [scripts/create_board.mjs](scripts/create_board.mjs)
+- Contract initializer: [scripts/create_board.mjs](scripts/create_board.mjs)
 - Renderer: [scripts/render_board.mjs](scripts/render_board.mjs)
 - QA: [scripts/qa_board.mjs](scripts/qa_board.mjs)
-- Presets: [references/presets.md](references/presets.md)
-- Components: [references/components.md](references/components.md)
+- Art-direction references: [references/presets.md](references/presets.md), [references/components.md](references/components.md)

@@ -164,7 +164,7 @@ Do not run a scripted preflight. If a required item is missing, stop before expe
 8. Call `latentsync` to build synced presenter clips from the silent motion plates and clean chunk audio.
 9. When presenter clips look soft, compressed, or artifacted after lip-sync, call `codeformer-postprocess` on the synced presenter outputs before timeline assembly.
 10. Build B-roll with the source that matches the segment intent.
-   - For abstract UI boards, checklists, timelines, comparisons, maps, process diagrams, counters, logistics, cost/risk boards, and other infographic-style sections, call `animated-broll-boards`. Production reels must use animated `.webm` board clips for these sections, not ad hoc static PNG/Pillow boards.
+   - For abstract UI boards, checklists, timelines, comparisons, maps, process diagrams, counters, logistics, cost/risk boards, and other infographic-style sections, call `animated-broll-boards` as an art-direction workflow. Create a custom motion scene from a creative brief; do not route the segment to a checklist/timeline/template layout. Production reels must use animated `.webm` board clips for these sections, not ad hoc static PNG/Pillow boards.
    - Call `playwright-broll-recorder` for real webpage/app B-roll and for recording local HTML scenes when needed.
    - Call `pexels-stock-downloader` when non-web stock footage is needed.
    - When the script needs photographic, cinematic, illustrative, product-neutral, or non-UI generated visual support, create a `z-image-turbo` plan:
@@ -186,7 +186,7 @@ Do not run a scripted preflight. If a required item is missing, stop before expe
    - Do not use `caption_text` for spoken narration captions when creating reels, Shorts, TikToks, or other modern short-form outputs. Spoken captions belong to the `reel-captions` stage after base render.
    - Keep `TEXT` entries only for intentional graphic beats, labels, title cards, and comparison graphics.
    - For reels, choose B-roll section patterns from [references/broll-section-library.md](references/broll-section-library.md). Treat it as a menu, not a ranking.
-   - Write `<project-dir>\manifests\selected-visuals.json` before final timeline use. Each accepted non-presenter visual needs `section_pattern`, `source_type`, `canonical_id`, `accepted`, `reason`, and `risk`.
+   - Write `<project-dir>\manifests\selected-visuals.json` before final timeline use. Each accepted non-presenter visual needs `section_pattern`, `source_type`, `canonical_id`, `accepted`, `reason`, and `risk`. Animated-board visuals also require `creative_concept`, `visual_metaphor`, and `motion_summary`.
 12. Validate the timeline and final audio before composition:
    ```powershell
    python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\pipeline_check.py `
@@ -424,7 +424,7 @@ When multiple presenter assets are available, inspect and classify all of them b
 - framing quality
 - likely timeline use
 
-Prefer a varied usable set over the minimum front/profile pair. For reels and shorts, rotate across available front/profile takes to avoid repeated motion and framing unless continuity is more important than variety.
+Prefer a varied usable set over the minimum front/profile pair. For reels and shorts, rotate across available front/profile takes to avoid repeated motion and framing unless continuity is more important than variety. Rotation must use distinct original source files when available; copying the same source file under multiple names does not count as varied presenter use.
 
 Treat presenter videos as silent motion plates to be lip-synced against generated narration. Do not assume their original mouth motion matches the final script.
 
@@ -573,7 +573,7 @@ The agent may freely combine:
 
 ### B-Roll Source Mix And Uniqueness
 
-Do not default to one visual source type just because it is available or convenient. For videos longer than 45 seconds, a single-source B-roll strategy is allowed only when the source is clearly the strongest creative and factual choice for every B-roll segment. Otherwise, deliberately mix sources such as verified stills, stock motion, generated stills, animated typography, local motion graphics, or screen captures.
+Do not default to one visual source type just because it is available or convenient. A single-source B-roll strategy is allowed only when the source is clearly the strongest creative and factual choice for every B-roll segment. Otherwise, deliberately mix sources such as verified stills, stock motion, generated stills, animated typography, local motion graphics, or screen captures.
 
 Before building `timeline.json`, create or update a selected-visuals manifest that lists each non-presenter visual asset with:
 
@@ -599,20 +599,20 @@ If a stock provider returns the same clip across multiple queries, reject duplic
 
 ### Animated Boards With animated-broll-boards
 
-Use `animated-broll-boards` as the default production path for synthetic UI boards, checklists, timelines, comparisons, process diagrams, logistics maps, metric boards, bar comparisons, risk matrices, myth/fact boards, and other abstract explanatory visuals that would otherwise become static infographic PNGs.
+Use `animated-broll-boards` when an animated explanatory board is the strongest visual choice for the segment. The agent must still choose the source type per segment based on clarity, factual fit, pacing, and overall visual variety. The skill is not a template library. Each board needs a segment-specific visual metaphor and custom HTML/CSS/JS motion.
 
 Rules:
 
 - Save outputs under `<project-dir>\broll\boards\<board-id>\`.
 - Render boards as `.webm` clips from project-local `HTML/CSS/JS`.
-- Record accepted board clips in `manifests\selected-visuals.json` with `source_type: "animated-board"`, `canonical_id: "<board-id>"`, `local_path: "broll/boards/<board-id>/<board-id>.webm"`, and `risk: "synthetic explanatory motion graphic"`.
+- Record accepted board clips in `manifests\selected-visuals.json` with `source_type: "animated-board"`, `canonical_id: "<board-id>"`, `local_path: "broll/boards/<board-id>/<board-id>.webm"`, `creative_concept`, `visual_metaphor`, `motion_summary`, and `risk: "synthetic explanatory motion graphic"`.
 - Run `qa_board.mjs` and inspect the preview before timeline use.
 - Do not create production abstract/UI/infographic B-roll as ad hoc static PNG/Pillow boards. Static PNGs are allowed only as tiny auxiliary assets or when the user explicitly requests a still.
-- Reject boards that look like old infographics, test harnesses, template placeholders, generic cards, clipart layouts, or low-effort mock UI.
+- Reject boards that look like old infographics, test harnesses, template placeholders, generic cards, clipart layouts, repeated component layouts, or low-effort mock UI.
 
 ### Generated Visuals With z-image-turbo
 
-Use `z-image-turbo` as a first-class source when real footage, screen capture, or stock video would be generic, misleading, unavailable, or visually weak. Generated stills are acceptable for photographic, cinematic, illustrative, metaphor, product-neutral mood scenes, and non-UI graphic inserts. For synthetic UI, checklist, timeline, comparison, process, map, logistics, cost/risk, and dashboard-style boards, use `animated-broll-boards` instead.
+Use `z-image-turbo` as a first-class source when real footage, screen capture, or stock video would be generic, misleading, unavailable, or visually weak. Generated stills are acceptable for photographic, cinematic, illustrative, metaphor, product-neutral mood scenes, and non-UI graphic inserts. For synthetic UI, checklist, timeline, comparison, process, map, logistics, cost/risk, and dashboard-style boards, consider `animated-broll-boards` when an animated board is the strongest visual choice.
 
 Do not use generated images as a cheap replacement for missing required identity or factual assets. If a production brief requires the user's actual product, location, face, brand, app, or another real-world subject whose appearance is the point of the video, ask for those assets. Otherwise, generated visuals and local motion graphics are valid B-roll choices for abstract, conceptual, educational, or product-neutral segments.
 
@@ -644,12 +644,12 @@ Use the strongest visual source for the segment. A fixed source order is not req
 - Use real webpages, docs, or product-neutral captures when authority, credibility, or recognizable context matters.
 - Use stock footage when human behavior, physical context, pacing texture, or cinematic energy matters.
 - Use generated visuals when the topic needs photographic, cinematic, illustrative, or mood support and real footage would be dull, generic, or unavailable.
-- Use `animated-broll-boards` when an exact concept, fake app flow, neutral diagram, checklist, timeline, comparison, counter, process, map, logistics, or privacy-safe screen demonstration is needed.
+- Consider `animated-broll-boards` when an exact concept, fake app flow, neutral diagram, checklist, timeline, comparison, counter, process, map, logistics, or privacy-safe screen demonstration is strongest as an animated board.
 - Use project-local HTML/mock UI outside `animated-broll-boards` only when the board skill cannot express the required custom scene.
 - Use animated typography when the idea is short, punchy, and stronger as a kinetic text beat than as literal footage.
 - Use split, stack, grid, and still-motion patterns when they make comparison, proof, examples, or rhythm stronger than a single fullscreen clip.
 
-For videos longer than 45 seconds, avoid relying on one visual source type unless it is clearly the strongest creative choice. Prefer a deliberate mix of sources, textures, and shot types.
+Avoid relying on one visual source type unless it is clearly the strongest creative choice. Prefer a deliberate mix of sources, textures, and shot types.
 
 If the most literal asset choice is boring, choose a more cinematic, graphic, kinetic, or emotionally legible option. The goal is a finished social video, not merely a valid assembled timeline.
 
@@ -698,7 +698,7 @@ Do not substitute vague B-roll. If a query cannot be satisfied from the availabl
 
 Translate the scriptwriter output into `timeline.json` using the schema that matches the format mode, then call `moviepy-video-composer` with the matching `--format` value.
 
-For modern reels, use [references/broll-section-library.md](references/broll-section-library.md) as the section-pattern library. Do not make any pattern or source type globally preferred. Choose by segment intent and record the selected pattern in `manifests\selected-visuals.json`.
+For modern reels, use [references/broll-section-library.md](references/broll-section-library.md) as the section-pattern library. Do not make any pattern or source type globally preferred. Choose by segment intent and record the selected pattern in `manifests\selected-visuals.json`. Before writing `timeline.json`, choose a deliberate composition pattern for each segment from the section library; do not collapse the reel into only fullscreen and PiP layouts unless that is explicitly the strongest edit plan.
 
 If the user supplied a soundtrack, run `scripts/music_intake.py` and pass the ingested `source-assets\soundtrack.<ext>` file to the composer. Do not normalize or mix it in the orchestrator. Audio normalization, sidechain ducking, final mix safety, and `audio-mix-manifest.json` belong to the composer step.
 

@@ -782,6 +782,16 @@ def validate_selected_visuals_manifest(manifest: Any, report: Report) -> None:
             report.error("visual-source-type", f"{context}.source_type must be one of {sorted(BROLL_SOURCE_TYPES)}")
         if not isinstance(canonical_id, str) or not canonical_id.strip():
             report.error("canonical-id", f"{context}.canonical_id must be non-empty")
+        if source_type == "animated-board":
+            for field in ("creative_concept", "visual_metaphor", "motion_summary"):
+                if not isinstance(item.get(field), str) or not item.get(field, "").strip():
+                    report.error("animated-board-creative-metadata", f"{context}.{field} is required for animated-board visuals")
+            concept = str(item.get("creative_concept", "")).strip().lower()
+            if concept in {"checklist", "timeline", "process-flow", "bar-comparison", "risk-matrix", "myth-fact", "template"}:
+                report.error(
+                    "animated-board-template-concept",
+                    f"{context}.creative_concept must describe a custom visual metaphor, not a template type",
+                )
         if item.get("accepted") is True:
             accepted_patterns.add(str(pattern))
             if isinstance(canonical_id, str) and canonical_id:

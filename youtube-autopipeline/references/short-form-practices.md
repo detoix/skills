@@ -46,7 +46,7 @@ Research inputs fetched during the May 5, 2026 pipeline update.
 ## Research-To-Implementation Requirements
 
 - Production asset intake must be explicit. The pipeline should ask for a user asset root and must not silently reuse previous test inputs for production renders.
-- Animated boards are the default source class for synthetic UI, checklist, timeline, comparison, map, logistics, process, and dashboard-style B-roll. Use `z-image-turbo` when a generated still is the strongest photographic, cinematic, illustrative, or non-UI source for a segment; reject generic or placeholder-looking images.
+- Animated boards are the default source class for custom synthetic UI and abstract motion scenes, but each one must be art-directed from a visual metaphor. Checklist, timeline, comparison, map, logistics, process, and dashboard are narrative intents, not reusable layouts. Use `z-image-turbo` when a generated still is the strongest photographic, cinematic, illustrative, or non-UI source for a segment; reject generic or placeholder-looking images.
 - The composer must accept reviewed still images so generated visuals can be used directly in `B-ROLL`, `TEXT` backgrounds, and other visual layers.
 - Structural QA cannot pass a reel by itself. Human/aesthetic review is mandatory because automatic checks can miss cheap-looking visuals, poor art direction, bad pacing, and weak creative fit.
 - QA reports must distinguish "mechanically valid" from "professionally acceptable".

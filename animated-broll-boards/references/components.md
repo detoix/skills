@@ -1,37 +1,31 @@
-# Board Components
+# Creative Scene Patterns
 
-## `hero-metric`
+These are art-direction prompts, not reusable templates.
 
-One headline number or keyword with supporting microcopy. Use for speed, cost, scale, percentage, or key promise.
+## Blueprint Transform
 
-## `comparison-split`
+Use for architecture, construction, production, planning, and prefab. A technical drawing, grid, or line system becomes the actual concept: module, route, timeline, or assembly.
 
-Two-column comparison. Use for before/after, traditional/prefab, manual/automated, risk/control.
+## Kinetic Typography
 
-## `checklist`
+Use for hooks, myth/fact, warnings, and strong claims. Motion comes from staged words, masks, scale shifts, and camera rhythm rather than cards.
 
-Three to five checked items. Use for quality, requirements, benefits, or conditions.
+## Material Flow
 
-## `process-flow`
+Use for process, logistics, cost, manufacturing, and parallel work. Show motion through lanes, ribbons, moving blocks, progress, or converging systems.
 
-Three to five connected steps. Use for sequence, parallel work, operational process, onboarding, production.
+## Editorial Proof
 
-## `timeline`
+Use for trust, quality, compliance, and evidence. Use restrained editorial composition, proof marks, annotated details, stamps, or document-like layers without pretending to be a real document.
 
-Milestones across time. Use for project schedule, phases, planning, history.
+## System Map
 
-## `logistics-map`
+Use for dependencies, risk, logistics, site readiness, and coordination. Routes, pulses, nodes, and labels should communicate relationships without implying exact geography.
 
-Synthetic route/path board. Use for dependencies, coordination, delivery, site readiness. Do not imply exact geography.
+## Control Interface
 
-## `bar-comparison`
+Use for dashboards, metrics, risk, and monitoring. Create a fictional explanatory interface only when it helps the segment; avoid generic SaaS card stacks.
 
-Two to four horizontal bars. Use for relative comparisons without pretending precision unless supplied.
+## Custom First
 
-## `risk-matrix`
-
-Quadrant or grid. Use for tradeoffs, risk/impact, priority, likelihood.
-
-## `myth-fact`
-
-Two-state correction board. Use for debunking, misconception, mistake/fix.
+For each board, choose or invent the visual metaphor from the narration. Repeating these patterns without a segment-specific twist should fail manual review.

@@ -29,7 +29,7 @@ For reels over 45 seconds, use at least three accepted section patterns unless t
 | Stack of 2 | `STACK_2` | Before/after, claim/evidence, problem/solution, this/that | Two clips/stills | Avoid if both clips need fine detail or vertical-native framing |
 | Stack of 3 | `STACK_3` | Rapid examples, multi-source proof, contrast montage | Three clips/stills | Avoid if captions/PiP need the same vertical space |
 | Grid of 4 | `GRID_4` | Category montage, evidence board, alternatives, examples at scale | Four clips/stills | Avoid for dense UI or text-heavy assets |
-| Animated board capture | `B-ROLL`, `PIP`, `SPLIT_2`, `STACK_2`, or `GRID_4` | Polished synthetic UI, chart, timeline, map, checklist, counter, comparison table, process diagram | `animated-broll-boards` `.webm` clip | Must be labeled/recorded as synthetic; avoid if real proof or exact real UI is required |
+| Animated board capture | `B-ROLL`, `PIP`, `SPLIT_2`, `STACK_2`, or `GRID_4` | Custom art-directed synthetic UI, kinetic typography, abstract process, map, proof, or metaphor scene | `animated-broll-boards` `.webm` clip | Must be labeled/recorded as synthetic; reject template/card-stack outputs; avoid if real proof or exact real UI is required |
 | Custom HTML capture | `B-ROLL`, `PIP`, `SPLIT_2`, `STACK_2`, or `GRID_4` | Bespoke fake UI or motion scene not covered by `animated-broll-boards` | Local HTML recorded with browser recorder | Must be labeled/recorded as local/synthetic; avoid real brands/credentials unless requested |
 | Receipt/document highlight | `B-ROLL` or `STILL_MOTION` | Source proof, quote, table, screenshot, article, documentation | Screenshot or capture | Tiny text; source must be real if used as evidence |
 | Kinetic text/number beat | `TEXT` or custom HTML capture | Stat, definition, warning, myth, CTA, transition | Background visual + short text | Do not replace word-level spoken captions; keep copy short |
@@ -74,8 +74,11 @@ For animated board clips, use this shape:
   "source_type": "animated-board",
   "canonical_id": "S03_process",
   "local_path": "broll/boards/S03_process/S03_process.webm",
+  "creative_concept": "Blueprint transforms into modular assembly",
+  "visual_metaphor": "A technical floorplan draws itself, then separates into moving prefab modules.",
+  "motion_summary": "Line draw, module split, staggered labels, final assembly lockup.",
   "accepted": true,
-  "reason": "Explains the process with a polished animated board.",
+  "reason": "Explains the process with a custom animated scene rather than a template board.",
   "risk": "synthetic explanatory motion graphic"
 }
 ```
@@ -86,6 +89,7 @@ Use `single_pattern_reason` only when a reel over 45 seconds deliberately uses f
 
 - Generated visuals and generic stock are illustrative unless the user explicitly accepts them as synthetic/non-factual.
 - Use `animated-broll-boards` instead of ad hoc static PNG/Pillow boards for production abstract UI, checklist, timeline, comparison, map, logistics, cost/risk, process, and dashboard-style B-roll.
+- Do not treat checklist, timeline, process-flow, or map as animated-board layout names. They are narrative intents; the accepted board must have a custom creative concept, visual metaphor, and motion summary.
 - Verified webpage, app, documentation, or source captures are preferred when the visual itself is evidence.
 - Reused `canonical_id` values are duplicates even if filenames differ.
 - Keep critical text, faces, captions, and CTAs inside platform-safe central areas.

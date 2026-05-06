@@ -97,7 +97,11 @@ async function main() {
   const preview = path.resolve(manifest.preview || path.join(boardDir, "preview.png"));
   const duration = Number.isFinite(args.duration) ? args.duration : Number(manifest.duration || 6);
   const rawOutput = path.join(boardDir, `${args.boardId}.raw-recording.webm`);
+  const qaPath = path.join(boardDir, "board-qa.json");
   if (!(await fileExists(htmlPath))) throw new Error(`Missing board HTML: ${htmlPath}`);
+  if (!(await fileExists(qaPath))) throw new Error(`Missing passing QA report. Run qa_board.mjs before render: ${qaPath}`);
+  const qa = JSON.parse(await fs.readFile(qaPath, "utf8"));
+  if (qa.status !== "pass") throw new Error(`Board QA status must be pass before render. Current status: ${qa.status || "unknown"}`);
 
   await runNode([
     RECORDER,
