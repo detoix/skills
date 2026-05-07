@@ -15,6 +15,7 @@ from PIL import Image
 AUTOPIPELINE_SCRIPTS = Path(__file__).resolve().parents[2] / "youtube-autopipeline" / "scripts"
 sys.path.insert(0, str(AUTOPIPELINE_SCRIPTS))
 from production_gate import run_creative_gate  # noqa: E402
+from production_metrics import end_stage, start_stage  # noqa: E402
 
 
 OUTPUT_FORMATS = {
@@ -134,7 +135,14 @@ def main() -> int:
     args = parse_args()
     image_path = Path(args.image).resolve()
     output_path = Path(args.output).resolve()
-    require_creative_gate(infer_project_dir(args.project_dir, output_path))
+    project_dir = infer_project_dir(args.project_dir, output_path)
+    gate_record = start_stage(project_dir, "creative_gate", command=["production_gate.py", "--project-dir", str(project_dir)])
+    try:
+        require_creative_gate(project_dir)
+    except BaseException as exc:
+        end_stage(project_dir, gate_record, status="fail", return_code=1, error=str(exc))
+        raise
+    end_stage(project_dir, gate_record, status="pass", return_code=0)
     if not image_path.exists() or not image_path.is_file():
         raise FileNotFoundError(f"image not found: {image_path}")
     if image_path.suffix.lower() not in IMAGE_EXTENSIONS:
@@ -165,8 +173,19 @@ def main() -> int:
         return np.array(resized)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    clip = VideoClip(make_frame, duration=args.duration)
-    clip.write_videofile(str(output_path), fps=args.fps, codec="libx264", audio=False)
+    render_record = start_stage(
+        project_dir,
+        "still_motion_render",
+        command=["render_still_motion.py", "--image", str(image_path), "--output", str(output_path)],
+        metadata={"duration_seconds": args.duration, "format": args.format, "motion": args.motion, "fps": args.fps},
+    )
+    try:
+        clip = VideoClip(make_frame, duration=args.duration)
+        clip.write_videofile(str(output_path), fps=args.fps, codec="libx264", audio=False)
+    except Exception as exc:
+        end_stage(project_dir, render_record, status="error", return_code=1, error=str(exc))
+        raise
+    end_stage(project_dir, render_record, status="pass", return_code=0, metadata={"output": str(output_path)})
     manifest = {
         "input_image": str(image_path),
         "output": str(output_path),

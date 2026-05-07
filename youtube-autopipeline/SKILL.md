@@ -272,10 +272,15 @@ Do not run a scripted preflight. If a required item is missing, stop before expe
        --max-duration 90 `
        --z-image-plan <project-dir>\manifests\z-image-plan.json `
        --agent-visual-review-pass `
-        --visual-review-notes "Specific notes covering hook, word-level caption sync/readability/safe zones, visual variety, generated visuals, presenter overlay quality, and rejected frames." `
+       --visual-review-notes "Specific notes covering hook, word-level caption sync/readability/safe zones, visual variety, generated visuals, presenter overlay quality, and rejected frames." `
        --status pass
      ```
-16. Report any blockers immediately if a required runtime tool or asset is missing.
+17. Production timing logs are written to `<project-dir>\manifests\production-timings.jsonl` by guarded commands and major local production stages. After a full run, summarize them before performance analysis:
+   ```powershell
+   python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\summarize_production_timings.py `
+     --project-dir <project-dir>
+   ```
+18. Report any blockers immediately if a required runtime tool or asset is missing.
 
 ## Creative Approval Gate
 

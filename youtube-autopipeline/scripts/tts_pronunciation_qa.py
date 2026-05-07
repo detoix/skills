@@ -14,6 +14,8 @@ from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any
 
+from production_metrics import end_stage, start_stage
+
 
 DEFAULT_MIN_WORD_RECALL = 0.85
 DEFAULT_MIN_SEQUENCE_RATIO = 0.78
@@ -153,6 +155,12 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     project_dir = Path(args.project_dir).resolve()
+    qa_record = start_stage(
+        project_dir,
+        "tts_pronunciation_qa",
+        command=["tts_pronunciation_qa.py"],
+        metadata={"model": args.model, "device": args.device, "compute_type": args.compute_type},
+    )
     script_path = Path(args.script).resolve() if args.script else project_dir / "script.json"
     tts_dir = Path(args.tts_dir).resolve() if args.tts_dir else project_dir / "tts" / "clean"
     output_path = Path(args.output).resolve() if args.output else project_dir / "manifests" / "tts-pronunciation-qa.json"
@@ -225,13 +233,16 @@ def main() -> int:
         write_json(output_path, report)
         if report["status"] != "pass":
             print(f"TTS pronunciation QA failed: {output_path}", file=sys.stderr)
+            end_stage(project_dir, qa_record, status="fail", return_code=1, metadata={"chunks": len(report["chunks"]), "errors": len(report["errors"])})
             return 1
         print(f"TTS pronunciation QA passed: {output_path}")
+        end_stage(project_dir, qa_record, status="pass", return_code=0, metadata={"chunks": len(report["chunks"])})
         return 0
     except Exception as exc:
         report["errors"].append(str(exc))
         write_json(output_path, report)
         print(f"TTS pronunciation QA failed: {exc}", file=sys.stderr)
+        end_stage(project_dir, qa_record, status="error", return_code=1, error=str(exc))
         return 1
 
 

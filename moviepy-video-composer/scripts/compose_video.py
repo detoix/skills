@@ -19,6 +19,7 @@ from moviepy import ColorClip, CompositeVideoClip, ImageClip, VideoClip, VideoFi
 AUTOPIPELINE_SCRIPTS = Path(__file__).resolve().parents[2] / "youtube-autopipeline" / "scripts"
 sys.path.insert(0, str(AUTOPIPELINE_SCRIPTS))
 from production_gate import run_creative_gate  # noqa: E402
+from production_metrics import end_stage, start_stage  # noqa: E402
 
 
 SUPPORTED_TYPES = {"A_ROLL", "B_ROLL"}
@@ -1303,15 +1304,29 @@ def main() -> int:
     args = parse_args()
     configure_output_format(args.format)
     project_dir, timeline_path, audio_path, music_path, output_path = resolve_project_paths(args)
+    gate_record = start_stage(project_dir, "creative_gate", command=["production_gate.py", "--project-dir", str(project_dir)])
     gate_findings = run_creative_gate(project_dir)
     gate_errors = [finding for finding in gate_findings if finding.severity == "ERROR"]
     if gate_errors:
         for finding in gate_findings:
             print(f"{finding.severity}: {finding.code}: {finding.message}", file=sys.stderr)
+        end_stage(project_dir, gate_record, status="fail", return_code=1, metadata={"errors": len(gate_errors)})
         return 1
+    end_stage(project_dir, gate_record, status="pass", return_code=0)
 
     ensure_file(timeline_path, "Timeline file")
-    result = compose_video(project_dir, timeline_path, audio_path, music_path, output_path)
+    render_record = start_stage(
+        project_dir,
+        "base_render",
+        command=["compose_video.py", "--format", args.format],
+        metadata={"timeline": str(timeline_path), "output": str(output_path), "music": str(music_path) if music_path else None},
+    )
+    try:
+        result = compose_video(project_dir, timeline_path, audio_path, music_path, output_path)
+    except Exception as exc:
+        end_stage(project_dir, render_record, status="error", error=str(exc))
+        raise
+    end_stage(project_dir, render_record, status="pass", return_code=0, metadata={"output": str(result)})
     print(f"Saved final video: {result}")
     return 0
 

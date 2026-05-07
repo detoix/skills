@@ -11,6 +11,8 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from production_metrics import end_stage, start_stage
+
 
 EXPECTED_FORMATS = {
     "vertical": {"width": 1080, "height": 1920, "ratio": "9:16"},
@@ -586,6 +588,12 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     project_dir = Path(args.project_dir).resolve()
+    qa_record = start_stage(
+        project_dir,
+        "final_visual_qa",
+        command=["visual_qa.py"],
+        metadata={"format": args.format, "status": args.status},
+    )
     video = Path(args.video).resolve() if args.video else project_dir / "final_output.mp4"
     timeline_path = Path(args.timeline).resolve() if args.timeline else project_dir / "timeline.json"
     output = Path(args.output).resolve() if args.output else project_dir / "manifests" / "visual-qa.json"
@@ -683,7 +691,9 @@ def main() -> int:
     print(f"Extracted frames: {len(frame_entries)}")
     if sheet_path:
         print(f"Contact sheet: {sheet_path}")
-    return 0 if final_status == "pass" else 1
+    return_code = 0 if final_status == "pass" else 1
+    end_stage(project_dir, qa_record, status=final_status, return_code=return_code, metadata={"frames": len(frame_entries), "findings": len(findings)})
+    return return_code
 
 
 if __name__ == "__main__":

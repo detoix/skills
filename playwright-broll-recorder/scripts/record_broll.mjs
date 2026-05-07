@@ -4,10 +4,11 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { chromium } from "playwright";
 
 const PRODUCTION_GATE = "C:\\Users\\kdeptula\\skills\\youtube-autopipeline\\scripts\\production_gate.py";
+const TIMINGS_RELATIVE_PATH = path.join("manifests", "production-timings.jsonl");
 
 function parseArgs(argv) {
   const options = {
@@ -148,6 +149,75 @@ function runProductionGate(projectDir) {
       if (code === 0) resolve();
       else reject(new Error(`Creative gate failed before browser recording. Command exited ${code}.`));
     });
+  });
+}
+
+function utcNow() {
+  return new Date().toISOString();
+}
+
+function gpuSnapshot() {
+  const result = spawnSync("nvidia-smi", [
+    "--query-gpu=name,memory.total,memory.used,utilization.gpu",
+    "--format=csv,noheader,nounits",
+  ], { encoding: "utf8", timeout: 2000, windowsHide: true });
+  if (result.error || result.status !== 0) {
+    return { available: false, reason: result.error ? result.error.message : String(result.stderr || "nvidia-smi failed").trim() };
+  }
+  const devices = String(result.stdout || "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const [name, total, used, utilization] = line.split(",").map((part) => part.trim());
+      return {
+        name,
+        memory_total_mib: Number(total),
+        memory_used_mib: Number(used),
+        utilization_gpu_percent: Number(utilization),
+      };
+    });
+  return { available: true, devices };
+}
+
+async function appendTiming(projectDir, event) {
+  const timingsPath = path.join(projectDir, TIMINGS_RELATIVE_PATH);
+  await fs.mkdir(path.dirname(timingsPath), { recursive: true });
+  await fs.appendFile(timingsPath, `${JSON.stringify(event)}\n`, "utf8");
+}
+
+async function startStage(projectDir, stage, command, metadata = {}) {
+  const record = {
+    run_id: `${Date.now().toString(36)}-${Math.random().toString(16).slice(2)}`,
+    event: "stage_start",
+    stage,
+    timestamp_utc: utcNow(),
+    perf_counter: performance.now(),
+    pid: process.pid,
+    command,
+    metadata,
+    gpu: gpuSnapshot(),
+  };
+  const publicRecord = { ...record };
+  delete publicRecord.perf_counter;
+  await appendTiming(projectDir, publicRecord);
+  return record;
+}
+
+async function endStage(projectDir, record, status, returnCode = null, error = null, metadata = {}) {
+  await appendTiming(projectDir, {
+    run_id: record.run_id,
+    event: "stage_end",
+    stage: record.stage,
+    timestamp_utc: utcNow(),
+    duration_seconds: Number(((performance.now() - record.perf_counter) / 1000).toFixed(3)),
+    pid: process.pid,
+    status,
+    return_code: returnCode,
+    error,
+    command: record.command,
+    metadata,
+    gpu: gpuSnapshot(),
   });
 }
 
@@ -293,7 +363,15 @@ async function constantScroll(page, durationSeconds) {
 
 async function main() {
   const options = parseArgs(process.argv.slice(2));
-  await runProductionGate(await inferProjectDir(options));
+  const projectDir = await inferProjectDir(options);
+  const gateRecord = await startStage(projectDir, "creative_gate", ["production_gate.py", "--project-dir", projectDir]);
+  try {
+    await runProductionGate(projectDir);
+    await endStage(projectDir, gateRecord, "pass", 0);
+  } catch (error) {
+    await endStage(projectDir, gateRecord, "fail", 1, error instanceof Error ? error.message : String(error));
+    throw error;
+  }
   await fs.mkdir(path.dirname(options.output), { recursive: true });
   if (options.screenshot) {
     await fs.mkdir(path.dirname(options.screenshot), { recursive: true });
@@ -309,6 +387,14 @@ async function main() {
   let page;
   let videoPath;
   let navigationResponse;
+  let finalUrl = null;
+  const recordStage = await startStage(projectDir, "webpage_record", ["record_broll.mjs", "--url", options.url, "--output", options.output], {
+    duration_seconds: options.duration,
+    scroll: options.scroll,
+    viewport: options.viewport,
+    video_size: options.videoSize,
+    cookie_consent: options.cookieConsent,
+  });
 
   try {
     context = await browser.newContext({
@@ -351,7 +437,8 @@ async function main() {
       await page.screenshot({ path: options.screenshot, fullPage: false });
       console.log(`Saved screenshot: ${options.screenshot}`);
     }
-    console.log(`Final URL: ${page.url()}`);
+    finalUrl = page.url();
+    console.log(`Final URL: ${finalUrl}`);
     console.log(`Page title: ${await page.title()}`);
     if (navigationResponse) {
       console.log(`HTTP status: ${navigationResponse.status()}`);
@@ -375,11 +462,13 @@ async function main() {
 
     await fs.copyFile(videoPath, options.output);
     console.log(`Saved video: ${options.output}`);
+    await endStage(projectDir, recordStage, "pass", 0, null, { output: options.output, final_url: finalUrl });
   } catch (error) {
     if (context) {
       await context.close().catch(() => {});
     }
     await browser.close().catch(() => {});
+    await endStage(projectDir, recordStage, "error", 1, error instanceof Error ? error.message : String(error));
     throw error;
   } finally {
     await fs.rm(videoDir, { recursive: true, force: true }).catch(() => {});
