@@ -4,7 +4,10 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
+import { spawn } from "node:child_process";
 import { chromium } from "playwright";
+
+const PRODUCTION_GATE = "C:\\Users\\kdeptula\\skills\\youtube-autopipeline\\scripts\\production_gate.py";
 
 function parseArgs(argv) {
   const options = {
@@ -28,6 +31,10 @@ function parseArgs(argv) {
         break;
       case "--output":
         options.output = next;
+        i += 1;
+        break;
+      case "--project-dir":
+        options.projectDir = next;
         i += 1;
         break;
       case "--duration":
@@ -100,6 +107,43 @@ function parseArgs(argv) {
   }
 
   return options;
+}
+
+async function fileExists(filePath) {
+  try {
+    await fs.access(filePath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function inferProjectDir(options) {
+  if (options.projectDir) return path.resolve(options.projectDir);
+  let current = path.dirname(path.resolve(options.output));
+  while (true) {
+    if (
+      (await fileExists(path.join(current, "script.json"))) &&
+      (await fileExists(path.join(current, "manifests", "visual-plan.json")))
+    ) {
+      return current;
+    }
+    const parent = path.dirname(current);
+    if (parent === current) break;
+    current = parent;
+  }
+  throw new Error("Production recording requires --project-dir or an output path inside an approved project.");
+}
+
+function runProductionGate(projectDir) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.env.PYTHON || "python", [PRODUCTION_GATE, "--project-dir", projectDir], { stdio: "inherit", windowsHide: true });
+    child.on("error", reject);
+    child.on("exit", (code) => {
+      if (code === 0) resolve();
+      else reject(new Error(`Creative gate failed before browser recording. Command exited ${code}.`));
+    });
+  });
 }
 
 function parseSize(value, flagName) {
@@ -192,6 +236,7 @@ async function constantScroll(page, durationSeconds) {
 
 async function main() {
   const options = parseArgs(process.argv.slice(2));
+  await runProductionGate(await inferProjectDir(options));
   await fs.mkdir(path.dirname(options.output), { recursive: true });
   if (options.screenshot) {
     await fs.mkdir(path.dirname(options.screenshot), { recursive: true });

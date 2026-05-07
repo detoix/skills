@@ -11,6 +11,10 @@ import sys
 from pathlib import Path
 from typing import Any
 
+AUTOPIPELINE_SCRIPTS = Path(__file__).resolve().parents[2] / "youtube-autopipeline" / "scripts"
+sys.path.insert(0, str(AUTOPIPELINE_SCRIPTS))
+from production_gate import run_creative_gate  # noqa: E402
+
 
 DEFAULT_FONT = "Arial"
 DEFAULT_WORDS_PER_PHRASE = 4
@@ -439,6 +443,12 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     project_dir = args.project_dir.resolve()
+    gate_findings = run_creative_gate(project_dir)
+    gate_errors = [finding for finding in gate_findings if finding.severity == "ERROR"]
+    if gate_errors:
+        for finding in gate_findings:
+            print(f"{finding.severity}: {finding.code}: {finding.message}", file=sys.stderr)
+        return 1
     captions_dir = project_dir / "captions"
     manifests_dir = project_dir / "manifests"
     captions_dir.mkdir(parents=True, exist_ok=True)

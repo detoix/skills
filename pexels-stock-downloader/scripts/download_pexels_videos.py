@@ -25,6 +25,9 @@ ORIENTATION_ALIASES = {
     "either": None,
 }
 SKILL_ROOT = Path(__file__).resolve().parent.parent
+AUTOPIPELINE_SCRIPTS = Path(__file__).resolve().parents[2] / "youtube-autopipeline" / "scripts"
+sys.path.insert(0, str(AUTOPIPELINE_SCRIPTS))
+from production_gate import run_creative_gate  # noqa: E402
 DEFAULT_HEADERS = {
     "Accept": "application/json",
     "Accept-Language": "en-US,en;q=0.9",
@@ -73,6 +76,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-duration", type=int, help="Optional maximum duration in seconds.")
     parser.add_argument("--page", type=int, default=1, help="Results page number.")
     parser.add_argument("--manifest", help="Optional manifest output path.")
+    parser.add_argument("--project-dir", help="Project directory. Required for production downloads unless it can be inferred from --output-dir.")
     parser.add_argument("--dry-run", action="store_true", help="Search and score results without downloading.")
     args = parser.parse_args()
 
@@ -92,6 +96,24 @@ def parse_args() -> argparse.Namespace:
         parser.error("--max-duration must be greater than or equal to --min-duration")
 
     return args
+
+
+def infer_project_dir(explicit: str | None, output_dir: Path) -> Path:
+    if explicit:
+        return Path(explicit).resolve()
+    for candidate in (output_dir.resolve(), *output_dir.resolve().parents):
+        if (candidate / "script.json").exists() and (candidate / "manifests" / "visual-plan.json").exists():
+            return candidate
+    raise SystemExit("Production Pexels downloads require --project-dir or an output-dir inside an approved project.")
+
+
+def require_creative_gate(project_dir: Path) -> None:
+    findings = run_creative_gate(project_dir)
+    errors = [finding for finding in findings if finding.severity == "ERROR"]
+    if errors:
+        for finding in findings:
+            print(f"{finding.severity}: {finding.code}: {finding.message}", file=sys.stderr)
+        raise SystemExit(1)
 
 
 def require_api_key() -> str:
@@ -218,6 +240,8 @@ def main() -> int:
     load_dotenv()
     api_key = require_api_key()
     output_dir = Path(args.output_dir).resolve()
+    if not args.dry_run:
+        require_creative_gate(infer_project_dir(args.project_dir, output_dir))
     output_dir.mkdir(parents=True, exist_ok=True)
     manifest_path = Path(args.manifest).resolve() if args.manifest else output_dir / "pexels_manifest.json"
 

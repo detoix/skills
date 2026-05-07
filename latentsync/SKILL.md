@@ -14,7 +14,16 @@ High-quality synchronization of facial movements using the LatentSync pipeline.
 ## Workflow
 
 ### 1. Running Inference
-Execute from the `official-latentsync` directory using its local virtual environment.
+For YouTube autopipeline projects, run LatentSync only through the guarded production wrapper so the Creative Approval Gate
+is checked immediately before inference. Replace `<command...>` with the normal LatentSync command:
+
+```powershell
+python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\guarded_production_command.py `
+  --project-dir <project-dir> `
+  -- <command...>
+```
+
+For standalone non-autopipeline work, execute from the `official-latentsync` directory using its local virtual environment.
 
 ```powershell
 cd official-latentsync

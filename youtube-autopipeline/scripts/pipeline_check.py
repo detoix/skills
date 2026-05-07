@@ -15,21 +15,23 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from production_gate import run_creative_gate, validate_visual_plan
 
-SCRIPT_VISUALS = {
-    "landscape": {"A_ROLL", "B_ROLL", "PUNCH_IN", "TEXT_GRAPHIC", "PIP"},
-    "vertical": {"A_ROLL", "B_ROLL", "PUNCH_IN", "TEXT", "TEXT_GRAPHIC", "PIP", "STACK_2", "STACK_3", "SPLIT_2", "GRID_4", "STILL_MOTION"},
-}
-TIMELINE_TYPES = {"A-ROLL", "B-ROLL", "PIP", "TEXT", "STACK_2", "STACK_3", "SPLIT_2", "GRID_4", "STILL_MOTION"}
+
+SEGMENT_TYPES = {"A_ROLL", "B_ROLL"}
+LEGACY_TOP_LEVEL_TYPES = {"A-ROLL", "B-ROLL", "PIP", "TEXT", "TEXT_GRAPHIC", "STACK_2", "STACK_3", "SPLIT_2", "GRID_4", "STILL_MOTION", "PUNCH_IN"}
+BROLL_LAYOUTS = {"fullscreen", "stack2", "stack3", "grid4"}
+BROLL_LAYOUT_PANEL_COUNTS = {"stack2": 2, "stack3": 3, "grid4": 4}
+PANEL_KINDS = {"broll", "presenter"}
 LOOP_POLICIES = {"loop", "error"}
 SPLIT_AXES = {"horizontal", "vertical"}
 STILL_MOTION_TYPES = {"push-in", "pull-back", "pan-left", "pan-right", "pan-up", "pan-down", "diagonal-drift", "swipe-in"}
 CAPTION_POSITIONS = {"top", "center", "bottom"}
-PRESENTER_TYPES = {"A-ROLL", "PIP"}
+PRESENTER_TYPES = {"A_ROLL"}
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
 AUDIO_EXTENSIONS = {".mp3", ".wav", ".m4a", ".aac", ".flac", ".ogg"}
-BROLL_SOURCE_TYPES = {"webpage", "stock", "screen-record", "generated-image", "manual", "local-html", "motion-graphic", "animated-board"}
-GRAPHIC_TARGETS = {"TEXT", "B_ROLL", "PIP", "manual"}
+BROLL_SOURCE_TYPES = {"webpage", "stock", "screen-record", "generated-image", "manual", "synthetic-motion"}
+GRAPHIC_TARGETS = {"B_ROLL", "manual"}
 ASSEMBLY_RISKS = {"none", "fallback", "manual-review"}
 SECTION_PATTERNS = {
     "fullscreen-stock",
@@ -43,9 +45,8 @@ SECTION_PATTERNS = {
     "stack-2",
     "stack-3",
     "grid-4",
-    "custom-html-capture",
-    "animated-board-capture",
-    "pip-presenter-over-animated-board",
+    "synthetic-motion-capture",
+    "pip-presenter-over-synthetic-motion",
     "receipt-highlight",
     "kinetic-text",
     "before-after",
@@ -123,6 +124,81 @@ def require_keys(item: dict[str, Any], keys: tuple[str, ...], report: Report, co
             report.error("missing-key", f"{context} is missing required key {key!r}")
 
 
+def validate_segment_contract(
+    item: dict[str, Any],
+    report: Report,
+    context: str,
+    *,
+    require_panel_paths: bool = False,
+    format_mode: str | None = None,
+) -> str | None:
+    if "primary_visual" in item:
+        report.error("legacy-visual-field", f"{context}.primary_visual is not supported; use type A_ROLL or B_ROLL")
+    segment_type = item.get("type")
+    if segment_type in LEGACY_TOP_LEVEL_TYPES - SEGMENT_TYPES:
+        report.error("legacy-segment-type", f"{context}.type {segment_type!r} is a layout/treatment, not a segment type")
+        return None
+    if segment_type not in SEGMENT_TYPES:
+        report.error("segment-type", f"{context}.type must be one of {sorted(SEGMENT_TYPES)}")
+        return None
+
+    if segment_type == "A_ROLL":
+        for field in ("layout", "panels", "source", "source_strategy"):
+            if field in item:
+                report.error("aroll-broll-field", f"{context}.{field} is only valid for B_ROLL")
+        return "A_ROLL"
+
+    layout = item.get("layout")
+    if layout not in BROLL_LAYOUTS:
+        report.error("broll-layout", f"{context}.layout must be one of {sorted(BROLL_LAYOUTS)}")
+    panels = item.get("panels")
+    if not isinstance(panels, list) or not panels:
+        report.error("broll-panels", f"{context}.panels must be a non-empty array")
+        return "B_ROLL"
+    expected_count = BROLL_LAYOUT_PANEL_COUNTS.get(str(layout))
+    if expected_count is not None and len(panels) != expected_count:
+        report.error("broll-panel-count", f"{context}.layout {layout!r} requires exactly {expected_count} panels")
+    broll_count = 0
+    presenter_count = 0
+    for panel_index, panel in enumerate(panels):
+        panel_context = f"{context}.panels[{panel_index}]"
+        if not isinstance(panel, dict):
+            report.error("broll-panel-shape", f"{panel_context} must be an object")
+            continue
+        kind = panel.get("kind")
+        if kind not in PANEL_KINDS:
+            report.error("broll-panel-kind", f"{panel_context}.kind must be one of {sorted(PANEL_KINDS)}")
+            continue
+        if require_panel_paths:
+            if not isinstance(panel.get("path"), str) or not panel.get("path", "").strip():
+                report.error("broll-panel-path", f"{panel_context}.path must be a non-empty media path")
+        if kind == "broll":
+            broll_count += 1
+            source = panel.get("source")
+            if source not in BROLL_SOURCE_TYPES:
+                report.error("broll-panel-source", f"{panel_context}.source must be one of {sorted(BROLL_SOURCE_TYPES)}")
+        else:
+            presenter_count += 1
+            if "source" in panel or "source_strategy" in panel:
+                report.error("presenter-source", f"{panel_context} is presenter media and must not define source fields")
+            if format_mode == "vertical" and layout == "fullscreen":
+                overlay_position = panel.get("overlay_position")
+                if (
+                    not isinstance(overlay_position, list)
+                    or len(overlay_position) != 2
+                    or not all(isinstance(part, (str, int, float)) for part in overlay_position)
+                ):
+                    report.error("presenter-overlay-position", f"{panel_context}.overlay_position is required for vertical fullscreen presenter overlays")
+    if broll_count == 0:
+        report.error("broll-panel-missing", f"{context}.panels must include at least one kind='broll' panel")
+    if layout == "fullscreen":
+        if broll_count != 1:
+            report.error("fullscreen-broll-count", f"{context}.layout 'fullscreen' requires exactly one broll panel")
+        if presenter_count > 1:
+            report.error("fullscreen-presenter-count", f"{context}.layout 'fullscreen' allows at most one presenter overlay")
+    return "B_ROLL"
+
+
 def validate_script(script: Any, report: Report, format_mode: str | None = None) -> None:
     if not isinstance(script, dict):
         report.error("script-shape", "script JSON must be an object")
@@ -164,7 +240,7 @@ def validate_script(script: Any, report: Report, format_mode: str | None = None)
     )
 
     detected_format = metadata.get("format_mode")
-    if detected_format not in SCRIPT_VISUALS:
+    if detected_format not in {"landscape", "vertical"}:
         report.error("script-format", "metadata.format_mode must be 'landscape' or 'vertical'")
         detected_format = format_mode
     if format_mode and detected_format and format_mode != detected_format:
@@ -188,8 +264,6 @@ def validate_script(script: Any, report: Report, format_mode: str | None = None)
     previous_end = 0.0
     last_interrupt: float | None = None
     segment_ids: set[str] = set()
-    allowed_visuals = SCRIPT_VISUALS.get(str(detected_format), SCRIPT_VISUALS["landscape"])
-
     for index, segment in enumerate(segments):
         context = f"segments[{index}]"
         if not isinstance(segment, dict):
@@ -202,7 +276,7 @@ def validate_script(script: Any, report: Report, format_mode: str | None = None)
                 "start_seconds",
                 "end_seconds",
                 "duration_seconds",
-                "primary_visual",
+                "type",
                 "pattern_interrupt",
                 "pattern_interrupt_type",
                 "narration",
@@ -238,10 +312,8 @@ def validate_script(script: Any, report: Report, format_mode: str | None = None)
             report.error("segment-duration", f"{context}.duration_seconds does not match end-start")
         previous_end = end
 
-        visual = segment.get("primary_visual")
-        if visual not in allowed_visuals:
-            report.error("segment-visual", f"{context}.primary_visual {visual!r} is not allowed for {detected_format}")
-        if visual == "A_ROLL" and duration > 20.0:
+        segment_type = validate_segment_contract(segment, report, context, format_mode=detected_format)
+        if segment_type == "A_ROLL" and duration > 20.0:
             report.error("aroll-too-long", f"{context} A_ROLL duration exceeds 20 seconds")
 
         if segment.get("pattern_interrupt") is True:
@@ -314,25 +386,6 @@ def validate_script(script: Any, report: Report, format_mode: str | None = None)
         require_keys(item, ("segment_id", "note", "risk"), report, f"assembly_notes[{index}]")
         if item.get("risk") not in ASSEMBLY_RISKS:
             report.error("assembly-risk", f"assembly_notes[{index}].risk must be one of {sorted(ASSEMBLY_RISKS)}")
-
-    generated_refs = {
-        item.get("segment_id")
-        for item in broll_queries
-        if isinstance(item, dict) and item.get("source_type") == "generated-image"
-    }
-    for index, segment in enumerate(segments):
-        if not isinstance(segment, dict):
-            continue
-        if segment.get("primary_visual") in {"TEXT_GRAPHIC", "PUNCH_IN"}:
-            segment_id = segment.get("segment_id")
-            has_graphic = any(isinstance(item, dict) and item.get("segment_id") == segment_id for item in graphics)
-            has_generated = segment_id in generated_refs
-            if not has_graphic and not has_generated:
-                report.warn(
-                    "visual-plan-weak",
-                    f"segments[{index}] {segment_id!r} uses {segment.get('primary_visual')} without graphics or generated-image plan",
-                )
-
 
 def resolve_path(project_dir: Path, value: Any) -> Path | None:
     if not isinstance(value, str) or not value:
@@ -431,7 +484,13 @@ def path_looks_like_presenter(path: Path) -> bool:
     return any(marker in lowered for marker in ("synced", "presenter", "avatar", "profile", "a-roll", "aroll"))
 
 
-def validate_timeline(timeline: Any, project_dir: Path, report: Report, audio_path: Path | None = None) -> None:
+def validate_timeline(
+    timeline: Any,
+    project_dir: Path,
+    report: Report,
+    audio_path: Path | None = None,
+    format_mode: str | None = None,
+) -> None:
     if not isinstance(timeline, list) or not timeline:
         report.error("timeline-shape", "timeline must be a non-empty JSON array")
         return
@@ -443,9 +502,14 @@ def validate_timeline(timeline: Any, project_dir: Path, report: Report, audio_pa
         if not isinstance(entry, dict):
             report.error("timeline-entry", f"{context} must be an object")
             continue
-        entry_type = entry.get("type")
-        if entry_type not in TIMELINE_TYPES:
-            report.error("timeline-type", f"{context}.type {entry_type!r} is unsupported")
+        entry_type = validate_segment_contract(
+            entry,
+            report,
+            context,
+            require_panel_paths=True,
+            format_mode=format_mode,
+        )
+        if entry_type is None:
             continue
         start = as_number(entry.get("start_time"))
         end = as_number(entry.get("end_time"))
@@ -471,38 +535,25 @@ def validate_timeline(timeline: Any, project_dir: Path, report: Report, audio_pa
 
         media_fields: list[tuple[str, str, float, str]] = []
         clip_start = as_number(entry.get("clip_start")) or 0.0
-        if entry_type in {"A-ROLL", "B-ROLL"}:
+        if entry_type == "A_ROLL":
             media_fields.append(("clip_path", "primary clip", clip_start, loop_policy))
-        elif entry_type == "PIP":
-            background_start = as_number(entry.get("background_clip_start"))
-            overlay_start = as_number(entry.get("overlay_clip_start"))
-            media_fields.append(("background_path", "PIP background", background_start if background_start is not None else clip_start, background_loop))
-            media_fields.append(("overlay_path", "PIP overlay", overlay_start if overlay_start is not None else clip_start, overlay_loop))
-        elif entry_type == "TEXT":
-            media_fields.append(("background_path", "TEXT background", clip_start, background_loop))
-            if not isinstance(entry.get("text"), str) or not entry.get("text", "").strip():
-                report.error("text-empty", f"{context}.text must be non-empty")
-        elif entry_type == "STACK_2":
-            media_fields.append(("clip_path_top", "STACK_2 top", as_number(entry.get("clip_start_top")) or clip_start, loop_policy))
-            media_fields.append(("clip_path_bot", "STACK_2 bottom", as_number(entry.get("clip_start_bot")) or clip_start, loop_policy))
-        elif entry_type == "STACK_3":
-            media_fields.append(("clip_path_top", "STACK_3 top", as_number(entry.get("clip_start_top")) or clip_start, loop_policy))
-            media_fields.append(("clip_path_mid", "STACK_3 mid", as_number(entry.get("clip_start_mid")) or clip_start, loop_policy))
-            media_fields.append(("clip_path_bot", "STACK_3 bot", as_number(entry.get("clip_start_bot")) or clip_start, loop_policy))
-        elif entry_type == "SPLIT_2":
-            if entry.get("split_axis", "vertical") not in SPLIT_AXES:
-                report.error("split-axis", f"{context}.split_axis must be one of {sorted(SPLIT_AXES)}")
-            media_fields.append(("clip_path_a", "SPLIT_2 panel A", as_number(entry.get("clip_start_a")) or clip_start, loop_policy))
-            media_fields.append(("clip_path_b", "SPLIT_2 panel B", as_number(entry.get("clip_start_b")) or clip_start, loop_policy))
-        elif entry_type == "GRID_4":
-            media_fields.append(("clip_path_1", "GRID_4 clip 1", as_number(entry.get("clip_start_1")) or clip_start, loop_policy))
-            media_fields.append(("clip_path_2", "GRID_4 clip 2", as_number(entry.get("clip_start_2")) or clip_start, loop_policy))
-            media_fields.append(("clip_path_3", "GRID_4 clip 3", as_number(entry.get("clip_start_3")) or clip_start, loop_policy))
-            media_fields.append(("clip_path_4", "GRID_4 clip 4", as_number(entry.get("clip_start_4")) or clip_start, loop_policy))
-        elif entry_type == "STILL_MOTION":
-            if entry.get("motion_type", "push-in") not in STILL_MOTION_TYPES:
-                report.error("still-motion-type", f"{context}.motion_type must be one of {sorted(STILL_MOTION_TYPES)}")
-            media_fields.append(("clip_path", "STILL_MOTION clip", clip_start, loop_policy))
+        elif entry_type == "B_ROLL":
+            for panel_index, panel in enumerate(entry.get("panels", [])):
+                if not isinstance(panel, dict):
+                    continue
+                start_offset = as_number(panel.get("clip_start"))
+                panel_policy = panel.get("loop_policy", "error" if panel.get("kind") == "presenter" else loop_policy)
+                if panel_policy not in LOOP_POLICIES:
+                    report.error("loop-policy", f"{context}.panels[{panel_index}].loop_policy must be one of {sorted(LOOP_POLICIES)}")
+                    panel_policy = loop_policy
+                media_fields.append(
+                    (
+                        f"panels[{panel_index}].path",
+                        f"panel {panel_index} {panel.get('kind')}",
+                        start_offset if start_offset is not None else clip_start,
+                        panel_policy,
+                    )
+                )
 
         caption = entry.get("caption_text")
         if caption is not None:
@@ -520,7 +571,12 @@ def validate_timeline(timeline: Any, project_dir: Path, report: Report, audio_pa
                 report.error("caption-y", f"{context}.caption_y must be non-negative")
 
         for field, label, start_offset, policy in media_fields:
-            path = resolve_path(project_dir, entry.get(field))
+            if field.startswith("panels["):
+                panel_index = int(field.split("[", 1)[1].split("]", 1)[0])
+                path_value = entry.get("panels", [])[panel_index].get("path")
+            else:
+                path_value = entry.get(field)
+            path = resolve_path(project_dir, path_value)
             if path is None:
                 report.error("media-field", f"{context} missing {field}")
                 continue
@@ -848,10 +904,18 @@ def validate_presenter_plan(manifest: Any, project_dir: Path, report: Report) ->
                 f"repeat_decisions entry for sha256 {sha} should list all repeated uses for review",
             )
 
-def validate_selected_visuals_manifest(manifest: Any, report: Report) -> None:
+def validate_selected_visuals_manifest(manifest: Any, project_dir: Path, report: Report) -> None:
     if not isinstance(manifest, dict):
         report.error("selected-visuals-shape", "selected visuals manifest must be an object")
         return
+    resolver = manifest.get("resolver")
+    if not isinstance(resolver, dict):
+        report.error("selected-visuals-unresolved", "selected visuals manifest must be resolver output with top-level resolver metadata")
+    elif resolver.get("name") != "youtube-autopipeline-selected-visuals-resolver":
+        report.error("selected-visuals-resolver", "selected visuals manifest resolver.name is not the approved selected visuals resolver")
+    source_manifest = manifest.get("source_manifest")
+    if not isinstance(source_manifest, dict):
+        report.error("selected-visuals-source-manifest", "resolved selected visuals must include source_manifest metadata")
     items = manifest.get("items")
     if not isinstance(items, list):
         report.error("selected-visuals-items", "selected visuals manifest must include an items array")
@@ -860,6 +924,33 @@ def validate_selected_visuals_manifest(manifest: Any, report: Report) -> None:
     accepted_canonicals: dict[str, int] = {}
     source_type_durations: dict[str, float] = {}
     accepted_source_types: set[str] = set()
+    visual_plan_scenes_by_id: dict[str, dict[str, Any]] = {}
+    segment_by_id: dict[str, dict[str, Any]] = {}
+    broll_segment_ids: set[str] = set()
+    visual_plan_path = project_dir / "manifests" / "visual-plan.json"
+    script_path = project_dir / "script.json"
+    script = load_json(script_path, report, "script")
+    if isinstance(script, dict) and isinstance(script.get("segments"), list):
+        for segment in script["segments"]:
+            if not isinstance(segment, dict):
+                continue
+            segment_id = segment.get("segment_id")
+            if isinstance(segment_id, str) and segment_id.strip():
+                normalized_segment_id = segment_id.strip()
+                segment_by_id[normalized_segment_id] = segment
+                if segment.get("type") == "B_ROLL":
+                    broll_segment_ids.add(normalized_segment_id)
+    visual_plan = load_json(visual_plan_path, report, "visual plan")
+    if visual_plan is not None:
+        gate_findings: list[Any] = []
+        visual_plan_scenes = validate_visual_plan(visual_plan, gate_findings)
+        for finding in gate_findings:
+            report.error(finding.code, finding.message)
+        for scene in visual_plan_scenes:
+            for key in ("scene_id", "segment_id"):
+                value = scene.get(key)
+                if isinstance(value, str) and value.strip():
+                    visual_plan_scenes_by_id[value.strip()] = scene
     for index, item in enumerate(items):
         context = f"selected_visuals.items[{index}]"
         if not isinstance(item, dict):
@@ -869,25 +960,93 @@ def validate_selected_visuals_manifest(manifest: Any, report: Report) -> None:
         pattern = item.get("section_pattern")
         source_type = item.get("source_type")
         canonical_id = item.get("canonical_id")
+        provenance = item.get("provenance")
         if pattern not in SECTION_PATTERNS:
             report.error("section-pattern", f"{context}.section_pattern must be one of {sorted(SECTION_PATTERNS)}")
         if source_type not in BROLL_SOURCE_TYPES:
             report.error("visual-source-type", f"{context}.source_type must be one of {sorted(BROLL_SOURCE_TYPES)}")
         if not isinstance(canonical_id, str) or not canonical_id.strip():
             report.error("canonical-id", f"{context}.canonical_id must be non-empty")
-        if source_type == "animated-board":
+        if not isinstance(provenance, dict):
+            report.error("visual-provenance", f"{context}.provenance must be a resolver-owned object")
+            provenance = {}
+        local_path = item.get("local_path")
+        normalized_local_path = str(local_path).replace("\\", "/").lstrip("./") if isinstance(local_path, str) else ""
+        is_board_asset = normalized_local_path.startswith("broll/boards/")
+        if is_board_asset and source_type != "synthetic-motion":
+            report.error("board-source-type", f"{context}.source_type must be 'synthetic-motion' for broll/boards assets")
+        if isinstance(local_path, str) or provenance.get("kind") == "local_file":
+            sha = normalize_sha(item.get("sha256"))
+            provenance_sha = normalize_sha(provenance.get("sha256"))
+            if sha is None:
+                report.error("visual-sha256", f"{context}.sha256 must be a 64-character hex digest for local files")
+            if provenance_sha is None:
+                report.error("visual-provenance-sha256", f"{context}.provenance.sha256 must be a 64-character hex digest for local files")
+            if sha and provenance_sha and sha != provenance_sha:
+                report.error("visual-sha256-mismatch", f"{context}.sha256 must match provenance.sha256")
+            if sha and canonical_id != f"sha256:{sha}":
+                report.error("visual-canonical-id", f"{context}.canonical_id must be sha256:<digest> for local files")
+            resolved_path = provenance.get("resolved_path")
+            path_to_check: Path | None = None
+            if isinstance(resolved_path, str) and resolved_path.strip():
+                path_to_check = Path(resolved_path)
+            elif isinstance(local_path, str):
+                candidate = Path(local_path)
+                path_to_check = candidate if candidate.is_absolute() else project_dir / candidate
+            if path_to_check is None:
+                report.error("visual-local-path", f"{context} local file is missing resolved path")
+            else:
+                path_to_check = path_to_check.resolve()
+                if not path_to_check.exists() or not path_to_check.is_file():
+                    report.error("visual-local-missing", f"{context} local file not found: {path_to_check}")
+                elif sha and sha256_file(path_to_check) != sha:
+                    report.error("visual-sha256-content", f"{context}.sha256 does not match file bytes: {path_to_check}")
+        elif provenance.get("kind") == "remote":
+            source_url = provenance.get("source_url") or item.get("source_url")
+            if not isinstance(source_url, str) or not source_url.strip():
+                report.error("visual-remote-source", f"{context}.provenance.source_url must be present for remote visuals")
+        else:
+            report.error("visual-provenance-kind", f"{context}.provenance.kind must be 'local_file' or 'remote'")
+        if is_board_asset:
             for field in ("creative_concept", "visual_metaphor", "motion_summary"):
                 if not isinstance(item.get(field), str) or not item.get(field, "").strip():
-                    report.error("animated-board-creative-metadata", f"{context}.{field} is required for animated-board visuals")
+                    report.error("synthetic-motion-board-creative-metadata", f"{context}.{field} is required for board-created synthetic-motion visuals")
             concept = str(item.get("creative_concept", "")).strip().lower()
             if concept in {"checklist", "timeline", "process-flow", "bar-comparison", "risk-matrix", "myth-fact", "template"}:
                 report.error(
-                    "animated-board-template-concept",
+                    "synthetic-motion-board-template-concept",
                     f"{context}.creative_concept must describe a custom visual metaphor, not a template type",
                 )
         if item.get("accepted") is True:
+            scene_id = item.get("scene_id")
+            segment_id = item.get("segment_id")
+            visual_plan_scene = None
+            for value in (segment_id, scene_id):
+                if isinstance(value, str) and value.strip() in visual_plan_scenes_by_id:
+                    visual_plan_scene = visual_plan_scenes_by_id[value.strip()]
+                    break
+            if visual_plan_scene is None:
+                report.error(
+                    "selected-visuals-unplanned-scene",
+                    f"{context} is accepted but does not match any scene_id or segment_id in manifests/visual-plan.json",
+                )
+                is_broll_asset = False
+            else:
+                plan_segment_id = visual_plan_scene.get("segment_id")
+                planned_segment = segment_by_id.get(plan_segment_id.strip()) if isinstance(plan_segment_id, str) else None
+                is_broll_asset = isinstance(planned_segment, dict) and planned_segment.get("type") == "B_ROLL"
+                planned_sources = {
+                    panel.get("source")
+                    for panel in visual_plan_scene.get("panels", [])
+                    if isinstance(panel, dict) and panel.get("kind") == "broll"
+                }
+                if is_broll_asset and isinstance(source_type, str) and source_type in BROLL_SOURCE_TYPES and source_type not in planned_sources:
+                    report.error(
+                        "selected-visuals-source-strategy-mismatch",
+                        f"{context} uses source_type {source_type!r} but visual-plan scene uses broll panel sources {sorted(planned_sources)}",
+                    )
             accepted_patterns.add(str(pattern))
-            if isinstance(source_type, str) and source_type in BROLL_SOURCE_TYPES:
+            if is_broll_asset and isinstance(source_type, str) and source_type in BROLL_SOURCE_TYPES:
                 accepted_source_types.add(source_type)
             if isinstance(canonical_id, str) and canonical_id:
                 accepted_canonicals[canonical_id] = accepted_canonicals.get(canonical_id, 0) + 1
@@ -896,10 +1055,21 @@ def validate_selected_visuals_manifest(manifest: Any, report: Report) -> None:
                 report.error("visual-duration", f"{context}.duration_seconds is required for accepted visuals")
             elif duration <= 0:
                 report.error("visual-duration", f"{context}.duration_seconds must be positive")
-            elif isinstance(source_type, str) and source_type in BROLL_SOURCE_TYPES:
+            elif is_broll_asset and isinstance(source_type, str) and source_type in BROLL_SOURCE_TYPES:
                 source_type_durations[source_type] = source_type_durations.get(source_type, 0.0) + duration
             if not str(item.get("reason", "")).strip():
                 report.error("visual-reason", f"{context}.reason must explain why the visual fits")
+
+    accepted_broll_segment_ids = {
+        str(item.get("segment_id", "")).strip()
+        for item in items
+        if isinstance(item, dict) and item.get("accepted") is True and str(item.get("segment_id", "")).strip()
+    }
+    for segment_id in sorted(broll_segment_ids - accepted_broll_segment_ids):
+        report.error(
+            "selected-visuals-broll-source-missing",
+            f"script segment {segment_id!r} uses B_ROLL and must have an accepted selected visual for the B-roll asset under it",
+        )
 
     reuse_decisions = manifest.get("reuse_decisions", [])
     if reuse_decisions is None:
@@ -1004,13 +1174,22 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--asset-manifest", help="Path to assets-manifest.json to validate.")
     parser.add_argument("--music-manifest", help="Path to music-manifest.json to validate.")
     parser.add_argument("--presenter-plan", help="Path to presenter-plan.json to validate.")
-    parser.add_argument("--selected-visuals", help="Path to selected-visuals manifest to validate.")
+    parser.add_argument("--selected-visuals", help="Path to selected-visuals intent manifest when --resolve-selected-visuals is set; otherwise path to resolver-generated selected-visuals.resolved.json.")
+    parser.add_argument(
+        "--resolve-selected-visuals",
+        action="store_true",
+        help="Resolve selected-visuals intent manifest to selected-visuals.resolved.json, then validate the fresh resolver output.",
+    )
+    parser.add_argument(
+        "--selected-visuals-output",
+        help="Output path for --resolve-selected-visuals. Defaults to <project-dir>/manifests/selected-visuals.resolved.json.",
+    )
     parser.add_argument("--z-image-plan", help="Path to z-image-plan.json to validate.")
     parser.add_argument("--audio", help="Path to final narration audio for duration validation.")
     parser.add_argument("--format", choices=("landscape", "vertical"), help="Expected output format.")
     parser.add_argument(
         "--mode",
-        choices=("all", "preflight", "script", "timeline", "assets"),
+        choices=("all", "preflight", "script", "timeline", "assets", "creative-gate"),
         default="all",
         help="Validation scope.",
     )
@@ -1030,6 +1209,20 @@ def main() -> int:
     report = Report()
     project_dir = Path(args.project_dir).resolve()
 
+    if args.mode in {"all", "creative-gate"} or args.resolve_selected_visuals or args.selected_visuals:
+        for finding in run_creative_gate(project_dir):
+            if finding.severity == "ERROR":
+                report.error(finding.code, finding.message)
+            elif finding.severity == "WARN":
+                report.warn(finding.code, finding.message)
+            else:
+                report.info(finding.code, finding.message)
+        if args.mode == "creative-gate":
+            script_path = Path(args.script).resolve() if args.script else project_dir / "script.json"
+            script = load_json(script_path, report, "script")
+            if script is not None:
+                validate_script(script, report, args.format)
+
     if args.mode in {"all", "preflight"}:
         preflight(project_dir, report, args.require_pexels)
 
@@ -1044,7 +1237,7 @@ def main() -> int:
         timeline = load_json(timeline_path, report, "timeline")
         audio_path = Path(args.audio).resolve() if args.audio else None
         if timeline is not None:
-            validate_timeline(timeline, project_dir, report, audio_path)
+            validate_timeline(timeline, project_dir, report, audio_path, args.format)
 
     asset_manifest_path = Path(args.asset_manifest).resolve() if args.asset_manifest else None
     if asset_manifest_path and args.mode in {"all", "preflight", "assets"}:
@@ -1065,10 +1258,27 @@ def main() -> int:
             validate_presenter_plan(manifest, project_dir, report)
 
     selected_visuals_path = Path(args.selected_visuals).resolve() if args.selected_visuals else None
-    if selected_visuals_path and args.mode in {"all", "preflight", "assets"}:
+    if args.resolve_selected_visuals and args.mode in {"all", "preflight", "assets"}:
+        intent_path = selected_visuals_path or project_dir / "manifests" / "selected-visuals.json"
+        output_path = Path(args.selected_visuals_output).resolve() if args.selected_visuals_output else project_dir / "manifests" / "selected-visuals.resolved.json"
+        intent = load_json(intent_path, report, "selected visuals intent manifest")
+        if intent is not None:
+            try:
+                from selected_visuals_resolver import resolve_manifest, write_json
+
+                resolved_manifest, resolver_errors = resolve_manifest(project_dir, intent_path, intent)
+                if resolver_errors:
+                    for error in resolver_errors:
+                        report.error("selected-visuals-resolver-failed", error)
+                else:
+                    write_json(output_path, resolved_manifest)
+                    validate_selected_visuals_manifest(resolved_manifest, project_dir, report)
+            except Exception as exc:
+                report.error("selected-visuals-resolver-failed", f"selected visuals resolver failed: {exc}")
+    elif selected_visuals_path and args.mode in {"all", "preflight", "assets"}:
         manifest = load_json(selected_visuals_path, report, "selected visuals manifest")
         if manifest is not None:
-            validate_selected_visuals_manifest(manifest, report)
+            validate_selected_visuals_manifest(manifest, project_dir, report)
 
     z_image_plan_path = Path(args.z_image_plan).resolve() if args.z_image_plan else None
     if z_image_plan_path and args.mode in {"all", "preflight", "assets"}:

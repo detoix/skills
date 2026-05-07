@@ -5,11 +5,16 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 
 import numpy as np
 from moviepy import VideoClip
 from PIL import Image
+
+AUTOPIPELINE_SCRIPTS = Path(__file__).resolve().parents[2] / "youtube-autopipeline" / "scripts"
+sys.path.insert(0, str(AUTOPIPELINE_SCRIPTS))
+from production_gate import run_creative_gate  # noqa: E402
 
 
 OUTPUT_FORMATS = {
@@ -103,13 +108,33 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--start-crop", help="Optional x,y,width,height start crop.")
     parser.add_argument("--end-crop", help="Optional x,y,width,height end crop.")
     parser.add_argument("--fps", type=int, default=30)
+    parser.add_argument("--project-dir", help="Project directory. Required unless inferred from --output.")
     return parser.parse_args()
+
+
+def infer_project_dir(explicit: str | None, output_path: Path) -> Path:
+    if explicit:
+        return Path(explicit).resolve()
+    for candidate in (output_path.parent, *output_path.parent.parents):
+        if (candidate / "script.json").exists() and (candidate / "manifests" / "visual-plan.json").exists():
+            return candidate
+    raise ValueError("Still-motion render requires --project-dir or an output path inside an approved project.")
+
+
+def require_creative_gate(project_dir: Path) -> None:
+    findings = run_creative_gate(project_dir)
+    errors = [finding for finding in findings if finding.severity == "ERROR"]
+    if errors:
+        for finding in findings:
+            print(f"{finding.severity}: {finding.code}: {finding.message}", file=sys.stderr)
+        raise SystemExit(1)
 
 
 def main() -> int:
     args = parse_args()
     image_path = Path(args.image).resolve()
     output_path = Path(args.output).resolve()
+    require_creative_gate(infer_project_dir(args.project_dir, output_path))
     if not image_path.exists() or not image_path.is_file():
         raise FileNotFoundError(f"image not found: {image_path}")
     if image_path.suffix.lower() not in IMAGE_EXTENSIONS:

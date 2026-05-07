@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 
-VISUAL_MODES = {"B_ROLL", "TEXT_GRAPHIC", "TEXT", "PUNCH_IN"}
+BROLL_SOURCE = "generated-image"
 
 
 def load_json(path: Path) -> Any:
@@ -76,10 +76,15 @@ def build_plan(script: dict[str, Any], output_dir: Path, style: str, limit: int 
     for segment in segments:
         if not isinstance(segment, dict):
             continue
-        visual = segment.get("primary_visual")
+        segment_type = segment.get("type")
         segment_id = str(segment.get("segment_id") or f"S{len(items) + 1:02d}")
         broll_query = broll_queries.get(segment_id)
-        if not broll_query and visual not in {"TEXT_GRAPHIC", "PUNCH_IN"}:
+        panel_sources = {
+            panel.get("source")
+            for panel in segment.get("panels", [])
+            if isinstance(panel, dict) and panel.get("kind") == "broll"
+        }
+        if segment_type != "B_ROLL" or (not broll_query and BROLL_SOURCE not in panel_sources):
             continue
         text = str(segment.get("on_screen_text") or segment.get("visual_direction") or segment_id)
         output = output_dir / f"{segment_id}_{safe_slug(text)}.png"
@@ -87,7 +92,7 @@ def build_plan(script: dict[str, Any], output_dir: Path, style: str, limit: int 
         items.append(
             {
                 "segment_id": segment_id,
-                "primary_visual": visual,
+                "type": segment_type,
                 "prompt": prompt,
                 "output": str(output),
                 "status": "planned",
@@ -98,8 +103,9 @@ def build_plan(script: dict[str, Any], output_dir: Path, style: str, limit: int 
                     "rejection_reason": "",
                 },
                 "timeline_candidate": {
-                    "type": "B-ROLL" if visual != "TEXT_GRAPHIC" else "TEXT",
-                    "clip_path": str(output),
+                    "type": "B_ROLL",
+                    "layout": segment.get("layout", "fullscreen"),
+                    "panels": [{"kind": "broll", "source": BROLL_SOURCE, "path": str(output), "treatment": "still_motion"}],
                     "source": "z-image-turbo",
                     "review_required": True,
                 },
@@ -118,7 +124,7 @@ def build_plan(script: dict[str, Any], output_dir: Path, style: str, limit: int 
 
     return {
         "source": "z-image-turbo",
-        "usage": "generated vertical stills for B-roll, abstract concepts, text-graphic backgrounds, and visual variety",
+        "usage": "generated vertical stills for B_ROLL panels, abstract concepts, and visual variety",
         "output_dir": str(output_dir),
         "items": items,
         "acceptance_criteria": [
@@ -137,7 +143,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--project-dir", required=True, help="Project directory.")
     parser.add_argument("--output", help="Manifest path. Defaults to <project-dir>/manifests/z-image-plan.json")
     parser.add_argument("--image-dir", help="Image output directory. Defaults to <project-dir>/broll/generated")
-    parser.add_argument("--style", default="high-quality documentary motion-graphic aesthetic")
+    parser.add_argument("--style", default="high-quality documentary synthetic-motion aesthetic")
     parser.add_argument("--limit", type=int)
     return parser.parse_args()
 

@@ -4,11 +4,14 @@ import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
+import { spawn } from "node:child_process";
 
 const FORMATS = {
   vertical: { width: 1080, height: 1920 },
   landscape: { width: 1920, height: 1080 },
 };
+
+const PRODUCTION_GATE = "C:\\Users\\kdeptula\\skills\\youtube-autopipeline\\scripts\\production_gate.py";
 
 const REQUIRED_BRIEF_FIELDS = [
   "intent",
@@ -100,7 +103,7 @@ function requireArray(value, field) {
 
 async function loadCreativeBrief(dataJson) {
   const briefPath = path.resolve(dataJson);
-  const brief = JSON.parse(await fs.readFile(briefPath, "utf8"));
+  const brief = JSON.parse((await fs.readFile(briefPath, "utf8")).replace(/^\uFEFF/, ""));
   if (!brief || typeof brief !== "object" || Array.isArray(brief)) {
     throw new Error("Creative brief JSON must be an object");
   }
@@ -154,10 +157,37 @@ html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#111;color:
 </html>`;
 }
 
+function runProductionGate(projectDir, boardId, brief) {
+  const args = [
+    PRODUCTION_GATE,
+    "--project-dir",
+    path.resolve(projectDir),
+    "--require-source-strategy",
+    "synthetic-motion",
+    "--board-id",
+    boardId,
+  ];
+  if (typeof brief.scene_id === "string" && brief.scene_id.trim()) {
+    args.push("--scene-id", brief.scene_id.trim());
+  }
+  if (typeof brief.segment_id === "string" && brief.segment_id.trim()) {
+    args.push("--segment-id", brief.segment_id.trim());
+  }
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.env.PYTHON || "python", args, { stdio: "inherit", windowsHide: true });
+    child.on("error", reject);
+    child.on("exit", (code) => {
+      if (code === 0) resolve();
+      else reject(new Error(`Creative gate failed before board creation. Command exited ${code}: python ${args.join(" ")}`));
+    });
+  });
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const boardId = safeId(args.boardId);
   const { briefPath, brief } = await loadCreativeBrief(args.dataJson);
+  await runProductionGate(args.projectDir, boardId, brief);
   const dimensions = FORMATS[brief.format];
   const boardDir = path.join(path.resolve(args.projectDir), "broll", "boards", boardId);
   await fs.mkdir(boardDir, { recursive: true });
@@ -193,7 +223,7 @@ async function main() {
     html: indexPath,
     preview: previewPath,
     clip: clipPath,
-    source_type: "animated-board",
+    source_type: "synthetic-motion",
     risk: "synthetic explanatory motion graphic",
   };
 

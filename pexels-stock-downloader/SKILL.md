@@ -7,6 +7,8 @@ description: Search and download stock video clips from Pexels with the official
 
 Use this skill to fetch stock video clips from Pexels with the official API. Prefer the bundled script over ad hoc HTTP requests so clip selection, filenames, and manifest output stay consistent.
 
+For YouTube autopipeline production projects, pass `--project-dir <project-dir>` to the downloader. The script enforces the parent Creative Approval Gate before downloading clips.
+
 ## Workflow
 
 1. Confirm `PEXELS_API_KEY` is available either in the environment or in `.env` at the skill root.

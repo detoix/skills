@@ -7,6 +7,8 @@ description: Generate and hard-burn modern word-by-word captions for reels, shor
 
 Use this skill to add modern short-form captions to a rendered reel. The default workflow preserves the approved transcript and uses alignment only for timing.
 
+For YouTube autopipeline production projects, `scripts\generate_reel_captions.py` enforces the parent Creative Approval Gate before generating or burning captions.
+
 ## Workflow
 
 1. Confirm inputs:

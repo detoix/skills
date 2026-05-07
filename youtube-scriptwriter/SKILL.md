@@ -20,7 +20,6 @@ Generate scripts as production-ready assets, not as plain prose. Always optimize
 3. Enforce pacing rules before finalizing:
    - No static `A_ROLL` shot longer than 20 seconds
    - Insert a pattern interrupt every 5-15 seconds
-   - Alternate frequently across the visual modes supported by the selected format
 4. Write for spoken delivery, not essay reading:
    - Use short spoken sentences
    - Open with a fast hook
@@ -37,16 +36,15 @@ Generate scripts as production-ready assets, not as plain prose. Always optimize
 ## Operating Rules
 
 - Treat retention as a hard requirement, not a nice-to-have.
-- Break long explanations into multiple visual beats.
-- Mark each segment with an explicit visual mode and a pattern interrupt flag.
-- Make `B_ROLL` and `PIP` instructions concrete enough for asset fetching or screen-record capture.
+- Break long explanations into clear beats.
+- Mark each segment with `type: A_ROLL` or `type: B_ROLL` and a pattern interrupt flag.
+- If `B_ROLL` is used, make its `layout` and `panels[]` concrete enough for production.
 - Use `generated-image` in `broll_queries.source_type` when a controlled synthetic still is stronger than stock, webpage capture, or manual assets for an abstract or privacy-safe segment.
 - Do not use generated-image plans to hide missing user assets when the topic depends on the user's real product, presenter, brand, location, or app.
-- Make `TEXT_GRAPHIC` copy short enough to be readable on screen.
 - Make `on_screen_text` usable as `caption_text` when the timeline needs burned-in reel captions: short, punchy, and not a full transcript dump.
 - Keep the spoken narration aligned with the claimed duration.
-- If the requested duration is too short for the topic, compress aggressively instead of relaxing the pacing constraints.
-- If the topic is abstract, convert examples into visuals, metaphors, screenshots, or text overlays rather than leaving long avatar monologues.
+- If the requested duration is too short for the topic, compress tightly instead of relaxing the pacing constraints.
+- If the topic is abstract, use concrete examples or metaphors when helpful.
 - Write narration for spoken delivery, not for visual text-only reading.
 - Keep narration natural in the target language, but avoid overfitting the script to a specific TTS engine.
 - If a line contains literals such as digits, shorthand, passwords, or mixed-language tokens, it is acceptable to keep the authored wording when that is important for the script, as long as the line is still understandable to a human reader.
@@ -76,16 +74,16 @@ Always follow this contract:
 3. Break the video into short segments.
 4. Ensure no `A_ROLL` segment exceeds 20 seconds.
 5. Insert a pattern interrupt every 5-15 seconds.
-6. Alternate visual treatment aggressively enough to avoid static talking-head runs.
+6. Use visual changes only when they improve clarity, pacing, or retention.
 7. Fill the production payload arrays so the output can drive TTS, B-roll fetch, text graphics, and assembly.
 8. Before finalizing, check:
    - no timing gaps
    - no overlong `A_ROLL`
    - no long interrupt gaps
-   - B-roll queries are concrete
+   - B-roll queries are concrete when present
    - on-screen text is readable and short
-   - caption-style text fits phone viewing and avoids bottom UI/PiP collisions
-   - generated-image segments are explicitly justified in `broll_queries` or `assembly_notes`
+   - caption-style text fits phone viewing and avoids bottom UI/presenter overlay collisions
+   - generated-image B-roll panels are explicitly justified in `broll_queries` or `assembly_notes`
    - narration is natural for spoken delivery in the target language
 
 ## Output Template

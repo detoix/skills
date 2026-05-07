@@ -7,10 +7,12 @@ description: Record webpage B-roll clips as video files using Playwright. Use wh
 
 Use this skill to turn a webpage into a saved video clip for editing. Prefer the bundled script over ad hoc browser automation so output paths, timing, and scrolling behavior stay consistent.
 
+For YouTube autopipeline production projects, pass `--project-dir <project-dir>` to `scripts\record_broll.mjs`. The script enforces the parent Creative Approval Gate before recording.
+
 ## Workflow
 
 1. Collect the recording inputs:
-   - URL, including `file:///...` URLs for project-local HTML/mock UI created as B-roll
+   - URL, including `file:///...` URLs for project-local synthetic-motion HTML/mock UI created as B-roll
    - output file path
    - clip duration
    - whether to use `constant` scroll or `static` hold
@@ -56,7 +58,7 @@ Useful options:
 ## Operating Rules
 
 - Use the script directly; do not improvise a separate Playwright flow unless you need behavior the script cannot provide.
-- `file:///...` inputs are valid for recording project-local HTML/mock UI created for B-roll.
+- `file:///...` inputs are valid for recording project-local synthetic-motion HTML/mock UI created for B-roll.
 - Save clips as `.webm`. Do not promise `.mp4` unless the environment has a separate transcoding step.
 - Prefer 8-20 second clips for B-roll.
 - Keep the browser viewport and recorded video frame on the same aspect ratio. Default both to `16:9`.
@@ -68,7 +70,7 @@ Useful options:
 - For localized videos, prefer localized docs, regional landing pages, country-specific pricing or onboarding flows, and UI text that matches the narration language when possible.
 - If the best visual source is only available in another language, treat that as a conscious fallback and note it instead of silently mixing languages.
 - Always capture a preview screenshot and inspect it before declaring success.
-- For project-local HTML/mock UI, the validation screenshot must show the intended scene, no overlapping scene states, text fitting in frame, no accidental real data, and an output aspect ratio that matches the planned timeline use.
+- For project-local synthetic-motion HTML/mock UI, the validation screenshot must show the intended scene, no overlapping scene states, text fitting in frame, no accidental real data, and an output aspect ratio that matches the planned timeline use.
 - Treat obvious failures as invalid even if the recorder exits cleanly: `404`, access denied pages, blank shells, login walls, broken hero sections, cookie walls covering the frame, or obviously off-topic content.
 - Treat final URL, page title, and HTTP status as validation signals. A saved file alone is not enough.
 - Choose `static` for docs pages, strong hero sections, dashboards, product UIs, or pages with their own animation.

@@ -7,6 +7,7 @@ import { pathToFileURL } from "node:url";
 import { spawn } from "node:child_process";
 
 const RECORDER = "C:\\Users\\kdeptula\\skills\\playwright-broll-recorder\\scripts\\record_broll.mjs";
+const PRODUCTION_GATE = "C:\\Users\\kdeptula\\skills\\youtube-autopipeline\\scripts\\production_gate.py";
 
 function parseArgs(argv) {
   const options = {};
@@ -86,8 +87,21 @@ function runCommand(command, args) {
   });
 }
 
+function runProductionGate(projectDir, boardId) {
+  return runCommand(process.env.PYTHON || "python", [
+    PRODUCTION_GATE,
+    "--project-dir",
+    path.resolve(projectDir),
+    "--require-source-strategy",
+    "synthetic-motion",
+    "--board-id",
+    boardId,
+  ]);
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
+  await runProductionGate(args.projectDir, args.boardId);
   const boardDir = path.join(path.resolve(args.projectDir), "broll", "boards", args.boardId);
   const manifestPath = path.join(boardDir, "board-manifest.json");
   if (!(await fileExists(manifestPath))) throw new Error(`Missing board manifest: ${manifestPath}`);

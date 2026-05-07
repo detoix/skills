@@ -89,7 +89,11 @@ def collect_timestamps(duration: float, timeline: list[dict[str, Any]]) -> list[
         middle = start + max(0.0, end - start) / 2
         candidates.append((min(max(start + 0.2, 0.0), max(duration - 0.1, 0.0)), f"segment_{index:02d}_start"))
         candidates.append((min(max(middle, 0.0), max(duration - 0.1, 0.0)), f"segment_{index:02d}_middle"))
-        if entry.get("type") in {"PIP", "TEXT"} or entry.get("caption_text"):
+        has_presenter_panel = any(
+            isinstance(panel, dict) and panel.get("kind") == "presenter"
+            for panel in entry.get("panels", [])
+        )
+        if has_presenter_panel or entry.get("caption_text"):
             candidates.append((min(max(middle, 0.0), max(duration - 0.1, 0.0)), f"{entry.get('type')}_review"))
 
     seen: set[float] = set()
@@ -229,61 +233,45 @@ def timeline_asset_categories(timeline: list[dict[str, Any]]) -> dict[str, Any]:
         end = float(entry.get("end_time", start))
         segment_durations.append({"index": index, "type": entry_type, "duration_seconds": round(end - start, 3)})
 
-        for field in (
-            "clip_path",
-            "background_path",
-            "overlay_path",
-            "clip_path_top",
-            "clip_path_mid",
-            "clip_path_bot",
-            "clip_path_a",
-            "clip_path_b",
-            "clip_path_1",
-            "clip_path_2",
-            "clip_path_3",
-            "clip_path_4",
-        ):
-            value = entry.get(field)
-            if isinstance(value, str) and value:
-                media_refs.add(value)
+        value = entry.get("clip_path")
+        if isinstance(value, str) and value:
+            media_refs.add(value)
+        panels = entry.get("panels", [])
+        if isinstance(panels, list):
+            for panel in panels:
+                if isinstance(panel, dict) and isinstance(panel.get("path"), str) and panel.get("path"):
+                    media_refs.add(panel["path"])
 
-        if entry_type == "A-ROLL":
+        if entry_type == "A_ROLL":
             categories.add("presenter_fullscreen")
-        elif entry_type == "PIP":
-            categories.update({"pip_presenter", "background_broll"})
-            pip_entries.append(
-                {
-                    "index": index,
-                    "overlay_path": entry.get("overlay_path"),
-                    "overlay_scale": entry.get("overlay_scale"),
-                    "overlay_position": entry.get("overlay_position"),
-                    "shape_expected": "circle",
-                    "crop_override": all(key in entry for key in ("overlay_crop_x", "overlay_crop_y")),
-                }
-            )
-        elif entry_type == "B-ROLL":
-            categories.add("fullscreen_broll")
-        elif entry_type == "TEXT":
-            categories.add("text_beat")
-            text_value = str(entry.get("text", "")).strip()
-            text_entries.append(
-                {
-                    "index": index,
-                    "text": text_value,
-                    "characters": len(text_value),
-                    "background_path": entry.get("background_path"),
-                }
-            )
-        elif entry_type == "STACK_3":
-            categories.add("stacked_broll")
-        elif entry_type == "STACK_2":
-            categories.add("stacked_broll")
-        elif entry_type == "SPLIT_2":
-            categories.add("split_screen")
-        elif entry_type == "GRID_4":
-            categories.add("grid_collage")
-        elif entry_type == "STILL_MOTION":
-            categories.add("still_motion")
+        elif entry_type == "B_ROLL":
+            layout = entry.get("layout")
+            if layout == "fullscreen":
+                categories.add("fullscreen_broll")
+            elif layout in {"stack2", "stack3"}:
+                categories.add("stacked_broll")
+            elif layout == "grid4":
+                categories.add("grid_collage")
+            for panel_index, panel in enumerate(panels if isinstance(panels, list) else []):
+                if not isinstance(panel, dict):
+                    continue
+                if panel.get("kind") == "presenter":
+                    categories.add("presenter_panel")
+                    if panel.get("role") == "overlay":
+                        categories.add("pip_presenter")
+                        pip_entries.append(
+                            {
+                                "index": index,
+                                "panel_index": panel_index,
+                                "overlay_path": panel.get("path"),
+                                "overlay_scale": panel.get("overlay_scale"),
+                                "overlay_position": panel.get("overlay_position"),
+                                "shape_expected": "circle",
+                                "crop_override": all(key in panel for key in ("overlay_crop_x", "overlay_crop_y")),
+                            }
+                        )
+                elif panel.get("kind") == "broll" and panel.get("treatment") == "still_motion":
+                    categories.add("still_motion")
 
         caption = entry.get("caption_text")
         if isinstance(caption, str) and caption.strip():
@@ -313,6 +301,7 @@ def selected_visuals_summary(manifest: dict[str, Any] | None) -> dict[str, Any]:
     if not manifest or not isinstance(manifest.get("items"), list):
         return {
             "manifest_present": False,
+            "manifest_is_resolved": False,
             "section_patterns": [],
             "source_types": [],
             "accepted_count": 0,
@@ -320,6 +309,7 @@ def selected_visuals_summary(manifest: dict[str, Any] | None) -> dict[str, Any]:
             "target_duration_seconds": None,
             "single_pattern_reason": None,
         }
+    manifest_is_resolved = isinstance(manifest.get("resolver"), dict)
     accepted = [item for item in manifest["items"] if isinstance(item, dict) and item.get("accepted") is True]
     patterns = sorted({str(item.get("section_pattern")) for item in accepted if item.get("section_pattern")})
     source_types = sorted({str(item.get("source_type")) for item in accepted if item.get("source_type")})
@@ -331,6 +321,7 @@ def selected_visuals_summary(manifest: dict[str, Any] | None) -> dict[str, Any]:
     duplicates = sorted(key for key, count in canonical_counts.items() if count > 1)
     return {
         "manifest_present": True,
+        "manifest_is_resolved": manifest_is_resolved,
         "section_patterns": patterns,
         "source_types": source_types,
         "accepted_count": len(accepted),
@@ -422,6 +413,8 @@ def build_findings(
         add("WARN", "low-asset-variety", "timeline uses fewer than four distinct media references")
     if selected_visuals.get("duplicate_canonical_ids"):
         add("ERROR", "duplicate-canonical-id", f"selected visuals reuse canonical ids: {selected_visuals['duplicate_canonical_ids']}")
+    if not selected_visuals.get("manifest_is_resolved"):
+        add("ERROR", "selected-visuals-unresolved", "production visual QA requires manifests/selected-visuals.resolved.json from the resolver")
     selected_duration = selected_visuals.get("target_duration_seconds")
     if selected_duration is None:
         selected_duration = duration
@@ -447,11 +440,9 @@ def build_findings(
 
     for item in timeline_summary.get("text_entries", []):
         if item["characters"] > 28:
-            add("WARN", "text-beat-long", f"TEXT beat at timeline[{item['index']}] has {item['characters']} characters")
+            add("WARN", "text-beat-long", f"text beat at timeline[{item['index']}] has {item['characters']} characters")
 
     for item in timeline_summary.get("pip_entries", []):
-        if item.get("overlay_position") not in (["center", "bottom"], ("center", "bottom"), None):
-            add("WARN", "pip-position", f"PIP at timeline[{item['index']}] is not centered bottom for vertical review")
         if item.get("overlay_scale") is None:
             add("WARN", "pip-scale", f"PIP at timeline[{item['index']}] relies on default overlay scale")
 
@@ -581,7 +572,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-duration", type=float, help="Maximum acceptable duration in seconds.")
     parser.add_argument("--tts-manifest", help="Optional TTS manifest path. Defaults to <project-dir>/manifests/tts-manifest.json")
     parser.add_argument("--z-image-plan", help="Optional z-image plan path. Defaults to <project-dir>/manifests/z-image-plan.json when present")
-    parser.add_argument("--selected-visuals", help="Optional selected visuals manifest path. Defaults to <project-dir>/manifests/selected-visuals.json when present")
+    parser.add_argument("--selected-visuals", help="Optional selected visuals manifest path. Defaults to selected-visuals.resolved.json when present, otherwise selected-visuals.json as a blocker")
     parser.add_argument("--report-md", help="Optional Markdown QA report path.")
     parser.add_argument(
         "--agent-visual-review-pass",
@@ -612,7 +603,12 @@ def main() -> int:
     tts_manifest = load_json_object(tts_manifest_path)
     z_image_plan_path = Path(args.z_image_plan).resolve() if args.z_image_plan else project_dir / "manifests" / "z-image-plan.json"
     z_image_plan = load_json_object(z_image_plan_path)
-    selected_visuals_path = Path(args.selected_visuals).resolve() if args.selected_visuals else project_dir / "manifests" / "selected-visuals.json"
+    if args.selected_visuals:
+        selected_visuals_path = Path(args.selected_visuals).resolve()
+    else:
+        resolved_selected_visuals = project_dir / "manifests" / "selected-visuals.resolved.json"
+        intent_selected_visuals = project_dir / "manifests" / "selected-visuals.json"
+        selected_visuals_path = resolved_selected_visuals if resolved_selected_visuals.exists() else intent_selected_visuals
     selected_visuals_manifest = load_json_object(selected_visuals_path)
     timestamps = collect_timestamps(duration, timeline)
     frame_entries: list[dict[str, Any]] = []

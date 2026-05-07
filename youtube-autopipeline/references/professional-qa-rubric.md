@@ -8,23 +8,23 @@ Use this rubric before setting `--agent-visual-review-pass` in `visual_qa.py`. S
 - Opening: the first 3 seconds must communicate the content proposition; the first 6 seconds must contain a hook. URL: https://ads.tiktok.com/help/article/creative-best-practices?lang=en
 - Safe zones: primary subjects stay in the action-safe center; text and critical information stay in the title-safe center and avoid bottom/right platform UI zones. URL: https://clickyapps.com/creator/video/guides/vertical-framing-safe-zones
 - Captions/text: captions must be short, high-contrast, and readable on phone-sized playback; on-screen text must not sit in the bottom 20-25% unless reviewed as intentionally safe. URLs: https://ads.tiktok.com/help/article/creative-best-practices?lang=en, https://clickyapps.com/creator/video/guides/vertical-framing-safe-zones
-- Visual variety: the reel must change visual treatment every few seconds through A-roll, B-roll, PiP, generated visuals, mock UI, screen capture, stacked clips, motion graphics, or text beats. This is a local pipeline rule derived from platform hook/transition guidance and OSS pipeline inspection, not a formal platform standard.
+- Visual variety: the reel may change treatment through A-roll, B-roll layouts, presenter panels, generated visuals, synthetic-motion, screen capture, stacked clips, or text overlays. This is a local pipeline rule derived from platform hook/transition guidance and OSS pipeline inspection, not a formal platform standard.
 - Audio: narration is intelligible, not prompt-prefixed, and not buried under music. YouTube filming guidance emphasizes low echo/background noise for useful sound. URL: https://support.google.com/youtube/answer/12948118?co=YOUTUBE._YTVideoType%3Dshorts&hl=en
 - Generated visuals: z-image outputs must look intentional, vertically composed, and segment-relevant. Reject generic filler, malformed images, fake logos, unreadable text, private data, or placeholder-looking art.
 - Generated visual provenance: every `broll/generated/` timeline reference must map to a reviewed accepted item in `manifests/z-image-plan.json`.
-- Animated boards: `broll/boards/` outputs must be custom art-directed motion-design clips with readable text, visible animation, creative metadata, and a passing `board-qa.json`. Static PNG/Pillow UI boards and template-like checklist/timeline/card-stack boards fail production QA unless the user explicitly requested a still.
+- Synthetic-motion boards: `broll/boards/` outputs must be custom art-directed motion-design clips with readable text, visible animation, creative metadata, and a passing `board-qa.json`. Static PNG/Pillow UI boards and template-like checklist/timeline/card-stack boards fail production QA unless the user explicitly requested a still.
 - Asset truthfulness: real production runs use user-provided assets when the brief depends on a real person, product, brand, app, location, or voice. Disposable test inputs are test-only and must not become skill assumptions.
 
 ## Automatic Failure Conditions
 
 - Any frame looks like a test harness, template placeholder, empty colored card, broken web page, loading page, or generic stock filler.
-- Any text overlaps captions, PiP, platform UI danger zones, or other text.
+- Any text overlaps captions, presenter overlays, platform UI danger zones, or other text.
 - Any abstract/UI/infographic B-roll is an ad hoc static PNG/Pillow board without explicit user approval.
-- Any animated board is only a generic checklist/timeline/dashboard/card-stack template rather than a custom motion scene with a clear visual metaphor.
-- PiP is not circular when the plan calls for a talking-head bubble.
+- Any synthetic-motion board is only a generic checklist/timeline/dashboard/card-stack template rather than a custom motion scene with a clear visual metaphor.
+- Presenter overlay is not circular when the plan calls for a talking-head bubble.
 - Presenter face is awkwardly cropped, too soft, identity-drifted, or visibly lip-sync-broken.
 - Generated imagery is used to avoid asking for required user assets.
-- QA frames do not cover the full timeline, every PiP segment, every TEXT segment, and the final seconds.
+- QA frames do not cover the full timeline, every presenter-overlay segment, every text-overlay treatment, and the final seconds.
 
 ## Review Notes Template
 
@@ -37,7 +37,7 @@ Agent visual review notes:
 - Caption readability:
 - Visual variety:
 - Generated visual quality:
-- Presenter/PiP quality:
+- Presenter overlay quality:
 - Audio/TTS prefix:
 - Rejected frames or fixes:
 - Final decision:

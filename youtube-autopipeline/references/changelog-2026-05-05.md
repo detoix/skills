@@ -24,7 +24,7 @@
 ## Test Evidence
 
 - Asset manifest: `C:\Users\kdeptula\Videos\ai-videos\reel-proof-20260505\manifests\assets-manifest.json`
-- Local HTML B-roll preview: `C:\Users\kdeptula\Videos\ai-videos\reel-proof-20260505\broll\B01_motion_preview.png`
+- Synthetic-motion B-roll preview: `C:\Users\kdeptula\Videos\ai-videos\reel-proof-20260505\broll\B01_motion_preview.png`
 - Failed QA render retained for comparison: `C:\Users\kdeptula\Videos\ai-videos\reel-proof-20260505\final_output_v2.mp4`
 - Short structural proof render, not production-accepted: `C:\Users\kdeptula\Videos\ai-videos\reel-proof-20260505\final_output.mp4`
 - Regression QA manifest showing the proof is too short and lacks aesthetic review: `C:\Users\kdeptula\Videos\ai-videos\reel-proof-20260505\manifests\visual-qa-regression.json`

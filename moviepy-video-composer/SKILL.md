@@ -1,11 +1,13 @@
 ---
 name: moviepy-video-composer
-description: Assemble final landscape or vertical videos from a structured JSON timeline, local media assets, and a master audio track using MoviePy. Use when asked to stitch avatar clips, B-roll, screen recordings, text overlays, stacked clips, or PiP layouts into a final video, render an MP4 from timeline.json, or automate local video composition from assets plus voiceover.
+description: Assemble final landscape or vertical videos from a structured JSON timeline, local media assets, and a master audio track using MoviePy. Use when asked to stitch avatar clips, B-roll, screen recordings, text overlays, stacked clips, or presenter-overlay layouts into a final video, render an MP4 from timeline.json, or automate local video composition from assets plus voiceover.
 ---
 
 # MoviePy Video Composer
 
 Use this skill to build a final edited video from local assets and a structured edit list. Prefer the bundled Python script instead of rewriting composition logic from scratch.
+
+For YouTube autopipeline production projects, `scripts\compose_video.py` enforces the parent Creative Approval Gate before final composition. `scripts\render_still_motion.py` also enforces the gate when rendering stills into motion clips.
 
 ## Output Formats
 
@@ -32,7 +34,7 @@ Both formats use [scripts/compose_video.py](scripts/compose_video.py).
 3. Run [scripts/compose_video.py](scripts/compose_video.py) with the correct `--format`.
 4. Verify that `final_output.mp4` and `manifests/audio-mix-manifest.json` exist.
 5. Extract representative frames from the rendered video and inspect them for actual visual quality before reporting success.
-6. Rerender when frames show obvious visual defects such as overlap, clipped text, unreadable typography, bad PiP shape/crop, blank frames, or unfinished-looking UI.
+6. Rerender when frames show obvious visual defects such as overlap, clipped text, unreadable typography, bad presenter overlay shape/crop, blank frames, or unfinished-looking UI.
 7. Report the output path and any warnings back to the user.
 
 ## Expected Inputs
@@ -41,15 +43,9 @@ Both formats use [scripts/compose_video.py](scripts/compose_video.py).
 - `final_audio.mp3` or `final_audio.wav`: continuous master voiceover
 - optional soundtrack file: user-provided local music bed for the final mix, normally ingested as `source-assets/soundtrack.<ext>`
 - local clips referenced by JSON:
-  - `A-ROLL`
-  - `B-ROLL`
-   - `PIP`
-   - `TEXT`
-   - `STACK_2`
-   - `STACK_3`
-   - `SPLIT_2`
-   - `GRID_4`
-   - `STILL_MOTION`
+  - `A_ROLL`
+  - `B_ROLL`
+- `B_ROLL` entries must define `layout` and `panels[]`; do not use layout or treatment names as top-level `type`
 - accepted generated stills or project images (`.png`, `.jpg`, `.jpeg`, `.webp`) may be used anywhere a visual media path is accepted; stills are held for the segment duration
 - optional `caption_text` fields on any segment for burned-in short-form captions
 
@@ -82,22 +78,19 @@ If paths are omitted, the script defaults to the project directory and common so
 - Loop clips when they are too short; trim them when they are too long.
 - Treat still images as duration-flexible visual media. Do not set `clip_start` on still images.
 - Use `clip_start` when a segment should begin from a non-zero point in the source clip.
-- Use `background_clip_start` and `overlay_clip_start` for `PIP` when the background and presenter overlay need different source offsets.
-- Use `clip_start_top`, `clip_start_mid`, and `clip_start_bot` for `STACK_3` when stacked clips need different source offsets.
-- Use `clip_start_top` and `clip_start_bot` for `STACK_2` when the two stacked clips need different source offsets.
-- Use `clip_path_a`, `clip_path_b`, and `split_axis` for `SPLIT_2` comparison or presenter/demo panels.
-- Use `clip_path_1` through `clip_path_4` for `GRID_4` comparison or collage panels.
-- Use `STILL_MOTION` for subtle bounded camera movement on a local/generated still, or pre-render the motion with [scripts/render_still_motion.py](scripts/render_still_motion.py) before using it as `B-ROLL`.
+- Use panel-level `clip_start` when panels need different source offsets.
+- Use `layout: "stack2"`, `layout: "stack3"`, or `layout: "grid4"` for multi-panel B-roll.
+- Use panel `treatment: "still_motion"` for subtle bounded camera movement on a local/generated still, or pre-render the motion with [scripts/render_still_motion.py](scripts/render_still_motion.py) before using it as B-roll panel media.
 - Use `loop_policy: "error"` for visible presenter clips to prevent repeated mouth/body motion.
-- Use `background_loop_policy` and `overlay_loop_policy` to control looping separately in PIP entries.
+- Use panel-level `loop_policy` to control looping separately for each panel.
 - Normalize fullscreen assets into the selected output canvas before assembly.
 - Use `cover` as the default fullscreen framing rule for timeline-driven video layers.
-- Keep `PIP` overlays on explicit overlay sizing and placement; do not treat overlays as fullscreen assets.
-- Apply circular masking to `PIP` overlays by default. The composer square-crops the overlay before masking so portrait, landscape, and square source plates render as circles.
-- Use optional PiP crop fields when the automatic center square crop does not keep the presenter's face centered.
+- Keep presenter overlays on explicit overlay sizing and placement; do not treat overlays as fullscreen assets.
+- Apply circular masking to presenter overlays by default. The composer square-crops the overlay before masking so portrait, landscape, and square source plates render as circles.
+- Use optional presenter overlay crop fields when the automatic center square crop does not keep the presenter's face centered.
 - Do not letterbox or pillarbox fullscreen clips unless the user explicitly asks for that treatment.
 - Do not use `caption_text` for production spoken captions in modern reels. Use the separate `reel-captions` skill after base render for word-level aligned captions.
-- Keep `caption_text` only for non-spoken labels, test renders, or intentionally static graphic annotations. Use `caption_position` and `caption_y` only after visual inspection proves the label does not collide with PiP or platform safe zones.
+- Keep `caption_text` only for non-spoken labels, test renders, or intentionally static graphic annotations. Use `caption_position` and `caption_y` only after visual inspection proves the label does not collide with presenter overlays or platform safe zones.
 - Treat the narration track as the primary audio source.
 - Validate narration and soundtrack with `ffprobe`; both must contain an audio stream with positive duration.
 - If soundtrack music is present, use `ffmpeg` sidechain ducking so the music drops under narration and recovers in pauses.
@@ -110,7 +103,7 @@ If paths are omitted, the script defaults to the project directory and common so
 
 ## Visual QA
 
-The composer workflow requires visual inspection of the rendered MP4, not just schema validation. Extract frames from the final output at regular intervals and around PIP/TEXT/static-label segments. Prefer `youtube-autopipeline\scripts\visual_qa.py` for extraction and manifest output. Reject the render if the final composed image has overlapping text, clipped elements, incorrect PiP shape, awkward subject crops, blank frames, or obviously unfinished mock visuals. For spoken reel captions, run visual QA again after the `reel-captions` burn-in stage.
+The composer workflow requires visual inspection of the rendered MP4, not just schema validation. Extract frames from the final output at regular intervals and around presenter-overlay/static-label segments. Prefer `youtube-autopipeline\scripts\visual_qa.py` for extraction and manifest output. Reject the render if the final composed image has overlapping text, clipped elements, incorrect presenter overlay shape, awkward subject crops, blank frames, or obviously unfinished mock visuals. For spoken reel captions, run visual QA again after the `reel-captions` burn-in stage.
 
 ## Resources
 

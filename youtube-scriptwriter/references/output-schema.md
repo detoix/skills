@@ -48,7 +48,9 @@ Each item must contain:
 - `start_seconds`
 - `end_seconds`
 - `duration_seconds`
-- `primary_visual`
+- `type`: `A_ROLL` or `B_ROLL`
+- `layout`: required only for `B_ROLL`; one of `fullscreen`, `stack2`, `stack3`, `grid4`
+- `panels`: required only for `B_ROLL`; each panel is `{ "kind": "broll", "source": "<source>" }` or `{ "kind": "presenter" }`
 - `pattern_interrupt`: `true` or `false`
 - `pattern_interrupt_type`: short label such as `hook`, `zoom`, `stat-overlay`, `cutaway`, `screen-demo`
 - `narration`: spoken line for that segment
@@ -59,18 +61,29 @@ Each item must contain:
 - `sfx_cue`: optional cue, or `""`
 - `editor_notes`: practical assembly note
 
-Allowed `primary_visual` values:
+Allowed segment `type` values:
 
-- landscape: `A_ROLL`, `B_ROLL`, `PUNCH_IN`, `TEXT_GRAPHIC`, `PIP`
-- vertical: `A_ROLL`, `B_ROLL`, `PUNCH_IN`, `TEXT`, `TEXT_GRAPHIC`, `PIP`, `STACK_3`
+- `A_ROLL`: presenter.
+- `B_ROLL`: non-presenter visual segment.
 
-Use `TEXT` directly for simple vertical keyword overlays. Use `TEXT_GRAPHIC` only when the intended graphic is richer than the composer-native `TEXT` segment.
+Allowed `B_ROLL` panel sources:
+
+- `synthetic-motion`
+- `stock`
+- `webpage`
+- `generated-image`
+- `screen-record`
+- `manual`
+
+Do not use layout or treatment names as segment `type` values. Presenter overlays are represented by `presenter` panels in a B-roll layout. Still motion and punch-in are treatments, not segment types.
 
 Rules:
 
 - `A_ROLL` can never exceed 20 seconds.
+- `A_ROLL` must not include `layout`, `panels`, or `source`.
+- `B_ROLL` must include at least one panel with `kind: "broll"` and a valid `source`.
 - A pattern interrupt must occur every 5-15 seconds.
-- Do not allow long runs of the same visual mode without a justified change.
+- Visual changes should be intentional and tied to clarity, pacing, or retention.
 - Keep narration conversational and easy for TTS.
 - Keep `on_screen_text` short enough to map directly to `caption_text` or a `TEXT` segment in vertical reels.
 
@@ -90,7 +103,7 @@ Each item must contain:
 
 - `segment_id`
 - `query`
-- `source_type`: `webpage`, `stock`, `screen-record`, `generated-image`, or `manual`
+- `source_type`: `webpage`, `stock`, `screen-record`, `generated-image`, `synthetic-motion`, or `manual`
 - `must_include`
 - `avoid`
 - `orientation_preference`: `landscape`, `vertical`, or `either`
@@ -104,7 +117,7 @@ Each item must contain:
 - `segment_id`
 - `graphic_type`
 - `copy`
-- `composer_target`: `TEXT`, `B_ROLL`, `PIP`, or `manual`
+- `composer_target`: `B_ROLL` or `manual`
 
 ## `assembly_notes`
 
@@ -117,7 +130,7 @@ Each item must contain:
 Use assembly notes for:
 
 - where to use avatar footage
-- when to swap to PiP
+- when to include a presenter panel in a B-roll layout
 - when to layer text
 - where a search query may need stock footage or manual asset selection
 - any fallback that the pipeline must not hide

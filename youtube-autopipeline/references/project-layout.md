@@ -74,7 +74,7 @@ project-root/
     visual-qa.json
   source-assets/
     presenter-front.mp4
-    presenter-profile.mp4        (optional - omit if no PiP needed)
+    presenter-profile.mp4        (optional - omit if no presenter overlay needed)
     speech-sample.wav
     sample-transcript.txt
     soundtrack.mp3
@@ -121,7 +121,7 @@ project-root/
 - For test-only runs, run `asset_inventory.py` with `--test-input-label` so disposable test inputs cannot be confused with user-provided production assets.
 - Validate production asset manifests with `pipeline_check.py --asset-manifest`; only test runs may pass `--allow-test-input`.
 - Save z-image planning output from `z_image_plan.py` as `manifests/z-image-plan.json`; generated stills belong under `broll/generated/`.
-- Save animated board outputs from `animated-broll-boards` under `broll/boards/<board-id>/`; production abstract/UI/infographic boards should include `board-creative-brief.json`, custom `index.html`, passing `board-qa.json`, and a `.webm` clip. Do not use ad hoc static PNG/Pillow boards or template-like board layouts.
+- Save board-created synthetic-motion outputs from `animated-broll-boards` under `broll/boards/<board-id>/`; production abstract/UI/infographic boards should include `board-creative-brief.json`, custom `index.html`, passing `board-qa.json`, and a `.webm` clip. Do not use ad hoc static PNG/Pillow boards or template-like board layouts.
 - Save selected B-roll and non-presenter visual choices as `manifests/selected-visuals.json`.
 - Validate z-image plans with `pipeline_check.py --z-image-plan --require-z-image-review` before timeline use.
 - Validate selected visuals with `pipeline_check.py --selected-visuals` before timeline use.

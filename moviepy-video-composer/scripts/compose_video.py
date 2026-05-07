@@ -11,12 +11,22 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
+import sys
 
 import numpy as np
 from moviepy import ColorClip, CompositeVideoClip, ImageClip, VideoClip, VideoFileClip, concatenate_videoclips, TextClip
 
+AUTOPIPELINE_SCRIPTS = Path(__file__).resolve().parents[2] / "youtube-autopipeline" / "scripts"
+sys.path.insert(0, str(AUTOPIPELINE_SCRIPTS))
+from production_gate import run_creative_gate  # noqa: E402
 
-SUPPORTED_TYPES = {"A-ROLL", "B-ROLL", "PIP", "TEXT", "STACK_2", "STACK_3", "SPLIT_2", "GRID_4", "STILL_MOTION"}
+
+SUPPORTED_TYPES = {"A_ROLL", "B_ROLL"}
+LEGACY_TOP_LEVEL_TYPES = {"A-ROLL", "B-ROLL", "PIP", "TEXT", "TEXT_GRAPHIC", "STACK_2", "STACK_3", "SPLIT_2", "GRID_4", "STILL_MOTION", "PUNCH_IN"}
+BROLL_LAYOUTS = {"fullscreen", "stack2", "stack3", "grid4"}
+BROLL_LAYOUT_PANEL_COUNTS = {"stack2": 2, "stack3": 3, "grid4": 4}
+PANEL_KINDS = {"broll", "presenter"}
+BROLL_SOURCE_TYPES = {"webpage", "stock", "screen-record", "generated-image", "manual", "synthetic-motion"}
 LOOP_POLICIES = {"loop", "error"}
 SPLIT_AXES = {"horizontal", "vertical"}
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
@@ -27,7 +37,7 @@ DEFAULT_AUDIO_CODEC = "aac"
 OUTPUT_WIDTH = 1920
 OUTPUT_HEIGHT = 1080
 DEFAULT_OVERLAY_SCALE = 0.3
-DEFAULT_OVERLAY_POSITION = ("right", "bottom")
+DEFAULT_OVERLAY_POSITION: tuple[str, str] | None = ("right", "bottom")
 OVERLAY_PADDING = 20
 PIP_CORNER_RADIUS = 28
 PIP_OVERLAY_SHAPE = "circle"
@@ -81,7 +91,7 @@ def configure_output_format(format_name: str) -> None:
         OUTPUT_WIDTH = 1080
         OUTPUT_HEIGHT = 1920
         DEFAULT_OVERLAY_SCALE = 0.34
-        DEFAULT_OVERLAY_POSITION = ("center", "bottom")
+        DEFAULT_OVERLAY_POSITION = None
         OVERLAY_PADDING = 36
         PIP_CORNER_RADIUS = 10_000
         PIP_OVERLAY_SHAPE = "circle"
@@ -95,6 +105,8 @@ class TimelineEntry:
     type: str
     start_time: float
     end_time: float
+    layout: str | None = None
+    panels: list[dict[str, Any]] | None = None
     clip_path: str | None = None
     clip_path_top: str | None = None
     clip_path_mid: str | None = None
@@ -203,6 +215,112 @@ def ensure_file(path: Path, label: str) -> None:
         raise FileNotFoundError(f"{label} is not a file: {path}")
 
 
+def validate_and_expand_entry(item: dict[str, Any], index: int) -> dict[str, Any]:
+    expanded = dict(item)
+    entry_type = item.get("type")
+    if "primary_visual" in item:
+        raise ValueError(f"Timeline entry {index} uses unsupported primary_visual; use type A_ROLL or B_ROLL.")
+    if entry_type in LEGACY_TOP_LEVEL_TYPES - SUPPORTED_TYPES:
+        raise ValueError(f"Timeline entry {index} uses layout/treatment as type: {entry_type!r}")
+    if entry_type not in SUPPORTED_TYPES:
+        raise ValueError(f"Timeline entry {index} has unsupported type: {entry_type!r}")
+
+    if entry_type == "A_ROLL":
+        for field in ("layout", "panels", "source", "source_strategy"):
+            if field in item:
+                raise ValueError(f"Timeline entry {index} field {field!r} is only valid for B_ROLL.")
+        if not isinstance(item.get("clip_path"), str) or not item.get("clip_path", "").strip():
+            raise ValueError(f"Timeline entry {index} A_ROLL requires clip_path.")
+        return expanded
+
+    layout = item.get("layout")
+    if layout not in BROLL_LAYOUTS:
+        raise ValueError(f"Timeline entry {index} B_ROLL layout must be one of {sorted(BROLL_LAYOUTS)}.")
+    panels = item.get("panels")
+    if not isinstance(panels, list) or not panels:
+        raise ValueError(f"Timeline entry {index} B_ROLL requires non-empty panels.")
+    expected_count = BROLL_LAYOUT_PANEL_COUNTS.get(str(layout))
+    if expected_count is not None and len(panels) != expected_count:
+        raise ValueError(f"Timeline entry {index} layout {layout!r} requires exactly {expected_count} panels.")
+
+    broll_panels: list[dict[str, Any]] = []
+    presenter_panels: list[dict[str, Any]] = []
+    for panel_index, panel in enumerate(panels):
+        if not isinstance(panel, dict):
+            raise ValueError(f"Timeline entry {index} panels[{panel_index}] must be an object.")
+        kind = panel.get("kind")
+        if kind not in PANEL_KINDS:
+            raise ValueError(f"Timeline entry {index} panels[{panel_index}].kind must be one of {sorted(PANEL_KINDS)}.")
+        if not isinstance(panel.get("path"), str) or not panel.get("path", "").strip():
+            raise ValueError(f"Timeline entry {index} panels[{panel_index}].path must be a non-empty media path.")
+        if kind == "broll":
+            if panel.get("source") not in BROLL_SOURCE_TYPES:
+                raise ValueError(f"Timeline entry {index} panels[{panel_index}].source must be one of {sorted(BROLL_SOURCE_TYPES)}.")
+            broll_panels.append(panel)
+        else:
+            if "source" in panel or "source_strategy" in panel:
+                raise ValueError(f"Timeline entry {index} panels[{panel_index}] is presenter media and cannot define source fields.")
+            if layout == "fullscreen" and DEFAULT_OVERLAY_POSITION is None:
+                overlay_position = panel.get("overlay_position")
+                if (
+                    not isinstance(overlay_position, list)
+                    or len(overlay_position) != 2
+                    or not all(isinstance(part, (str, int, float)) for part in overlay_position)
+                ):
+                    raise ValueError(
+                        f"Timeline entry {index} panels[{panel_index}].overlay_position is required for vertical fullscreen presenter overlays."
+                    )
+            presenter_panels.append(panel)
+    if not broll_panels:
+        raise ValueError(f"Timeline entry {index} B_ROLL must include at least one broll panel.")
+    if presenter_panels and "loop_policy" not in expanded:
+        expanded["loop_policy"] = "error"
+
+    if layout == "fullscreen":
+        if len(broll_panels) != 1:
+            raise ValueError(f"Timeline entry {index} fullscreen B_ROLL requires exactly one broll panel.")
+        if len(presenter_panels) > 1:
+            raise ValueError(f"Timeline entry {index} fullscreen B_ROLL allows at most one presenter overlay.")
+        expanded["clip_path"] = broll_panels[0]["path"]
+        if "clip_start" in broll_panels[0]:
+            expanded["clip_start"] = broll_panels[0]["clip_start"]
+        for field in ("treatment", "motion_type", "loop_policy"):
+            if field in broll_panels[0]:
+                expanded[field] = broll_panels[0][field]
+        if presenter_panels:
+            presenter = presenter_panels[0]
+            expanded["background_path"] = broll_panels[0]["path"]
+            expanded["overlay_path"] = presenter["path"]
+            if "clip_start" in broll_panels[0]:
+                expanded["background_clip_start"] = broll_panels[0]["clip_start"]
+            if "clip_start" in presenter:
+                expanded["overlay_clip_start"] = presenter["clip_start"]
+            if "loop_policy" in presenter:
+                expanded["overlay_loop_policy"] = presenter["loop_policy"]
+            for field in ("overlay_scale", "overlay_position", "overlay_crop_x", "overlay_crop_y", "overlay_crop_size"):
+                if field in presenter:
+                    expanded[field] = presenter[field]
+    elif layout == "stack2":
+        expanded["clip_path_top"] = panels[0]["path"]
+        expanded["clip_path_bot"] = panels[1]["path"]
+        for field_name, panel in (("clip_start_top", panels[0]), ("clip_start_bot", panels[1])):
+            if "clip_start" in panel:
+                expanded[field_name] = panel["clip_start"]
+    elif layout == "stack3":
+        expanded["clip_path_top"] = panels[0]["path"]
+        expanded["clip_path_mid"] = panels[1]["path"]
+        expanded["clip_path_bot"] = panels[2]["path"]
+        for field_name, panel in (("clip_start_top", panels[0]), ("clip_start_mid", panels[1]), ("clip_start_bot", panels[2])):
+            if "clip_start" in panel:
+                expanded[field_name] = panel["clip_start"]
+    elif layout == "grid4":
+        for panel_index, panel in enumerate(panels, start=1):
+            expanded[f"clip_path_{panel_index}"] = panel["path"]
+            if "clip_start" in panel:
+                expanded[f"clip_start_{panel_index}"] = panel["clip_start"]
+    return expanded
+
+
 def load_timeline(timeline_path: Path) -> list[TimelineEntry]:
     with timeline_path.open("r", encoding="utf-8-sig") as handle:
         raw = json.load(handle)
@@ -216,6 +334,7 @@ def load_timeline(timeline_path: Path) -> list[TimelineEntry]:
     for index, item in enumerate(raw):
         if not isinstance(item, dict):
             raise ValueError(f"Timeline entry {index} must be an object.")
+        item = validate_and_expand_entry(item, index)
 
         entry_type = item.get("type")
         start_time = item.get("start_time")
@@ -265,6 +384,8 @@ def load_timeline(timeline_path: Path) -> list[TimelineEntry]:
                 type=entry_type,
                 start_time=float(start_time),
                 end_time=float(end_time),
+                layout=item.get("layout"),
+                panels=item.get("panels"),
                 clip_path=item.get("clip_path"),
                 clip_path_top=item.get("clip_path_top"),
                 clip_path_mid=item.get("clip_path_mid"),
@@ -1068,6 +1189,8 @@ def build_pip_clip(project_dir: Path, entry: TimelineEntry):
     overlay_mask = build_rounded_mask((resized_overlay.w, resized_overlay.h), PIP_CORNER_RADIUS, entry.duration)
     masked_overlay = resized_overlay.with_mask(overlay_mask)
     requested_position = entry.overlay_position or DEFAULT_OVERLAY_POSITION
+    if requested_position is None:
+        raise ValueError("Vertical presenter overlays require explicit overlay_position.")
     overlay_position = compute_overlay_position(
         (OUTPUT_WIDTH, OUTPUT_HEIGHT),
         (masked_overlay.w, masked_overlay.h),
@@ -1131,22 +1254,24 @@ def compose_video(
 
     try:
         for entry in entries:
-            if entry.type in {"A-ROLL", "B-ROLL"}:
+            if entry.type == "A_ROLL":
                 segment, handles = build_standard_clip(project_dir, entry)
-            elif entry.type == "PIP":
-                segment, handles = build_pip_clip(project_dir, entry)
-            elif entry.type == "TEXT":
-                segment, handles = build_text_clip(project_dir, entry)
-            elif entry.type == "STACK_2":
-                segment, handles = build_stack_2_clip(project_dir, entry)
-            elif entry.type == "STACK_3":
-                segment, handles = build_stack_3_clip(project_dir, entry)
-            elif entry.type == "SPLIT_2":
-                segment, handles = build_split_2_clip(project_dir, entry)
-            elif entry.type == "GRID_4":
-                segment, handles = build_grid_4_clip(project_dir, entry)
-            elif entry.type == "STILL_MOTION":
-                segment, handles = build_still_motion_clip(project_dir, entry)
+            elif entry.type == "B_ROLL":
+                if entry.layout == "fullscreen" and entry.overlay_path:
+                    segment, handles = build_pip_clip(project_dir, entry)
+                elif entry.layout == "fullscreen":
+                    if (entry.panels or [{}])[0].get("treatment") == "still_motion":
+                        segment, handles = build_still_motion_clip(project_dir, entry)
+                    else:
+                        segment, handles = build_standard_clip(project_dir, entry)
+                elif entry.layout == "stack2":
+                    segment, handles = build_stack_2_clip(project_dir, entry)
+                elif entry.layout == "stack3":
+                    segment, handles = build_stack_3_clip(project_dir, entry)
+                elif entry.layout == "grid4":
+                    segment, handles = build_grid_4_clip(project_dir, entry)
+                else:
+                    raise ValueError(f"Unsupported B_ROLL layout: {entry.layout}")
             else:
                 raise ValueError(f"Unsupported timeline type: {entry.type}")
             segment, caption_handles = add_caption_overlay(segment, entry)
@@ -1178,6 +1303,12 @@ def main() -> int:
     args = parse_args()
     configure_output_format(args.format)
     project_dir, timeline_path, audio_path, music_path, output_path = resolve_project_paths(args)
+    gate_findings = run_creative_gate(project_dir)
+    gate_errors = [finding for finding in gate_findings if finding.severity == "ERROR"]
+    if gate_errors:
+        for finding in gate_findings:
+            print(f"{finding.severity}: {finding.code}: {finding.message}", file=sys.stderr)
+        return 1
 
     ensure_file(timeline_path, "Timeline file")
     result = compose_video(project_dir, timeline_path, audio_path, music_path, output_path)

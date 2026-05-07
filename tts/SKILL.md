@@ -19,6 +19,15 @@ Prefer that interpreter explicitly for local runs:
 %USERPROFILE%\Downloads\speech-gen\venv\Scripts\python.exe -m voxcpm.cli ...
 ```
 
+For YouTube autopipeline projects, run TTS production commands only through the guarded production wrapper so the Creative
+Approval Gate is checked immediately before audio generation:
+
+```powershell
+python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\guarded_production_command.py `
+  --project-dir <project-dir> `
+  -- <tts command...>
+```
+
 The wrapper scripts such as `generate_voxcpm.py` and `generate_omnivoice.py` live in:
 
 `%USERPROFILE%\Downloads\speech-gen`
