@@ -162,7 +162,7 @@ function runProductionGate(projectDir, boardId, brief) {
     PRODUCTION_GATE,
     "--project-dir",
     path.resolve(projectDir),
-    "--require-source-strategy",
+    "--require-broll-source",
     "synthetic-motion",
     "--board-id",
     boardId,

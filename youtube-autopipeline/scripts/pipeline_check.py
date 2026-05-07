@@ -23,6 +23,7 @@ LEGACY_TOP_LEVEL_TYPES = {"A-ROLL", "B-ROLL", "PIP", "TEXT", "TEXT_GRAPHIC", "ST
 BROLL_LAYOUTS = {"fullscreen", "stack2", "stack3", "grid4"}
 BROLL_LAYOUT_PANEL_COUNTS = {"stack2": 2, "stack3": 3, "grid4": 4}
 PANEL_KINDS = {"broll", "presenter"}
+BROLL_PRESENTER_PANEL_MIN_RATIO = 0.5
 LOOP_POLICIES = {"loop", "error"}
 SPLIT_AXES = {"horizontal", "vertical"}
 STILL_MOTION_TYPES = {"push-in", "pull-back", "pan-left", "pan-right", "pan-up", "pan-down", "diagonal-drift", "swipe-in"}
@@ -484,6 +485,13 @@ def path_looks_like_presenter(path: Path) -> bool:
     return any(marker in lowered for marker in ("synced", "presenter", "avatar", "profile", "a-roll", "aroll"))
 
 
+def has_presenter_panel(item: dict[str, Any]) -> bool:
+    panels = item.get("panels")
+    if not isinstance(panels, list):
+        return False
+    return any(isinstance(panel, dict) and panel.get("kind") == "presenter" for panel in panels)
+
+
 def validate_timeline(
     timeline: Any,
     project_dir: Path,
@@ -497,6 +505,8 @@ def validate_timeline(
 
     previous_end = 0.0
     final_end = 0.0
+    broll_duration = 0.0
+    presenter_panel_broll_duration = 0.0
     for index, entry in enumerate(timeline):
         context = f"timeline[{index}]"
         if not isinstance(entry, dict):
@@ -524,6 +534,10 @@ def validate_timeline(
         previous_end = end
         final_end = end
         duration = end - start
+        if entry_type == "B_ROLL":
+            broll_duration += duration
+            if has_presenter_panel(entry):
+                presenter_panel_broll_duration += duration
 
         loop_policy = validate_loop_policy(entry.get("loop_policy"), report, f"{context}.loop_policy")
         background_loop = validate_loop_policy(
@@ -619,6 +633,15 @@ def validate_timeline(
                 report.error("audio-too-short", f"audio is {duration:.2f}s but timeline ends at {final_end:.2f}s")
             elif duration is not None and duration - final_end > 1.0:
                 report.warn("audio-extra", f"audio is {duration:.2f}s but timeline ends at {final_end:.2f}s")
+
+    if broll_duration > 0:
+        presenter_ratio = presenter_panel_broll_duration / broll_duration
+        if presenter_ratio + 1e-9 < BROLL_PRESENTER_PANEL_MIN_RATIO:
+            report.error(
+                "broll-presenter-panel-ratio",
+                f"only {presenter_ratio * 100:.1f}% of B-roll duration has presenter panels; "
+                f"required at least {BROLL_PRESENTER_PANEL_MIN_RATIO * 100:.1f}%",
+            )
 
 
 def env_file_has_key(path: Path, key: str) -> bool:

@@ -145,6 +145,7 @@ Do not run a scripted preflight. If a required item is missing, stop before expe
      --mode assets
    ```
 4. Call `youtube-scriptwriter` and use its structured output as the planning source of truth. Create `<project-dir>\manifests\visual-plan.json` before generating any assets. The script and visual plan use one segment model: `type: "A_ROLL"` for presenter segments and `type: "B_ROLL"` for non-presenter visual segments. B-roll scenes must include `layout` and `panels[]`; only panels with `kind: "broll"` define a source. Source diversity is validated only from B-roll panel `source` values. `A_ROLL`, presenter panels, overlays, avatars, layouts, still motion, and punch-in treatments do not count toward source diversity. Present the generated `script.json`, `script.md` when available, and `visual-plan.json` to the user for approval. Summarize the hook, narration, on-screen text, visual idea, B-roll panel sources per scene, target duration, tone, music decision, and any factual claims needing citations. Stop and wait for approval or edits.
+   The creative gate also requires at least 50% of planned `B_ROLL` duration to include a `presenter` panel. This is measured by B-roll duration, not segment count. It does not impose any A-roll/B-roll ratio.
    Before asking for approval, create the blocking review request:
    ```powershell
    python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\request_creative_review.py `
@@ -868,6 +869,7 @@ Composer: `moviepy-video-composer --format vertical`
 
 The same contract applies in vertical mode. Use `layout: "fullscreen"`, `layout: "stack2"`, `layout: "stack3"`, or `layout: "grid4"` on `B_ROLL` entries. A presenter can be an overlay or one panel by adding a `{"kind": "presenter"}` panel.
 For vertical fullscreen B-roll with a presenter overlay panel, set `overlay_position` explicitly on the presenter panel. Choose the position for the actual frame, captions, and B-roll composition; no vertical overlay position is globally preferred.
+Timeline validation requires at least 50% of total `B_ROLL` duration to include a `presenter` panel. Count duration, not segment count; `A_ROLL` is outside this calculation.
 
 ### Timeline Safety Fields
 

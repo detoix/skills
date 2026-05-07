@@ -27,6 +27,7 @@ LEGACY_TOP_LEVEL_TYPES = {"A-ROLL", "B-ROLL", "PIP", "TEXT", "TEXT_GRAPHIC", "ST
 BROLL_LAYOUTS = {"fullscreen", "stack2", "stack3", "grid4"}
 BROLL_LAYOUT_PANEL_COUNTS = {"stack2": 2, "stack3": 3, "grid4": 4}
 PANEL_KINDS = {"broll", "presenter"}
+BROLL_PRESENTER_PANEL_MIN_RATIO = 0.5
 SCRIPT_RELATIVE_PATH = Path("script.json")
 VISUAL_PLAN_RELATIVE_PATH = Path("manifests") / "visual-plan.json"
 APPROVAL_RELATIVE_PATH = Path("manifests") / "creative-approval.json"
@@ -134,6 +135,13 @@ def broll_panel_sources(item: dict[str, Any], findings: list[GateFinding], conte
     return sources
 
 
+def has_presenter_panel(item: dict[str, Any]) -> bool:
+    panels = item.get("panels")
+    if not isinstance(panels, list):
+        return False
+    return any(isinstance(panel, dict) and panel.get("kind") == "presenter" for panel in panels)
+
+
 def validate_visual_plan(plan: Any, findings: list[GateFinding]) -> list[dict[str, Any]]:
     if not isinstance(plan, dict):
         findings.append(GateFinding("ERROR", "visual-plan-shape", "visual-plan.json must be an object"))
@@ -220,6 +228,7 @@ def validate_visual_plan_source_mix(script: Any, visual_plan: Any, scenes: list[
 
     source_strategies: set[str] = set()
     broll_duration = 0.0
+    presenter_panel_broll_duration = 0.0
     scene_segment_ids = {
         str(scene.get("segment_id", "")).strip()
         for scene in scenes
@@ -269,6 +278,8 @@ def validate_visual_plan_source_mix(script: Any, visual_plan: Any, scenes: list[
         if duration <= 0:
             continue
         broll_duration += duration
+        if has_presenter_panel(scene):
+            presenter_panel_broll_duration += duration
         source_strategies.update(scene_sources)
 
     for segment_id, segment in segment_by_id.items():
@@ -284,6 +295,16 @@ def validate_visual_plan_source_mix(script: Any, visual_plan: Any, scenes: list[
             )
 
     if broll_duration > 0:
+        presenter_ratio = presenter_panel_broll_duration / broll_duration
+        if presenter_ratio + 1e-9 < BROLL_PRESENTER_PANEL_MIN_RATIO:
+            findings.append(
+                GateFinding(
+                    "ERROR",
+                    "broll-presenter-panel-ratio",
+                    f"only {presenter_ratio * 100:.1f}% of B-roll duration has presenter panels; "
+                    f"required at least {BROLL_PRESENTER_PANEL_MIN_RATIO * 100:.1f}%",
+                )
+            )
         required_source_strategies = int(math.ceil(broll_duration / 20.0))
         if len(source_strategies) < required_source_strategies:
             findings.append(
