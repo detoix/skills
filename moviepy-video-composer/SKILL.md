@@ -81,6 +81,16 @@ If paths are omitted, the script defaults to the project directory and common so
 - Use panel-level `clip_start` when panels need different source offsets.
 - Use `layout: "stack2"`, `layout: "stack3"`, or `layout: "grid4"` for multi-panel B-roll.
 - Use panel `treatment: "still_motion"` for subtle bounded camera movement on a local/generated still, or pre-render the motion with [scripts/render_still_motion.py](scripts/render_still_motion.py) before using it as B-roll panel media.
+- For `A_ROLL`, optionally use `treatment: "camera_motion"` with `motion_type` for subtle virtual camera movement on presenter video:
+  ```json
+  {
+    "type": "A_ROLL",
+    "clip_path": "synced/front/A01.mp4",
+    "treatment": "camera_motion",
+    "motion_type": "push-in"
+  }
+  ```
+  Use this selectively, not on every A-roll. Prefer `push-in`, `pull-back`, `pan-left`, `pan-right`, or `diagonal-drift`; avoid `pan-up`, `pan-down`, and `swipe-in` unless manually justified after visual inspection.
 - Use `loop_policy: "error"` for visible presenter clips to prevent repeated mouth/body motion.
 - Use panel-level `loop_policy` to control looping separately for each panel.
 - Normalize fullscreen assets into the selected output canvas before assembly.

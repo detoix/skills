@@ -499,6 +499,49 @@ def has_presenter_panel(item: dict[str, Any]) -> bool:
     return any(isinstance(panel, dict) and panel.get("kind") == "presenter" for panel in panels)
 
 
+def validate_final_audio_manifest_timeline(
+    manifest: Any,
+    timeline_starts: list[float],
+    final_end: float,
+    report: Report,
+) -> None:
+    if not isinstance(manifest, dict):
+        report.error("final-audio-manifest-shape", "final-audio-manifest.json must be an object")
+        return
+
+    duration = as_number(manifest.get("duration_seconds"))
+    if duration is None or duration <= 0:
+        report.error("final-audio-duration", "final-audio-manifest.json duration_seconds must be positive")
+    elif abs(duration - final_end) > 0.15:
+        report.error(
+            "final-audio-timeline-duration",
+            f"final audio manifest duration is {duration:.2f}s but timeline ends at {final_end:.2f}s",
+        )
+
+    chunks = manifest.get("tts_chunks")
+    if not isinstance(chunks, list) or not chunks:
+        report.error("final-audio-chunks", "final-audio-manifest.json must contain a non-empty tts_chunks array")
+        return
+
+    for index, chunk in enumerate(chunks):
+        context = f"final-audio-manifest.tts_chunks[{index}]"
+        if not isinstance(chunk, dict):
+            report.error("final-audio-chunk-shape", f"{context} must be an object")
+            continue
+        chunk_id = chunk.get("chunk")
+        if not isinstance(chunk_id, str) or not chunk_id.strip():
+            report.error("final-audio-chunk-id", f"{context}.chunk must be a non-empty string")
+        start = as_number(chunk.get("timeline_start_seconds"))
+        if start is None:
+            report.error("final-audio-chunk-start", f"{context}.timeline_start_seconds must be numeric")
+            continue
+        if not any(abs(start - timeline_start) <= 0.08 for timeline_start in timeline_starts):
+            report.error(
+                "final-audio-timeline-start",
+                f"{context}.timeline_start_seconds {start:.2f}s has no matching timeline start_time within 0.08s",
+            )
+
+
 def validate_timeline(
     timeline: Any,
     project_dir: Path,
@@ -512,6 +555,7 @@ def validate_timeline(
 
     previous_end = 0.0
     final_end = 0.0
+    timeline_starts: list[float] = []
     broll_duration = 0.0
     presenter_panel_broll_duration = 0.0
     for index, entry in enumerate(timeline):
@@ -538,6 +582,7 @@ def validate_timeline(
             continue
         if abs(start - previous_end) > 0.01:
             report.error("timeline-sequence", f"{context}.start_time expected {previous_end}, got {start}")
+        timeline_starts.append(start)
         previous_end = end
         final_end = end
         duration = end - start
@@ -638,8 +683,13 @@ def validate_timeline(
             duration = media_duration(audio_path, report)
             if duration is not None and duration + 0.1 < final_end:
                 report.error("audio-too-short", f"audio is {duration:.2f}s but timeline ends at {final_end:.2f}s")
-            elif duration is not None and duration - final_end > 1.0:
-                report.warn("audio-extra", f"audio is {duration:.2f}s but timeline ends at {final_end:.2f}s")
+            elif duration is not None and duration - final_end > 0.5:
+                report.error("audio-extra", f"audio is {duration:.2f}s but timeline ends at {final_end:.2f}s")
+
+        final_audio_manifest_path = project_dir / "manifests" / "final-audio-manifest.json"
+        final_audio_manifest = load_json(final_audio_manifest_path, report, "final audio manifest")
+        if final_audio_manifest is not None:
+            validate_final_audio_manifest_timeline(final_audio_manifest, timeline_starts, final_end, report)
 
     if broll_duration > 0:
         presenter_ratio = presenter_panel_broll_duration / broll_duration

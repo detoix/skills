@@ -242,7 +242,7 @@ Do not run a scripted preflight. If a required item is missing, stop before expe
      --resolve-selected-visuals
    ```
 14. Call `moviepy-video-composer` with the matching `--format` value to render the uncaptioned base video. Pass `<project-dir>\source-assets\soundtrack.<ext>` when the music manifest is enabled; pass `--music NONE` when it is disabled. The composer writes `<project-dir>\manifests\audio-mix-manifest.json`.
-15. Call `reel-captions` to generate word-level ASS captions from the approved transcript and burn them into the base render. The captioned output is the delivery candidate and preserves the already mixed narration/music audio. Production runs require WhisperX forced alignment; if WhisperX is unavailable, install it before captioning or stop and report the blocker. Do not use `--words-json` for production unless it is a real precomputed timing file explicitly approved by the user.
+15. Call `reel-captions` to generate word-level ASS captions from the approved transcript and burn them into the base render. The captioned output is the delivery candidate and preserves the already mixed narration/music audio. Production runs require WhisperX forced alignment; if WhisperX is unavailable, install it before captioning or stop and report the blocker. Do not use `--words-json` for production unless it is a real precomputed timing file explicitly approved by the user. Before captioning, `<project-dir>\manifests\final-audio-manifest.json` must exist and contain the real `tts_chunks[].timeline_start_seconds` for `final_audio.wav`; captioning without this manifest is a production error.
    ```powershell
    & "<caption-python>" C:\Users\kdeptula\skills\reel-captions\scripts\generate_reel_captions.py `
      --project-dir <project-dir> `
@@ -253,7 +253,7 @@ Do not run a scripted preflight. If a required item is missing, stop before expe
      --language pl
    ```
    Use the target language code from the script metadata. Use `--transcript` instead of `--script` only when no script JSON exists. If captions are explicitly disabled by the user, record that exception in the final QA notes.
-16. Run final visual QA on the captioned video by extracting representative frames across the timeline and inspecting them. If any frame fails the visual acceptance criteria, revise assets, typography, presenter overlay crop/shape, captions, layout, or timeline and rerender.
+16. Run final visual QA on the captioned video by extracting representative frames across the timeline and inspecting them. If any frame fails the visual acceptance criteria, revise assets, typography, presenter overlay crop/shape, captions, layout, or timeline and rerender. Final visual QA fails unless `manifests\captions-manifest.json` records `alignment_source: "final-audio-manifest"`.
    ```powershell
     python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\visual_qa.py `
      --project-dir <project-dir> `
@@ -355,7 +355,7 @@ Interview for required identity assets whenever they are missing. These are the 
 ### Landscape Mode Assets
 
 - at least one straight-to-camera presenter video, around 20 seconds, looking at camera, landscape orientation
-- at least one 3/4-profile presenter video, around 20 seconds, suitable for lower-right presenter overlay, landscape orientation
+- at least one 3/4-profile presenter video, around 20 seconds, suitable for presenter overlay, landscape orientation
 - any additional presenter plates, alternate takes, stills, expressions, angles, or framing variants available in the asset folder
 - speech sample for voice cloning
 - exact transcription of the speech sample for voice cloning

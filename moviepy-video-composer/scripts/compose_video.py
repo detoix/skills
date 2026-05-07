@@ -120,6 +120,7 @@ class TimelineEntry:
     clip_path_4: str | None = None
     background_path: str | None = None
     overlay_path: str | None = None
+    treatment: str | None = None
     split_axis: str = "vertical"
     motion_type: str = "push-in"
     overlay_scale: float | None = None
@@ -399,6 +400,7 @@ def load_timeline(timeline_path: Path) -> list[TimelineEntry]:
                 clip_path_4=item.get("clip_path_4"),
                 background_path=item.get("background_path"),
                 overlay_path=item.get("overlay_path"),
+                treatment=item.get("treatment"),
                 split_axis=split_axis,
                 motion_type=motion_type,
                 overlay_scale=float(item["overlay_scale"]) if "overlay_scale" in item else None,
@@ -1115,6 +1117,39 @@ def build_still_motion_clip(project_dir: Path, entry: TimelineEntry):
     return clip, [clip]
 
 
+def build_camera_motion_clip(project_dir: Path, entry: TimelineEntry):
+    clip_path = resolve_media_path(project_dir, entry.clip_path, "clip_path")
+    clip, source = normalize_video_clip(
+        clip_path,
+        entry.duration,
+        entry.clip_start,
+        entry.loop_policy,
+        f"{entry.type} clip",
+    )
+
+    try:
+        from PIL import Image
+    except ImportError as exc:
+        close_all([clip, source])
+        raise RuntimeError("Pillow is required for A_ROLL camera motion rendering.") from exc
+
+    start_box, end_box = motion_crop_boxes((clip.w, clip.h), (OUTPUT_WIDTH, OUTPUT_HEIGHT), entry.motion_type)
+
+    def make_frame(t: float):
+        progress = 0.0 if entry.duration <= 0 else max(0.0, min(1.0, t / entry.duration))
+        eased = progress * progress * (3 - 2 * progress)
+        box = tuple(start_box[i] + (end_box[i] - start_box[i]) * eased for i in range(4))
+        left, top, width, height = box
+        frame = clip.get_frame(t)
+        image = Image.fromarray(frame).convert("RGB")
+        crop = image.crop((int(round(left)), int(round(top)), int(round(left + width)), int(round(top + height))))
+        resized = crop.resize((OUTPUT_WIDTH, OUTPUT_HEIGHT), Image.Resampling.LANCZOS)
+        return np.array(resized)
+
+    motion_clip = VideoClip(make_frame, duration=entry.duration)
+    return motion_clip, [motion_clip, clip, source]
+
+
 def crop_to_square(clip, crop_x: int, crop_y: int, crop_size: int | None = None):
     width, height = clip.size
     if crop_size is None:
@@ -1256,7 +1291,10 @@ def compose_video(
     try:
         for entry in entries:
             if entry.type == "A_ROLL":
-                segment, handles = build_standard_clip(project_dir, entry)
+                if entry.treatment == "camera_motion":
+                    segment, handles = build_camera_motion_clip(project_dir, entry)
+                else:
+                    segment, handles = build_standard_clip(project_dir, entry)
             elif entry.type == "B_ROLL":
                 if entry.layout == "fullscreen" and entry.overlay_path:
                     segment, handles = build_pip_clip(project_dir, entry)

@@ -375,11 +375,27 @@ def tts_prefix_audit(tts_manifest: dict[str, Any] | None) -> dict[str, Any]:
     }
 
 
+def caption_alignment_audit(captions_manifest: dict[str, Any] | None) -> dict[str, Any]:
+    if not captions_manifest:
+        return {
+            "manifest_present": False,
+            "alignment_source": None,
+            "valid": False,
+        }
+    alignment_source = captions_manifest.get("alignment_source")
+    return {
+        "manifest_present": True,
+        "alignment_source": alignment_source,
+        "valid": alignment_source == "final-audio-manifest",
+    }
+
+
 def build_findings(
     metadata: dict[str, Any],
     frame_entries: list[dict[str, Any]],
     timeline_summary: dict[str, Any],
     prefix_audit: dict[str, Any],
+    caption_audit: dict[str, Any],
     generated_audit: dict[str, Any],
     selected_visuals: dict[str, Any],
     format_name: str | None,
@@ -457,6 +473,13 @@ def build_findings(
     elif prefix_audit.get("prompt_prefix_absent") is None:
         add("WARN", "tts-prefix-unverified", "tts prompt prefix absence was not verified")
 
+    if caption_audit.get("alignment_source") != "final-audio-manifest":
+        add(
+            "ERROR",
+            "caption-alignment-source",
+            f"captions-manifest alignment_source must be 'final-audio-manifest', got {caption_audit.get('alignment_source')!r}",
+        )
+
     if not agent_visual_review_pass:
         add("ERROR", "agent-visual-review-required", "agent visual review is required before a reel can pass")
     if agent_visual_review_pass and len(visual_review_notes.strip()) < 80:
@@ -477,6 +500,7 @@ def write_markdown_report(
     manifest: dict[str, Any],
     timeline_summary: dict[str, Any],
     prefix_audit: dict[str, Any],
+    caption_audit: dict[str, Any],
     generated_audit: dict[str, Any],
     selected_visuals: dict[str, Any],
     findings: list[dict[str, str]],
@@ -507,6 +531,7 @@ def write_markdown_report(
         f"- Manifest present: {prefix_audit.get('manifest_present')}",
         f"- Chunks checked: {prefix_audit.get('chunks_checked')}",
         f"- Prompt prefix absent: {prefix_audit.get('prompt_prefix_absent')}",
+        f"- Caption alignment source: {caption_audit.get('alignment_source')}",
         f"- Agent visual review pass: {manifest.get('agent_visual_review_pass')}",
         f"- Visual review notes: {manifest.get('visual_review_notes')}",
         "",
@@ -609,6 +634,8 @@ def main() -> int:
     timeline = load_timeline(timeline_path)
     tts_manifest_path = Path(args.tts_manifest).resolve() if args.tts_manifest else project_dir / "manifests" / "tts-manifest.json"
     tts_manifest = load_json_object(tts_manifest_path)
+    captions_manifest_path = project_dir / "manifests" / "captions-manifest.json"
+    captions_manifest = load_json_object(captions_manifest_path)
     z_image_plan_path = Path(args.z_image_plan).resolve() if args.z_image_plan else project_dir / "manifests" / "z-image-plan.json"
     z_image_plan = load_json_object(z_image_plan_path)
     if args.selected_visuals:
@@ -639,6 +666,7 @@ def main() -> int:
     sheet_path = make_contact_sheet(frame_paths, contact_sheet)
     timeline_summary = timeline_asset_categories(timeline)
     prefix_audit = tts_prefix_audit(tts_manifest)
+    caption_audit = caption_alignment_audit(captions_manifest)
     generated_audit = z_image_audit(project_dir, timeline, z_image_plan)
     selected_summary = selected_visuals_summary(selected_visuals_manifest)
     findings = build_findings(
@@ -646,6 +674,7 @@ def main() -> int:
         frame_entries,
         timeline_summary,
         prefix_audit,
+        caption_audit,
         generated_audit,
         selected_summary,
         args.format,
@@ -667,6 +696,7 @@ def main() -> int:
         "visual_review_notes": args.visual_review_notes,
         "timeline_summary": timeline_summary,
         "tts_prefix_audit": prefix_audit,
+        "caption_alignment_audit": caption_audit,
         "generated_image_audit": generated_audit,
         "selected_visuals_summary": selected_summary,
         "findings": findings,
@@ -685,7 +715,7 @@ def main() -> int:
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     report_md = Path(args.report_md).resolve() if args.report_md else output.with_suffix(".md")
-    write_markdown_report(report_md, manifest, timeline_summary, prefix_audit, generated_audit, selected_summary, findings)
+    write_markdown_report(report_md, manifest, timeline_summary, prefix_audit, caption_audit, generated_audit, selected_summary, findings)
     print(f"Wrote visual QA manifest: {output}")
     print(f"Wrote visual QA report: {report_md}")
     print(f"Extracted frames: {len(frame_entries)}")

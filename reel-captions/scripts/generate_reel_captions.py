@@ -84,73 +84,89 @@ def ffprobe_video(path: Path) -> dict[str, Any]:
     }
 
 
-def load_tts_manifest_durations(script_path: Path) -> dict[str, float]:
-    manifest_path = script_path.parent / "manifests" / "tts-manifest.json"
-    if not manifest_path.exists():
-        return {}
-    data = json.loads(manifest_path.read_text(encoding="utf-8-sig"))
-    if isinstance(data, dict):
-        items = data.get("chunks") or data.get("items") or []
-    else:
-        items = data
-    durations: dict[str, float] = {}
-    for item in items:
-        chunk_id = item.get("chunk_id")
-        duration = item.get("duration_seconds")
-        if chunk_id and duration is not None:
-            durations[str(chunk_id)] = float(duration)
-    return durations
-
-
-def load_script_segments(script_path: Path, audio_duration: float) -> tuple[str, list[dict[str, Any]]]:
+def load_script_segments(script_path: Path, audio_duration: float) -> tuple[str, list[dict[str, Any]], dict[str, Any]]:
     data = json.loads(script_path.read_text(encoding="utf-8-sig"))
     tts_chunks = data.get("tts_chunks") or []
-    segments = data.get("segments") or []
-    by_id = {seg.get("segment_id"): seg for seg in segments}
     if not tts_chunks:
-        narration = " ".join(seg.get("narration", "").strip() for seg in segments if seg.get("narration"))
-        return narration, [{"start": 0.0, "end": audio_duration, "text": narration}]
+        raise ValueError("script.json must contain tts_chunks for caption alignment")
 
-    tts_durations = load_tts_manifest_durations(script_path)
-    if tts_durations and abs(sum(tts_durations.values()) - audio_duration) <= max(0.5, audio_duration * 0.02):
-        cursor = 0.0
-        transcript_parts = []
-        align_segments = []
-        for chunk in tts_chunks:
-            text = str(chunk.get("voice_text", "")).strip()
-            if not text:
-                continue
-            duration = tts_durations.get(str(chunk.get("chunk_id")), float(chunk.get("estimated_seconds", 0.0)) or 0.0)
-            if duration <= 0:
-                duration = audio_duration / max(1, len(tts_chunks))
-            start = cursor
-            end = min(audio_duration, start + duration)
-            cursor = end
-            transcript_parts.append(text)
-            align_segments.append({"start": start, "end": end, "text": text})
-        return " ".join(transcript_parts), align_segments
+    manifest_path = script_path.parent / "manifests" / "final-audio-manifest.json"
+    if not manifest_path.exists():
+        raise FileNotFoundError(f"final audio manifest not found: {manifest_path}")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8-sig"))
+    manifest_chunks = manifest.get("tts_chunks")
+    if not isinstance(manifest_chunks, list) or not manifest_chunks:
+        raise ValueError("final-audio-manifest.json must contain a non-empty tts_chunks array")
 
-    script_end = max((float(seg.get("end_seconds", 0.0)) for seg in segments), default=audio_duration)
-    scale = audio_duration / script_end if script_end > 0 else 1.0
+    timing_by_chunk: dict[str, dict[str, float]] = {}
+    for index, item in enumerate(manifest_chunks):
+        if not isinstance(item, dict):
+            raise ValueError(f"final audio manifest tts_chunks[{index}] must be an object")
+        chunk_id = item.get("chunk")
+        if not isinstance(chunk_id, str) or not chunk_id.strip():
+            raise ValueError(f"final audio manifest tts_chunks[{index}] is missing chunk")
+        if "timeline_start_seconds" not in item:
+            raise ValueError(f"final audio manifest chunk {chunk_id!r} is missing timeline_start_seconds")
+        if "duration_seconds" not in item:
+            raise ValueError(f"final audio manifest chunk {chunk_id!r} is missing duration_seconds")
+        start = float(item["timeline_start_seconds"])
+        duration = float(item["duration_seconds"])
+        if start < 0:
+            raise ValueError(f"final audio manifest chunk {chunk_id!r} has negative timeline_start_seconds")
+        if duration <= 0:
+            raise ValueError(f"final audio manifest chunk {chunk_id!r} has non-positive duration_seconds")
+        end = start + duration
+        if end - audio_duration > 0.25:
+            raise ValueError(
+                f"final audio manifest chunk {chunk_id!r} ends at {end:.3f}s beyond audio duration {audio_duration:.3f}s"
+            )
+        timing_by_chunk[chunk_id] = {"start": start, "end": end, "duration": duration}
+
     transcript_parts: list[str] = []
     align_segments: list[dict[str, Any]] = []
+    alignment_segments: list[dict[str, Any]] = []
     for chunk in tts_chunks:
+        if not isinstance(chunk, dict):
+            raise ValueError("script.json tts_chunks entries must be objects")
+        chunk_id = chunk.get("chunk_id")
+        if not isinstance(chunk_id, str) or not chunk_id.strip():
+            raise ValueError("script.json tts_chunks entry is missing chunk_id")
         text = str(chunk.get("voice_text", "")).strip()
         if not text:
-            continue
-        ids = list(chunk.get("segment_ids") or [])
-        starts = [float(by_id[sid]["start_seconds"]) for sid in ids if sid in by_id]
-        ends = [float(by_id[sid]["end_seconds"]) for sid in ids if sid in by_id]
-        start = min(starts) * scale if starts else 0.0
-        end = max(ends) * scale if ends else audio_duration
+            raise ValueError(f"script.json chunk {chunk_id!r} has empty voice_text")
+        if chunk_id not in timing_by_chunk:
+            raise ValueError(f"final-audio-manifest.json is missing timing for script chunk {chunk_id!r}")
+        timing = timing_by_chunk[chunk_id]
+        start = timing["start"]
+        end = timing["end"]
         transcript_parts.append(text)
         align_segments.append({"start": start, "end": end, "text": text})
-    return " ".join(transcript_parts), align_segments
+        alignment_segments.append(
+            {
+                "chunk_id": chunk_id,
+                "start": start,
+                "end": end,
+                "source": "final-audio-manifest",
+            }
+        )
+    return (
+        " ".join(transcript_parts),
+        align_segments,
+        {
+            "alignment_source": "final-audio-manifest",
+            "final_audio_manifest": str(manifest_path),
+            "alignment_segments": alignment_segments,
+        },
+    )
 
 
-def load_transcript(transcript_path: Path, audio_duration: float) -> tuple[str, list[dict[str, Any]]]:
+def load_transcript(transcript_path: Path, audio_duration: float) -> tuple[str, list[dict[str, Any]], dict[str, Any]]:
     text = transcript_path.read_text(encoding="utf-8-sig").strip()
-    return text, [{"start": 0.0, "end": audio_duration, "text": text}]
+    return text, [{"start": 0.0, "end": audio_duration, "text": text}], {
+        "alignment_source": "transcript",
+        "final_audio_manifest": None,
+        "alignment_segments": [{"chunk_id": None, "start": 0.0, "end": audio_duration, "source": "transcript"}],
+    }
 
 
 def flatten_whisperx_words(result: dict[str, Any]) -> list[dict[str, Any]]:
@@ -394,7 +410,14 @@ def burn_ass(video_path: Path, ass_path: Path, output_path: Path, project_dir: P
         raise RuntimeError(f"FFmpeg ASS burn-in failed:\n{proc.stderr}")
 
 
-def build_manifest(args: argparse.Namespace, video_meta: dict[str, Any], output_meta: dict[str, Any] | None, total: int, untimed: int) -> dict[str, Any]:
+def build_manifest(
+    args: argparse.Namespace,
+    video_meta: dict[str, Any],
+    output_meta: dict[str, Any] | None,
+    total: int,
+    untimed: int,
+    alignment_info: dict[str, Any],
+) -> dict[str, Any]:
     return {
         "audio": str(args.audio),
         "video": str(args.video) if args.video else None,
@@ -404,6 +427,9 @@ def build_manifest(args: argparse.Namespace, video_meta: dict[str, Any], output_
         "words_json_input": str(args.words_json) if args.words_json else None,
         "language": args.language,
         "backend": "provided-words" if args.words_json else "whisperx-align",
+        "alignment_source": alignment_info.get("alignment_source"),
+        "final_audio_manifest": alignment_info.get("final_audio_manifest"),
+        "alignment_segments": alignment_info.get("alignment_segments", []),
         "style": "phrase-plus-active-word-highlight",
         "words_per_phrase": args.words_per_phrase,
         "max_caption_bridge_gap_seconds": args.max_caption_bridge_gap,
@@ -464,12 +490,17 @@ def main() -> int:
     if args.words_json:
         transcript = ""
         align_segments: list[dict[str, Any]] = []
+        alignment_info = {
+            "alignment_source": "provided-words",
+            "final_audio_manifest": None,
+            "alignment_segments": [],
+        }
         words = load_words_json(args.words_json.resolve())
     else:
         if args.script:
-            transcript, align_segments = load_script_segments(args.script.resolve(), audio_duration)
+            transcript, align_segments, alignment_info = load_script_segments(args.script.resolve(), audio_duration)
         elif args.transcript:
-            transcript, align_segments = load_transcript(args.transcript.resolve(), audio_duration)
+            transcript, align_segments, alignment_info = load_transcript(args.transcript.resolve(), audio_duration)
         else:
             raise ValueError("Provide --script, --transcript, or --words-json")
         if not transcript.strip():
@@ -547,7 +578,7 @@ def main() -> int:
         ):
             raise RuntimeError("Captioned output metadata differs materially from base video")
 
-    manifest = build_manifest(args, video_meta, output_meta, total, untimed)
+    manifest = build_manifest(args, video_meta, output_meta, total, untimed, alignment_info)
     (manifests_dir / "captions-manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
     print(json.dumps({"words": str(words_path), "ass": str(ass_path), "output": str(args.output) if args.output else None}, ensure_ascii=False, indent=2))
     return 0

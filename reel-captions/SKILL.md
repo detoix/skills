@@ -14,6 +14,7 @@ For YouTube autopipeline production projects, `scripts\generate_reel_captions.py
 1. Confirm inputs:
    - rendered video, usually `<project-dir>\final_output.mp4`
    - final narration audio, usually `<project-dir>\final_audio.wav`
+   - final audio timing manifest, exactly `<project-dir>\manifests\final-audio-manifest.json`
    - approved transcript source: `script.json` `tts_chunks` or a plain transcript file
 2. Generate word timings and ASS captions:
    ```powershell
@@ -51,8 +52,12 @@ If WhisperX is missing, install it explicitly into the selected runtime. If inst
 
 WhisperX default behavior:
 
-- Use supplied transcript text from `script.json` or `--transcript`.
-- Use `manifests/tts-manifest.json` chunk durations only when their total duration closely matches the final audio; otherwise fall back to script segment timings.
+- Use supplied transcript text from `script.json`.
+- Use `<project-dir>/manifests/final-audio-manifest.json` as the only timing source for `script.json` chunk alignment.
+- Map `final-audio-manifest.json` `tts_chunks[].chunk` to `script.json` `tts_chunks[].chunk_id`.
+- Use `tts_chunks[].timeline_start_seconds` plus `duration_seconds` for each forced-alignment segment.
+- Do not use `manifests/tts-manifest.json` for caption alignment.
+- Do not scale `script.json` planned segment timings to match final audio.
 - Use `whisperx.align(...)` for word timing.
 - Use language `pl` by default for Polish reels.
 - Let WhisperX choose its default Polish alignment model unless `--align-model` is provided.
@@ -75,6 +80,7 @@ Do not use `caption_text` timeline fields for spoken captions when this skill is
 Fail instead of silently producing weak captions when:
 
 - the transcript source is missing
+- `--script` is used and `<project-dir>/manifests/final-audio-manifest.json` is missing or incomplete
 - WhisperX is unavailable for a production reel and the user has not explicitly approved a precomputed word-timing file
 - `--words-json` was produced by a uniform timing heuristic rather than real alignment, except for deterministic tests or explicit user-approved degraded output
 - more than the configured fraction of words lacks timestamps
