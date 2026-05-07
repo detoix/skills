@@ -60,6 +60,7 @@ Audio source rule:
 - If a segment switches from full-screen presenter to presenter-over-B-roll while narration continues, split the visible media into two synced outputs even if the spoken text is contiguous
 - In `timeline.json`, set `loop_policy: "error"` for full-screen presenter clips and presenter panels.
 - Use panel-level `clip_start` when B-roll and presenter panels need different source offsets.
+- When a presenter source `sha256` is reused, `repeat_decisions[]` must be measurable: include `reason_code`, `available_unique_sources_for_role`, and `used_unique_sources_for_role`. Count unique usable sources from `assets-manifest.json` by role. Use `limited_available_sources` only when that available count is exactly `1`; otherwise use a concrete code such as `continuity_choice`, `source_quality_rejection`, `duration_or_framing_constraint`, or `production_time_constraint`.
 
 ### Vertical Practical Rules
 

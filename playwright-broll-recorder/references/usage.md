@@ -15,10 +15,13 @@ node scripts/record_broll.mjs `
 - `--viewport <width>x<height>`: browser viewport, default `1600x900`
 - `--video-size <width>x<height>`: saved video frame, default `1600x900`
 - `--wait-for-selector <selector>`: wait until a target element is visible
+- `--cookie-consent off|auto`: try to dismiss common cookie consent banners before recording; default `off`
 - `--click <selector>`: click a selector before recording; repeatable
 - `--hide <selector>`: hide elements before recording; repeatable
 - `--settle-ms <milliseconds>`: time to let the page settle before recording starts
 - `--screenshot <path>`: save a preview still before recording for validation
+
+Every webpage capture must run a cleanup pass before the validation screenshot. Use `--cookie-consent auto` and add repeatable `--click` / `--hide` selectors for any visible overlay, popup, modal, banner, newsletter prompt, sticky UI, or chat widget. Do not accept a clip if the screenshot or recording still shows an obstructive overlay; re-record with stronger cleanup selectors.
 
 ## Examples
 
@@ -42,6 +45,7 @@ node scripts/record_broll.mjs `
   --screenshot "C:\clips\hero.png" `
   --duration 10 `
   --scroll static `
+  --cookie-consent auto `
   --click ".cookie-accept" `
   --hide ".chat-widget"
 ```

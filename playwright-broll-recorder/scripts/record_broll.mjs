@@ -19,6 +19,7 @@ function parseArgs(argv) {
     screenshot: null,
     click: [],
     hide: [],
+    cookieConsent: "off",
   };
 
   for (let i = 0; i < argv.length; i += 1) {
@@ -63,6 +64,10 @@ function parseArgs(argv) {
         break;
       case "--hide":
         options.hide.push(next);
+        i += 1;
+        break;
+      case "--cookie-consent":
+        options.cookieConsent = normalizeCookieConsent(next);
         i += 1;
         break;
       case "--settle-ms":
@@ -162,6 +167,14 @@ function normalizeScrollMode(value) {
   return normalized;
 }
 
+function normalizeCookieConsent(value) {
+  const normalized = String(value || "").toLowerCase();
+  if (!["off", "auto"].includes(normalized)) {
+    throw new Error("--cookie-consent must be one of: off, auto");
+  }
+  return normalized;
+}
+
 function printHelp() {
   console.log(`Usage:
   node scripts/record_broll.mjs --url <url> --output <path> [options]
@@ -172,6 +185,7 @@ Options:
   --viewport <width>x<height>     Browser viewport. Default: 1600x900
   --video-size <width>x<height>   Output frame size. Default: 1600x900
   --wait-for-selector <selector>  Wait for a selector before recording
+  --cookie-consent off|auto       Try to dismiss cookie consent before recording. Default: off
   --click <selector>              Click selector before recording; repeatable
   --hide <selector>               Hide selector before recording; repeatable
   --settle-ms <milliseconds>      Delay before recording starts. Default: 1500
@@ -186,6 +200,49 @@ async function safeClick(page, selector) {
   } catch {
     return false;
   }
+}
+
+async function safeLocatorClick(locator, timeoutMs = 1200) {
+  try {
+    await locator.first().click({ timeout: timeoutMs });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function autoCookieConsent(page) {
+  const directSelectors = [
+    "#onetrust-accept-btn-handler",
+    "#CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll",
+    "#CybotCookiebotDialogBodyButtonAccept",
+    "button[data-testid='uc-accept-all-button']",
+    "button[aria-label='Accept all']",
+    "button[aria-label='Accept cookies']",
+    "button[mode='primary']:has-text('Accept')",
+  ];
+
+  for (const selector of directSelectors) {
+    if (await safeLocatorClick(page.locator(selector))) {
+      console.log(`Cookie consent handled with selector: ${selector}`);
+      return true;
+    }
+  }
+
+  const consentText = /^(accept|accept all|accept cookies|agree|i agree|allow all|ok|got it|continue|zaakceptuj|akceptuj|akceptuję|akceptuj wszystkie|zgadzam się|rozumiem|przejdź dalej)$/i;
+  const roleQueries = [
+    page.getByRole("button", { name: consentText }),
+    page.getByRole("link", { name: consentText }),
+  ];
+
+  for (const locator of roleQueries) {
+    if (await safeLocatorClick(locator)) {
+      console.log("Cookie consent handled by visible text.");
+      return true;
+    }
+  }
+
+  return false;
 }
 
 async function hideSelectors(page, selectors) {
@@ -279,6 +336,13 @@ async function main() {
 
     for (const selector of options.click) {
       await safeClick(page, selector);
+      await page.waitForTimeout(300);
+    }
+    if (options.cookieConsent === "auto") {
+      const handled = await autoCookieConsent(page);
+      if (!handled) {
+        console.log("Cookie consent auto: no matching banner control found.");
+      }
       await page.waitForTimeout(300);
     }
     await hideSelectors(page, options.hide);

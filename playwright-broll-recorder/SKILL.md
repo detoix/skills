@@ -18,7 +18,7 @@ For YouTube autopipeline production projects, pass `--project-dir <project-dir>`
    - whether to use `constant` scroll or `static` hold
    - target video language or locale when relevant
    - optional selector to wait for before recording
-   - optional selectors to click or hide first
+   - cleanup selectors to click or hide before recording when any overlay, popup, banner, modal, cookie wall, newsletter prompt, sticky UI, or chat widget is visible
 2. Run [scripts/record_broll.mjs](scripts/record_broll.mjs).
 3. Save a validation screenshot with `--screenshot` and inspect it before accepting the clip.
 4. Check the script output for final URL, page title, and HTTP status.
@@ -47,6 +47,7 @@ node scripts/record_broll.mjs `
 Useful options:
 
 - `--wait-for-selector ".hero"`: wait for a specific element before recording
+- `--cookie-consent auto`: try to dismiss common cookie consent banners before recording
 - `--click ".cookie-accept"`: click a cookie banner or modal close button before recording
 - `--hide ".sticky-header"`: hide obstructive UI before recording
 - `--screenshot "C:\clips\preview.png"`: save a preview still for validation
@@ -75,7 +76,8 @@ Useful options:
 - Treat final URL, page title, and HTTP status as validation signals. A saved file alone is not enough.
 - Choose `static` for docs pages, strong hero sections, dashboards, product UIs, or pages with their own animation.
 - Choose `constant` for long marketing pages or when the shot needs visible downward motion.
-- If a site has a cookie banner, newsletter modal, or chat bubble, remove it before recording using `--click` or `--hide`.
+- Every webpage capture must include a cleanup pass before the validation screenshot: use `--cookie-consent auto`, and add explicit `--click` or `--hide` selectors for any visible overlay, popup, modal, banner, newsletter prompt, sticky UI, or chat widget.
+- Any validation screenshot or recorded clip with a visible popup, modal, cookie banner, newsletter prompt, chat widget, login wall, or other obstructive overlay is invalid. Re-record with stronger `--click` or `--hide` selectors before accepting the asset.
 - If the page is very short, use `--scroll static` instead of pretending to scroll.
 - If the user wants multiple clips, run the script multiple times with distinct output paths.
 

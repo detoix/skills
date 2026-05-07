@@ -34,6 +34,13 @@ AUDIO_EXTENSIONS = {".mp3", ".wav", ".m4a", ".aac", ".flac", ".ogg"}
 BROLL_SOURCE_TYPES = {"webpage", "stock", "screen-record", "generated-image", "manual", "synthetic-motion"}
 GRAPHIC_TARGETS = {"B_ROLL", "manual"}
 ASSEMBLY_RISKS = {"none", "fallback", "manual-review"}
+PRESENTER_REPEAT_REASON_CODES = {
+    "limited_available_sources",
+    "continuity_choice",
+    "source_quality_rejection",
+    "duration_or_framing_constraint",
+    "production_time_constraint",
+}
 SECTION_PATTERNS = {
     "fullscreen-stock",
     "fullscreen-manual",
@@ -860,9 +867,31 @@ def validate_presenter_plan(manifest: Any, project_dir: Path, report: Report) ->
         report.error("presenter-plan-shape", "presenter plan must be an object")
         return
     assignments = manifest.get("assignments")
-    if not isinstance(assignments, list):
-        report.error("presenter-plan-assignments", "presenter plan must include assignments array")
+    uses = manifest.get("uses")
+    if isinstance(assignments, list):
+        presenter_uses = assignments
+        use_label = "assignments"
+    elif isinstance(uses, list):
+        presenter_uses = uses
+        use_label = "uses"
+    else:
+        report.error("presenter-plan-uses", "presenter plan must include uses array")
         return
+
+    asset_manifest = load_json(project_dir / "manifests" / "assets-manifest.json", report, "asset manifest")
+    available_by_role: dict[str, set[str]] = {"front": set(), "profile": set()}
+    if isinstance(asset_manifest, dict):
+        groups = asset_manifest.get("groups")
+        plates = groups.get("usable_presenter_plates") if isinstance(groups, dict) else None
+        if isinstance(plates, list):
+            for plate in plates:
+                if not isinstance(plate, dict):
+                    continue
+                role = str(plate.get("role", ""))
+                normalized_role = "front" if role == "presenter_front" else "profile" if role == "presenter_profile" else None
+                sha = normalize_sha(plate.get("sha256"))
+                if normalized_role and sha:
+                    available_by_role[normalized_role].add(sha)
 
     repeated_decisions = manifest.get("repeat_decisions", [])
     if repeated_decisions is None:
@@ -883,24 +912,33 @@ def validate_presenter_plan(manifest: Any, project_dir: Path, report: Report) ->
         decisions_by_sha[sha] = decision
 
     uses_by_sha: dict[str, list[dict[str, Any]]] = {}
-    for index, assignment in enumerate(assignments):
-        context = f"assignments[{index}]"
+    used_by_role: dict[str, set[str]] = {"front": set(), "profile": set()}
+    role_by_sha: dict[str, str] = {}
+    for index, assignment in enumerate(presenter_uses):
+        context = f"{use_label}[{index}]"
         if not isinstance(assignment, dict):
             report.error("presenter-assignment-shape", f"{context} must be an object")
             continue
-        source = assignment.get("source")
+        role = assignment.get("role")
+        if role not in {"front", "profile"}:
+            report.error("presenter-assignment-role", f"{context}.role must be 'front' or 'profile'")
+            continue
+        source = assignment.get("source") or assignment.get("project_plate_path")
         if not isinstance(source, str) or not source.strip():
-            report.error("presenter-assignment-source", f"{context}.source must be a non-empty path")
+            report.error("presenter-assignment-source", f"{context} must include source or project_plate_path")
             continue
         source_path = resolve_path(project_dir, source)
         if source_path is None or not source_path.exists() or not source_path.is_file():
             report.error("presenter-assignment-missing", f"{context}.source not found: {source}")
             continue
         sha = normalize_sha(assignment.get("sha256")) or sha256_file(source_path)
+        used_by_role[role].add(sha)
+        role_by_sha[sha] = role
         uses_by_sha.setdefault(sha, []).append(
             {
                 "index": index,
                 "source": source,
+                "role": role,
                 "chunk_id": assignment.get("chunk_id"),
                 "segment_id": assignment.get("segment_id"),
             }
@@ -920,6 +958,34 @@ def validate_presenter_plan(manifest: Any, project_dir: Path, report: Report) ->
         reason = str(decision.get("reason", "")).strip()
         if len(reason) < 20:
             report.error("presenter-repeat-reason", f"repeat_decisions entry for sha256 {sha} needs a concrete reason")
+        role = role_by_sha.get(sha)
+        reason_code = decision.get("reason_code")
+        if reason_code not in PRESENTER_REPEAT_REASON_CODES:
+            report.error(
+                "presenter-repeat-reason-code",
+                f"repeat_decisions entry for sha256 {sha} reason_code must be one of {sorted(PRESENTER_REPEAT_REASON_CODES)}",
+            )
+        available_unique = decision.get("available_unique_sources_for_role")
+        used_unique = decision.get("used_unique_sources_for_role")
+        if not isinstance(available_unique, int) or available_unique < 0:
+            report.error("presenter-repeat-available-count", f"repeat_decisions entry for sha256 {sha} must include numeric available_unique_sources_for_role")
+        elif role and available_unique != len(available_by_role.get(role, set())):
+            report.error(
+                "presenter-repeat-available-count",
+                f"repeat_decisions entry for sha256 {sha} available_unique_sources_for_role={available_unique} does not match asset manifest count {len(available_by_role.get(role, set()))} for role {role}",
+            )
+        if not isinstance(used_unique, int) or used_unique < 0:
+            report.error("presenter-repeat-used-count", f"repeat_decisions entry for sha256 {sha} must include numeric used_unique_sources_for_role")
+        elif role and used_unique != len(used_by_role.get(role, set())):
+            report.error(
+                "presenter-repeat-used-count",
+                f"repeat_decisions entry for sha256 {sha} used_unique_sources_for_role={used_unique} does not match presenter plan count {len(used_by_role.get(role, set()))} for role {role}",
+            )
+        if reason_code == "limited_available_sources" and isinstance(available_unique, int) and available_unique != 1:
+            report.error(
+                "presenter-repeat-limited-untrue",
+                f"repeat_decisions entry for sha256 {sha} uses limited_available_sources but asset manifest has {available_unique} unique usable sources for role {role}",
+            )
         selected_uses = decision.get("uses")
         if not isinstance(selected_uses, list) or len(selected_uses) < len(uses):
             report.warn(
