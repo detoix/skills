@@ -202,7 +202,7 @@ Do not run a scripted preflight. If a required item is missing, stop before expe
 11. Build B-roll with the panel `source` values approved for that segment in `manifests\visual-plan.json`.
    - For abstract UI boards, checklists, timelines, comparisons, maps, process diagrams, counters, logistics, cost/risk boards, local synthetic HTML/mock UI, kinetic typography, and other synthetic-motion sections, call `animated-broll-boards` as an art-direction workflow when a polished custom board is the strongest production path. Create a custom motion scene from a creative brief; do not route the segment to a checklist/timeline/template layout. Production reels must use animated `.webm` clips for these sections, not ad hoc static PNG/Pillow boards.
    - Call `playwright-broll-recorder` for real webpage/app B-roll and for recording local synthetic-motion scenes when needed.
-   - For webpage and screen-record B-roll, every capture must have a validation screenshot taken after cleanup. Use `--cookie-consent auto` and explicit `--click` / `--hide` selectors for visible overlays. Do not accept or add a webpage/screen-record asset to `selected-visuals.json` if the screenshot or recorded clip shows any popup, modal, cookie banner, newsletter prompt, chat widget, login wall, or other obstructive overlay; re-record with stronger cleanup selectors first.
+   - For webpage and screen-record B-roll, every capture must have a validation screenshot taken after cleanup. Use `--cookie-consent auto` and explicit `--click` / `--hide` selectors for visible overlays. Do not accept or add a webpage/screen-record asset to `selected-visuals.json` if the screenshot or recorded clip shows any popup, modal, cookie banner, newsletter prompt, chat widget, login wall, other obstructive overlay, missing CSS/unloaded styling, or non-functional page state; re-record with stronger cleanup selectors first.
    - Call `pexels-stock-downloader` when non-web stock footage is needed.
    - When the script needs photographic, cinematic, illustrative, product-neutral, or non-UI generated visual support, create a `z-image-turbo` plan:
      ```powershell
@@ -539,6 +539,7 @@ Generate presenter outputs as reusable synced chunks or grouped scene clips. Use
 - Profile plate: portrait orientation preferred; if only a landscape profile plate is available, it will still work but may crop heavily
 - Presenter overlay position must be explicit per presenter overlay panel, with scale `0.34` as the default size
 - If no profile plate is provided, use front-facing A-roll alternated with B-roll segments without presenter overlays
+- When a portrait front plate is used as a presenter panel in `stack2`, the composer automatically crops it higher than a center crop so the head and upper torso stay in frame. This stack-panel rule is separate from profile overlay/PiP crop settings.
 
 Important timing rule:
 

@@ -72,7 +72,7 @@ Useful options:
 - If the best visual source is only available in another language, treat that as a conscious fallback and note it instead of silently mixing languages.
 - Always capture a preview screenshot and inspect it before declaring success.
 - For project-local synthetic-motion HTML/mock UI, the validation screenshot must show the intended scene, no overlapping scene states, text fitting in frame, no accidental real data, and an output aspect ratio that matches the planned timeline use.
-- Treat obvious failures as invalid even if the recorder exits cleanly: `404`, access denied pages, blank shells, login walls, broken hero sections, cookie walls covering the frame, or obviously off-topic content.
+- Treat obvious failures as invalid even if the recorder exits cleanly: `404`, access denied pages, blank shells, login walls, broken hero sections, cookie walls covering the frame, missing CSS/unloaded styling, non-functional page state, or obviously off-topic content.
 - Treat final URL, page title, and HTTP status as validation signals. A saved file alone is not enough.
 - Choose `static` for docs pages, strong hero sections, dashboards, product UIs, or pages with their own animation.
 - Choose `constant` for long marketing pages or when the shot needs visible downward motion.

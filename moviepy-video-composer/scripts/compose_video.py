@@ -59,6 +59,8 @@ DEFAULT_MUSIC_CANDIDATES = (
     "soundtrack.flac",
     "soundtrack.ogg",
 )
+FRONT_STACK_CROP_Y_FRACTION = 1 / 8
+FRONT_STACK_CROP_HEIGHT_FRACTION = 1 / 2
 VOICE_LOUDNORM = "loudnorm=I=-16:LRA=11:TP=-1.5"
 MUSIC_BASE_GAIN = 0.30
 DUCK_THRESHOLD = 0.015
@@ -745,6 +747,48 @@ def scale_clip_to_canvas(clip, canvas_size: tuple[int, int], policy: str):
     return composed, [resized, composed]
 
 
+def path_has_segment(raw_path: str | None, segment: str) -> bool:
+    if not raw_path:
+        return False
+    normalized = raw_path.replace("\\", "/")
+    return segment.lower() in {part.lower() for part in normalized.split("/") if part}
+
+
+def is_front_presenter_panel(panel: dict[str, Any] | None, raw_path: str | None) -> bool:
+    if not isinstance(panel, dict):
+        return False
+    if panel.get("kind") != "presenter":
+        return False
+    return path_has_segment(str(panel.get("path") or raw_path or ""), "front")
+
+
+def front_stack_presenter_crop_box(source_size: tuple[int, int], panel_size: tuple[int, int]) -> tuple[int, int, int, int]:
+    source_w, source_h = source_size
+    panel_w, panel_h = panel_size
+    if source_w <= 0 or source_h <= 0:
+        raise ValueError("source_size must be positive.")
+    if panel_w <= 0 or panel_h <= 0:
+        raise ValueError("panel_size must be positive.")
+
+    crop_x = 0
+    crop_y = int(round(source_h * FRONT_STACK_CROP_Y_FRACTION))
+    crop_w = source_w
+    crop_h = min(source_h, max(1, int(round(source_h * FRONT_STACK_CROP_HEIGHT_FRACTION))))
+
+    crop_x = max(0, min(crop_x, source_w - crop_w))
+    crop_y = max(0, min(crop_y, source_h - crop_h))
+    return crop_x, crop_y, crop_w, crop_h
+
+
+def maybe_crop_front_stack_presenter(clip, panel: dict[str, Any] | None, raw_path: str | None, panel_size: tuple[int, int]):
+    if not is_front_presenter_panel(panel, raw_path):
+        return clip, None
+    if clip.h <= clip.w:
+        return clip, None
+    crop_x, crop_y, crop_w, crop_h = front_stack_presenter_crop_box((clip.w, clip.h), panel_size)
+    return clip.cropped(x1=crop_x, y1=crop_y, width=crop_w, height=crop_h), (crop_x, crop_y, crop_w, crop_h)
+
+
 def compute_overlay_position(
     background_size: tuple[int, int],
     overlay_size: tuple[int, int],
@@ -885,15 +929,30 @@ def add_caption_overlay(segment, entry: TimelineEntry):
     return composite, [composite, caption_clip]
 
 
-def build_panel_clip(project_dir: Path, raw_path: str | None, duration: float, start_offset: float, loop_policy: str, label: str, size: tuple[int, int]):
+def build_panel_clip(
+    project_dir: Path,
+    raw_path: str | None,
+    duration: float,
+    start_offset: float,
+    loop_policy: str,
+    label: str,
+    size: tuple[int, int],
+    panel: dict[str, Any] | None = None,
+):
     path = resolve_media_path(project_dir, raw_path, label)
     clip, source = normalize_video_clip(path, duration, start_offset, loop_policy, label)
+    stack_crop, crop_box = maybe_crop_front_stack_presenter(clip, panel, raw_path, size)
+    if crop_box is not None:
+        clip = stack_crop
     fitted, handles = scale_clip_to_canvas(clip, size, "cover")
-    return fitted, [clip, source, fitted, *handles]
+    return fitted, [clip, source, stack_crop, fitted, *handles]
 
 
 def build_stack_2_clip(project_dir: Path, entry: TimelineEntry):
     panel_h = OUTPUT_HEIGHT // 2
+    panels = entry.panels if isinstance(entry.panels, list) else []
+    top_panel = panels[0] if len(panels) > 0 and isinstance(panels[0], dict) else None
+    bot_panel = panels[1] if len(panels) > 1 and isinstance(panels[1], dict) else None
     top, top_handles = build_panel_clip(
         project_dir,
         entry.clip_path_top,
@@ -902,6 +961,7 @@ def build_stack_2_clip(project_dir: Path, entry: TimelineEntry):
         entry.loop_policy,
         "STACK_2 top clip",
         (OUTPUT_WIDTH, panel_h),
+        top_panel,
     )
     bot, bot_handles = build_panel_clip(
         project_dir,
@@ -911,6 +971,7 @@ def build_stack_2_clip(project_dir: Path, entry: TimelineEntry):
         entry.loop_policy,
         "STACK_2 bottom clip",
         (OUTPUT_WIDTH, OUTPUT_HEIGHT - panel_h),
+        bot_panel,
     )
     background = ColorClip(size=(OUTPUT_WIDTH, OUTPUT_HEIGHT), color=(0, 0, 0)).with_duration(entry.duration)
     composite = CompositeVideoClip(
