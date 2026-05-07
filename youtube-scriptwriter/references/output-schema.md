@@ -86,6 +86,10 @@ Rules:
 - Visual changes should be intentional and tied to clarity, pacing, or retention.
 - Keep narration conversational and easy for TTS.
 - Keep `on_screen_text` short enough to map directly to `caption_text` or a `TEXT` segment in vertical reels.
+- By default, the final segment must be a close-CTA unless the user explicitly disables CTA.
+- For the final CTA segment, set `pattern_interrupt_type` to `close-cta`.
+- The final CTA must appear in `narration`, with a short version in `on_screen_text`.
+- Keep the final CTA segment short, usually 3-7 seconds, and do not introduce a new factual claim, offer, link, or promise that was not present in the brief.
 
 ## `tts_chunks`
 
@@ -118,6 +122,8 @@ Each item must contain:
 - `graphic_type`
 - `copy`
 - `composer_target`: `B_ROLL` or `manual`
+
+By default, include a `graphics[]` entry for the final segment with `graphic_type: "cta"`, unless the user explicitly disables CTA. Its `copy` must match or compress the final segment's `on_screen_text`.
 
 ## `assembly_notes`
 

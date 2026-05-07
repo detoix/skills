@@ -25,7 +25,8 @@ Generate scripts as production-ready assets, not as plain prose. Always optimize
    - Open with a fast hook
    - Keep transitions tight
    - Avoid long setup before payoff
-5. Produce one JSON object every time:
+5. End short-form scripts with a concrete close-CTA by default unless the user explicitly disables CTA.
+6. Produce one JSON object every time:
    - `metadata`
    - `segments`
    - `tts_chunks`
@@ -48,6 +49,11 @@ Generate scripts as production-ready assets, not as plain prose. Always optimize
 - Write narration for spoken delivery, not for visual text-only reading.
 - Keep narration natural in the target language, but avoid overfitting the script to a specific TTS engine.
 - If a line contains literals such as digits, shorthand, passwords, or mixed-language tokens, it is acceptable to keep the authored wording when that is important for the script, as long as the line is still understandable to a human reader.
+- By default, make the final segment a concrete `close-cta` segment unless the user explicitly disables CTA or the format makes CTA inappropriate.
+- Put the CTA in the final segment's `narration`, a short version in `on_screen_text`, and a matching `graphics[]` entry with `graphic_type: "cta"`.
+- Select CTAs by purpose: tutorials/checklists should ask viewers to save or use the checklist; comparisons should ask viewers to compare before deciding; diagnostics should ask viewers to check their own case; lead comments should ask for a specific keyword; education series may ask viewers to follow only when no more specific CTA fits.
+- Avoid generic "subscribe" or "follow for more" CTAs when a topic-specific action is possible.
+- Keep CTA segments short, usually 3-7 seconds, and do not introduce a new factual claim, offer, link, or promise that was not present in the brief.
 
 ## Direct Agent Use
 
@@ -70,7 +76,7 @@ Always follow this contract:
 ## Generation Procedure
 
 1. Restate the five inputs internally and convert target duration into approximate seconds.
-2. Outline the hook, core beats, and close.
+2. Outline the hook, core beats, and close-CTA.
 3. Break the video into short segments.
 4. Ensure no `A_ROLL` segment exceeds 20 seconds.
 5. Insert a pattern interrupt every 5-15 seconds.
@@ -85,6 +91,10 @@ Always follow this contract:
    - caption-style text fits phone viewing and avoids bottom UI/presenter overlay collisions
    - generated-image B-roll panels are explicitly justified in `broll_queries` or `assembly_notes`
    - narration is natural for spoken delivery in the target language
+   - the final segment contains a concrete CTA unless CTA was explicitly disabled
+   - the final CTA appears in `narration`, `on_screen_text`, and `graphics[]`
+   - the CTA is topic-specific when a topic-specific action is possible
+   - the CTA does not promise anything unsupported by the brief
 
 ## Output Template
 
