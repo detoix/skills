@@ -295,9 +295,40 @@ def hex_to_ass_override_color(value: str) -> str:
     return f"&H{bb}{gg}{rr}&".upper()
 
 
-def phrase_bounds(index: int, words: list[dict[str, Any]], words_per_phrase: int) -> tuple[int, int]:
-    start = (index // words_per_phrase) * words_per_phrase
-    end = min(len(words), start + words_per_phrase)
+def starts_new_caption_phrase(
+    previous_word: dict[str, Any],
+    current_word: dict[str, Any],
+    max_phrase_gap_seconds: float,
+) -> bool:
+    # Workaround: WhisperX provides word timings, not caption phrase boundaries.
+    # Reset phrases at sentence/gap boundaries so ASS display text does not pull
+    # the first word of the next sentence into the previous on-screen phrase.
+    if str(previous_word.get("word", "")).rstrip().endswith((".", "!", "?", ":")):
+        return True
+    if "end" not in previous_word or "start" not in current_word:
+        return False
+    return float(current_word["start"]) - float(previous_word["end"]) > max_phrase_gap_seconds
+
+
+def phrase_bounds(
+    index: int,
+    words: list[dict[str, Any]],
+    words_per_phrase: int,
+    max_phrase_gap_seconds: float,
+) -> tuple[int, int]:
+    start = 0
+    count = 0
+    for idx in range(0, index + 1):
+        if idx > 0 and (count >= words_per_phrase or starts_new_caption_phrase(words[idx - 1], words[idx], max_phrase_gap_seconds)):
+            start = idx
+            count = 0
+        count += 1
+
+    end = index + 1
+    while end < len(words) and end - start < words_per_phrase:
+        if starts_new_caption_phrase(words[end - 1], words[end], max_phrase_gap_seconds):
+            break
+        end += 1
     return start, end
 
 
@@ -379,7 +410,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     for idx, word in enumerate(words):
         if "start" not in word or "end" not in word:
             continue
-        start, end = phrase_bounds(idx, words, words_per_phrase)
+        start, end = phrase_bounds(idx, words, words_per_phrase, max_bridge_gap_seconds)
         text = phrase_text(words, idx, start, end, active_override_ass)
         event_end = bridged_caption_end(words, idx, max_bridge_gap_seconds, min_event_seconds)
         lines.append(f"Dialogue: 0,{ass_time(float(word['start']))},{ass_time(event_end)},Caption,,0,0,0,,{text}\n")
