@@ -20,11 +20,12 @@ For YouTube autopipeline production projects, pass `--project-dir <project-dir>`
    - optional selector to wait for before recording
    - cleanup selectors to click or hide before recording when any overlay, popup, banner, modal, cookie wall, newsletter prompt, sticky UI, or chat widget is visible
 2. Run [scripts/record_broll.mjs](scripts/record_broll.mjs).
-3. Save a validation screenshot with `--screenshot` and inspect it before accepting the clip.
-4. Check the script output for final URL, page title, and HTTP status.
-5. Verify that the output `.webm` file exists.
-6. Reject the capture and re-record if the preview or metadata indicates a broken page, error state, empty shell, or obviously wrong target.
-7. Report the saved path back to the user only after validation.
+3. The script prepares the page without recording, handles cleanup, saves storage state, then opens a recording context, re-runs cleanup, and records only the useful scroll/static window.
+4. Save a validation screenshot with `--screenshot` and inspect it before accepting the clip.
+5. Check the script output for final URL, page title, and HTTP status.
+6. Verify that the output `.webm` file exists and is close to the requested duration.
+7. Reject the capture and re-record if the preview or metadata indicates a broken page, error state, empty shell, or obviously wrong target.
+8. Report the saved path back to the user only after validation.
 
 ## Defaults
 
@@ -51,7 +52,7 @@ Useful options:
 - `--click ".cookie-accept"`: click a cookie banner or modal close button before recording
 - `--hide ".sticky-header"`: hide obstructive UI before recording
 - `--screenshot "C:\clips\preview.png"`: save a preview still for validation
-- `--scroll constant`: record with steady readable downward motion
+- `--scroll constant`: record with steady fixed-speed downward motion
 - `--scroll static`: hold a fixed frame and let the page's own motion play
 - `--viewport 1600x900`: change browser viewport
 - `--video-size 1600x900`: change output video frame size
@@ -66,6 +67,8 @@ Useful options:
 - For vertical full-screen B-roll, use a portrait viewport and video frame such as `--viewport 1080x1920 --video-size 1080x1920` when the page has a useful responsive layout.
 - For vertical `STACK_3` or wide UI context, keep landscape capture such as `1600x900` and let the composer place it in the stack.
 - Let the page fully load, apply required clicks/hides, and honor `--settle-ms` before the useful recording window begins.
+- The recorder uses a two-phase capture: prepare without video, then record with the prepared storage state. Cookie consent accepted during prepare is usually suppressed during recording when the site persists consent in cookies or Web Storage.
+- The final `.webm` is trimmed to the last requested `--duration` seconds so browser/context startup frames are not kept.
 - Prefer pages whose visible language matches the video language or locale when a localized version exists.
 - When multiple candidate pages are available, prefer the one that feels culturally and regionally appropriate for the target audience instead of defaulting to generic English.
 - For localized videos, prefer localized docs, regional landing pages, country-specific pricing or onboarding flows, and UI text that matches the narration language when possible.
@@ -76,6 +79,7 @@ Useful options:
 - Treat final URL, page title, and HTTP status as validation signals. A saved file alone is not enough.
 - Choose `static` for docs pages, strong hero sections, dashboards, product UIs, or pages with their own animation.
 - Choose `constant` for long marketing pages or when the shot needs visible downward motion.
+- `constant` scroll is intentionally fixed-speed; it should make the page feel active, not force the recording to reach the bottom of the page.
 - Every webpage capture must include a cleanup pass before the validation screenshot: use `--cookie-consent auto`, and add explicit `--click` or `--hide` selectors for any visible overlay, popup, modal, banner, newsletter prompt, sticky UI, or chat widget.
 - Any validation screenshot or recorded clip with a visible popup, modal, cookie banner, newsletter prompt, chat widget, login wall, or other obstructive overlay is invalid. Re-record with stronger `--click` or `--hide` selectors before accepting the asset.
 - If the page is very short, use `--scroll static` instead of pretending to scroll.

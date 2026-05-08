@@ -9,6 +9,10 @@ import { chromium } from "playwright";
 
 const PRODUCTION_GATE = "C:\\Users\\kdeptula\\skills\\youtube-autopipeline\\scripts\\production_gate.py";
 const TIMINGS_RELATIVE_PATH = path.join("manifests", "production-timings.jsonl");
+const PREPARE_NETWORKIDLE_TIMEOUT_MS = 10000;
+const RECORD_NETWORKIDLE_TIMEOUT_MS = 5000;
+const RECORD_SETTLE_MS = 500;
+const VISIBLE_CONTENT_TIMEOUT_MS = 5000;
 
 function parseArgs(argv) {
   const options = {
@@ -290,6 +294,7 @@ async function autoCookieConsent(page) {
     "button[aria-label='Accept all']",
     "button[aria-label='Accept cookies']",
     "button[mode='primary']:has-text('Accept')",
+    "button:has-text('DO SERWISU')",
   ];
 
   for (const selector of directSelectors) {
@@ -330,11 +335,168 @@ async function hideSelectors(page, selectors) {
   }, selectors);
 }
 
+async function waitForNetworkIdle(page, timeoutMs, label) {
+  try {
+    await page.waitForLoadState("networkidle", { timeout: timeoutMs });
+    return true;
+  } catch {
+    console.log(`${label}: networkidle not reached within ${timeoutMs}ms; continuing.`);
+    return false;
+  }
+}
+
+async function waitForVisibleContent(page, timeoutMs, label) {
+  try {
+    await page.waitForFunction(
+      () => {
+        const body = document.body;
+        if (!body) return false;
+
+        const visibleText = (body.innerText || "").replace(/\s+/g, " ").trim();
+        if (visibleText.length >= 2) return true;
+
+        const visualNodes = Array.from(body.querySelectorAll("img, svg, canvas, video, picture"));
+        return visualNodes.some((node) => {
+          const rect = node.getBoundingClientRect();
+          const style = window.getComputedStyle(node);
+          const opacity = Number.parseFloat(style.opacity || "1");
+          return rect.width > 24 && rect.height > 24 && style.display !== "none" && style.visibility !== "hidden" && opacity > 0;
+        });
+      },
+      undefined,
+      { timeout: timeoutMs },
+    );
+    return true;
+  } catch {
+    console.log(`${label}: visible content not confirmed within ${timeoutMs}ms; continuing.`);
+    return false;
+  }
+}
+
+async function installCaptureStyles(page) {
+  await page.addStyleTag({
+    content: `
+      * { scrollbar-width: none !important; }
+      *::-webkit-scrollbar { display: none !important; }
+      html { scroll-behavior: auto !important; }
+    `,
+  });
+}
+
+async function runCleanup(page, options, { runClicks = true, runCookieConsent = true } = {}) {
+  if (runClicks) {
+    for (const selector of options.click) {
+      await safeClick(page, selector);
+      await page.waitForTimeout(300);
+    }
+  }
+  if (runCookieConsent && options.cookieConsent === "auto") {
+    const handled = await autoCookieConsent(page);
+    if (!handled) {
+      console.log("Cookie consent auto: no matching banner control found.");
+    }
+    await page.waitForTimeout(300);
+  }
+  await hideSelectors(page, options.hide);
+}
+
+async function preparePage(browser, options, projectDir) {
+  const context = await browser.newContext({
+    viewport: options.viewport,
+  });
+  const page = await context.newPage();
+  let navigationResponse;
+  let statePath;
+
+  try {
+    navigationResponse = await page.goto(options.url, { waitUntil: "domcontentloaded", timeout: 60000 });
+    await waitForNetworkIdle(page, PREPARE_NETWORKIDLE_TIMEOUT_MS, "Prepare phase");
+
+    if (options.waitForSelector) {
+      await page.locator(options.waitForSelector).first().waitFor({ state: "visible", timeout: 30000 });
+    }
+
+    await installCaptureStyles(page);
+    await runCleanup(page, options);
+    await waitForVisibleContent(page, VISIBLE_CONTENT_TIMEOUT_MS, "Prepare phase");
+    await page.waitForTimeout(options.settleMs);
+
+    if (options.screenshot) {
+      await page.screenshot({ path: options.screenshot, fullPage: false });
+      console.log(`Saved screenshot: ${options.screenshot}`);
+    }
+
+    const finalUrl = page.url();
+    const title = await page.title();
+    console.log(`Final URL: ${finalUrl}`);
+    console.log(`Page title: ${title}`);
+    if (navigationResponse) {
+      console.log(`HTTP status: ${navigationResponse.status()}`);
+    }
+
+    statePath = path.join(projectDir, "manifests", `web-broll-storage-state-${Date.now()}.json`);
+    await fs.mkdir(path.dirname(statePath), { recursive: true });
+    await context.storageState({ path: statePath });
+
+    return {
+      finalUrl,
+      title,
+      status: navigationResponse ? navigationResponse.status() : null,
+      statePath,
+    };
+  } finally {
+    await context.close().catch(() => {});
+  }
+}
+
+function findFfmpeg() {
+  const local = path.join(os.homedir(), "Documents", "FFmpeg", "ffmpeg-master-latest-win64-gpl", "bin", "ffmpeg.exe");
+  if (spawnSync(local, ["-version"], { encoding: "utf8", timeout: 2000, windowsHide: true }).status === 0) {
+    return local;
+  }
+  const found = spawnSync("ffmpeg", ["-version"], { encoding: "utf8", timeout: 2000, windowsHide: true });
+  if (!found.error && found.status === 0) {
+    return "ffmpeg";
+  }
+  throw new Error("ffmpeg is required to trim browser recordings.");
+}
+
+function trimLastSeconds(inputPath, outputPath, durationSeconds) {
+  const ffmpeg = findFfmpeg();
+  return new Promise((resolve, reject) => {
+    const child = spawn(
+      ffmpeg,
+      [
+        "-y",
+        "-sseof",
+        `-${durationSeconds}`,
+        "-i",
+        inputPath,
+        "-t",
+        String(durationSeconds),
+        "-c:v",
+        "libvpx",
+        "-b:v",
+        "1M",
+        "-an",
+        outputPath,
+      ],
+      { stdio: "inherit", windowsHide: true },
+    );
+    child.on("error", reject);
+    child.on("exit", (code) => {
+      if (code === 0) resolve();
+      else reject(new Error(`ffmpeg trim failed with exit code ${code}.`));
+    });
+  });
+}
+
 async function constantScroll(page, durationSeconds) {
   await page.evaluate(async (durationMs) => {
     const doc = document.scrollingElement || document.documentElement;
-    const maxScroll = Math.max(0, doc.scrollHeight - window.innerHeight);
-    if (maxScroll <= 8) {
+    const startScroll = window.scrollY || doc.scrollTop || 0;
+    const pixelsPerSecond = window.innerHeight * 0.1;
+    if (Math.max(0, doc.scrollHeight - window.innerHeight) <= 8) {
       await new Promise((resolve) => window.setTimeout(resolve, durationMs));
       return;
     }
@@ -345,14 +507,16 @@ async function constantScroll(page, durationSeconds) {
       function step(now) {
         const elapsed = now - start;
         if (elapsed < durationMs) {
-          const progress = Math.min(1, elapsed / durationMs);
-          const target = maxScroll * progress;
+          const maxScroll = Math.max(0, doc.scrollHeight - window.innerHeight);
+          const target = Math.min(startScroll + (elapsed / 1000) * pixelsPerSecond, maxScroll);
           window.scrollTo({ top: target, behavior: "auto" });
           window.requestAnimationFrame(step);
           return;
         }
 
-        window.scrollTo({ top: maxScroll, behavior: "auto" });
+        const maxScroll = Math.max(0, doc.scrollHeight - window.innerHeight);
+        const target = Math.min(startScroll + (durationMs / 1000) * pixelsPerSecond, maxScroll);
+        window.scrollTo({ top: target, behavior: "auto" });
         resolve();
       }
 
@@ -383,11 +547,10 @@ async function main() {
     args: ["--autoplay-policy=no-user-gesture-required"],
   });
 
+  let videoPath;
   let context;
   let page;
-  let videoPath;
-  let navigationResponse;
-  let finalUrl = null;
+  let prepared;
   const recordStage = await startStage(projectDir, "webpage_record", ["record_broll.mjs", "--url", options.url, "--output", options.output], {
     duration_seconds: options.duration,
     scroll: options.scroll,
@@ -397,8 +560,11 @@ async function main() {
   });
 
   try {
+    prepared = await preparePage(browser, options, projectDir);
+
     context = await browser.newContext({
       viewport: options.viewport,
+      storageState: prepared.statePath,
       recordVideo: {
         dir: videoDir,
         size: options.videoSize,
@@ -406,43 +572,12 @@ async function main() {
     });
     page = await context.newPage();
 
-    navigationResponse = await page.goto(options.url, { waitUntil: "domcontentloaded", timeout: 60000 });
-
-    if (options.waitForSelector) {
-      await page.locator(options.waitForSelector).first().waitFor({ state: "visible", timeout: 30000 });
-    }
-
-    await page.addStyleTag({
-      content: `
-        * { scrollbar-width: none !important; }
-        *::-webkit-scrollbar { display: none !important; }
-        html { scroll-behavior: auto !important; }
-      `,
-    });
-
-    for (const selector of options.click) {
-      await safeClick(page, selector);
-      await page.waitForTimeout(300);
-    }
-    if (options.cookieConsent === "auto") {
-      const handled = await autoCookieConsent(page);
-      if (!handled) {
-        console.log("Cookie consent auto: no matching banner control found.");
-      }
-      await page.waitForTimeout(300);
-    }
-    await hideSelectors(page, options.hide);
-    await page.waitForTimeout(options.settleMs);
-    if (options.screenshot) {
-      await page.screenshot({ path: options.screenshot, fullPage: false });
-      console.log(`Saved screenshot: ${options.screenshot}`);
-    }
-    finalUrl = page.url();
-    console.log(`Final URL: ${finalUrl}`);
-    console.log(`Page title: ${await page.title()}`);
-    if (navigationResponse) {
-      console.log(`HTTP status: ${navigationResponse.status()}`);
-    }
+    await page.goto(options.url, { waitUntil: "domcontentloaded", timeout: 60000 });
+    await waitForNetworkIdle(page, RECORD_NETWORKIDLE_TIMEOUT_MS, "Record phase");
+    await installCaptureStyles(page);
+    await runCleanup(page, options);
+    await waitForVisibleContent(page, VISIBLE_CONTENT_TIMEOUT_MS, "Record phase");
+    await page.waitForTimeout(RECORD_SETTLE_MS);
 
     if (options.scroll === "constant") {
       await constantScroll(page, options.duration);
@@ -460,9 +595,14 @@ async function main() {
     await context.close();
     await browser.close();
 
-    await fs.copyFile(videoPath, options.output);
+    await trimLastSeconds(videoPath, options.output, options.duration);
     console.log(`Saved video: ${options.output}`);
-    await endStage(projectDir, recordStage, "pass", 0, null, { output: options.output, final_url: finalUrl });
+    await endStage(projectDir, recordStage, "pass", 0, null, {
+      output: options.output,
+      final_url: prepared.finalUrl,
+      http_status: prepared.status,
+      prepared_state: "temporary",
+    });
   } catch (error) {
     if (context) {
       await context.close().catch(() => {});
@@ -471,6 +611,9 @@ async function main() {
     await endStage(projectDir, recordStage, "error", 1, error instanceof Error ? error.message : String(error));
     throw error;
   } finally {
+    if (prepared && prepared.statePath) {
+      await fs.rm(prepared.statePath, { force: true }).catch(() => {});
+    }
     await fs.rm(videoDir, { recursive: true, force: true }).catch(() => {});
   }
 }

@@ -11,7 +11,7 @@ node scripts/record_broll.mjs `
 ## Important Flags
 
 - `--duration <seconds>`: total clip length, default `12`
-- `--scroll constant|static`: steady scroll or static capture
+- `--scroll constant|static`: steady fixed-speed downward scroll or static capture
 - `--viewport <width>x<height>`: browser viewport, default `1600x900`
 - `--video-size <width>x<height>`: saved video frame, default `1600x900`
 - `--wait-for-selector <selector>`: wait until a target element is visible
@@ -22,6 +22,8 @@ node scripts/record_broll.mjs `
 - `--screenshot <path>`: save a preview still before recording for validation
 
 Every webpage capture must run a cleanup pass before the validation screenshot. Use `--cookie-consent auto` and add repeatable `--click` / `--hide` selectors for any visible overlay, popup, modal, banner, newsletter prompt, sticky UI, or chat widget. Do not accept a clip if the screenshot or recording still shows an obstructive overlay; re-record with stronger cleanup selectors.
+
+The recorder runs in two phases. It first opens the page without video recording, waits for load, runs clicks/cookie handling/hides, lets the page settle, saves the validation screenshot, and stores cookies/Web Storage. It then opens a new video-recording context with that prepared state, reloads the URL, re-runs cleanup, waits briefly for visible content, records the requested scroll/static window, and trims the final `.webm` to the last requested `--duration` seconds.
 
 ## Examples
 
@@ -57,4 +59,6 @@ node scripts/record_broll.mjs `
 - Parent directories are created automatically.
 - The script prints the resolved output path on success.
 - The script prints the final URL, page title, and initial navigation HTTP status for validation.
+- The saved `.webm` is trimmed to the requested duration, so startup/loading frames from the recording context are discarded.
+- In `constant` mode, the recorder scrolls at a fixed readable speed instead of trying to reach the bottom of the page.
 - If the site is too short to scroll meaningfully, the script automatically holds or performs minimal movement rather than forcing a fake long scroll.
