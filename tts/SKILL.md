@@ -34,6 +34,37 @@ The wrapper scripts such as `generate_voxcpm.py` and `generate_omnivoice.py` liv
 
 If a task is being run from another workspace, do not assume a per-project `.\venv` exists. Use the known `speech-gen` environment unless the user provides a different one.
 
+### Linux CPU VoxCPM2 Runtime
+
+A persistent CPU-only VoxCPM2 runtime is installed at:
+
+`/home/detoix/.local/share/voxcpm2-cpu`
+
+Use it for deterministic short Polish clone tests or emergency CPU fallback when the Windows/RTX setup is unavailable:
+
+```bash
+/home/detoix/.local/share/voxcpm2-cpu/venv/bin/python \
+  /home/detoix/.local/share/voxcpm2-cpu/scripts/generate_clone.py \
+  --voice-dir /home/detoix/.local/share/voxcpm2-cpu/voices/krzysztof \
+  --text "Cześć, to jest krótka próba klonowania głosu po polsku." \
+  --seed 424242 \
+  --steps 4 \
+  --max-len 80 \
+  --output /home/detoix/.local/share/voxcpm2-cpu/outputs/out.wav
+```
+
+Verified runtime facts:
+- VoxCPM source commit: `19b6bf7590025418821a86dcb817504e0ad7e5df`.
+- Uses CPU-only PyTorch: `torch==2.11.0+cpu`, `torchaudio==2.11.0+cpu`; `torch.cuda.is_available() == False`.
+- Model/cache/venv are sandboxed under `/home/detoix/.local/share/voxcpm2-cpu`; current verified size was about `7.3G` after model download.
+- Cleanup if this runtime must be removed: `/home/detoix/.local/share/voxcpm2-cpu/cleanup_runtime.sh`.
+- Determinism verified for fixed settings: seed `424242`, steps `4`, `cfg_value=2.0`, `max_len=80` produced identical WAV SHA256 across two runs: `8a0b6436a9e61da5c785935da7cc392fa8792d39ee1279f2dd7d121719b1fc1a`.
+- Changing `--steps` changes the sampling trajectory and may change duration/prosody; do not treat a 4-step draft as the same sample simply refined at 6/8 steps.
+- Performance on the i5-2520M CPU is slow: short full prompt+reference clones take roughly 6-8 minutes for ~3-4 seconds of audio. Not suitable for 1-minute narration unless batching/prompt-cache reuse is implemented.
+- Peak RAM during clone is about `10.7-11G`; do not run clone jobs in parallel.
+
+The script writes a JSON manifest next to each WAV containing seed, steps, hashes, VoxCPM commit, Torch version, device, and output SHA256.
+
 ## Workflow
 
 ### 1. Engine Selection
