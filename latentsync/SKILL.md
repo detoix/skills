@@ -23,7 +23,69 @@ python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\guarded_production_
   -- <command...>
 ```
 
-For standalone non-autopipeline work, execute from the `official-latentsync` directory using its local virtual environment.
+Use `scripts.inference` for all LatentSync inference. It loads LatentSync once, processes one or more jobs sequentially,
+and can reuse affine face transforms when jobs use the same silent presenter plate. This is a performance optimization
+only; keep the same checkpoint, `inference_steps`, `guidance_scale`, seed policy, source plates, and clean audio files.
+
+For user-provided reusable avatar assets, use persistent affine cache in the asset folder, not in the project folder. If
+the asset manifest has `asset_root`, create/use:
+
+```text
+<asset_root>\.latentsync-cache
+```
+
+Cache identity must be hash-based, not filename-based. The batch runner keys cache files by source video SHA-256,
+resolution, mask, mask image SHA-256, and cache schema version. If cache metadata does not match, the runner ignores it
+and recomputes normally.
+
+To precompute persistent affine cache for all reusable avatar videos in an asset folder, run:
+
+```powershell
+cd C:\Users\kdeptula\Downloads\speech-gen\official-latentsync
+.\.venv\Scripts\python.exe -m scripts.precompute_affine_cache `
+    --asset-root "<asset-root>" `
+    --report-json "<asset-root>\.latentsync-cache\precompute-report.json"
+```
+
+This precomputes face alignment data only. It must not synthesize dummy audio or run full lip-sync.
+
+Batch job file shape:
+
+```json
+[
+  {
+    "job_id": "S04",
+    "video_path": "C:/path/project/source-assets/presenter-front.mp4",
+    "source_video_path": "C:/Users/kdeptula/Videos/avatar/front-9x16_2.mp4",
+    "video_sha256": "7ff8f11da8e99bd719598acb86aa1e7e20286c7537da2be3f8e9bf17f1006409",
+    "affine_cache_dir": "C:/Users/kdeptula/Videos/avatar/.latentsync-cache",
+    "audio_path": "C:/path/project/tts/clean/T04.wav",
+    "video_out_path": "C:/path/project/synced/front/S04.mp4",
+    "inference_steps": 30,
+    "guidance_scale": 1.5,
+    "seed": 1247
+  }
+]
+```
+
+For best cache reuse, group jobs by identical `video_path` and run longer audio chunks before shorter chunks within each
+group. Use `--reuse_affine_cache` only for sequential batch jobs, never for parallel LatentSync runs.
+
+```powershell
+cd C:\Users\kdeptula\Downloads\speech-gen\official-latentsync
+.\.venv\Scripts\python.exe -m scripts.inference `
+    --unet_config_path "configs/unet/stage2.yaml" `
+    --inference_ckpt_path "checkpoints/latentsync_unet.pt" `
+    --jobs_json "<project-dir>\manifests\latentsync-jobs.json" `
+    --report_json "<project-dir>\manifests\latentsync-batch-report.json" `
+    --inference_steps 30 `
+    --guidance_scale 1.5 `
+    --reuse_affine_cache `
+    --affine_cache_dir "C:\Users\kdeptula\Videos\avatar\.latentsync-cache"
+```
+
+For standalone non-autopipeline single-clip work, execute the same runner from the `official-latentsync` directory using
+its local virtual environment.
 
 ```powershell
 cd official-latentsync
