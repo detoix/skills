@@ -451,12 +451,12 @@ Operating rules:
 
 - do not start TTS until language QA has passed for `script.json`; regenerate or manually fix script text first if narration is transliterated, ASCII-stripped, mojibake-corrupted, accidentally mixed-language, or unnatural for `metadata.language`
 - clone from the provided speech sample
-- use the `VoxCPM` clone path with `prompt-audio + prompt-text + reference-audio`
+- use the `VoxCPM` prompt-audio + prompt-text + reference-audio path, preferably through `voxcpm.cli batch` for chunk generation with shared settings
 - treat the exact speech-sample transcription as required input for the default cloning path
 - preserve the scriptwriter chunk boundaries
 - save raw clone outputs deterministically, e.g. `tts/raw/T01.wav` or `tts/raw_with_prompt/T01.wav`
 - write a clean chunk for every generated file, e.g. `tts/clean/T01.wav`
-- do not trim by default; current local `voxcpm.cli clone` normally writes target-only speech even when `--prompt-audio`, `--prompt-text`, and `--reference-audio` are provided
+- do not trim by default; current local `voxcpm.cli batch`/`clone` normally writes target-only speech even when `--prompt-audio`, `--prompt-text`, and `--reference-audio` are provided
 - trim only when verification shows the raw file contains the prompt/sample prefix
 - never pass prompt-prefixed clone output to lip-sync or final narration assembly
 - concatenate clean chunk audio into a continuous master track only after all clean chunks are verified
@@ -486,7 +486,7 @@ For each `tts_chunk`, inspect the text before synthesis and choose the first pas
 
 Decision rule:
 
-- if the chunk reads like normal prose, run the bare `voxcpm.cli clone` command first
+- if the chunk reads like normal prose, run the bare VoxCPM prompt/reference command first
 - if the chunk contains literal tokens that are likely to be spoken badly, run the same command with `--normalize`
 
 Escalation rule:
