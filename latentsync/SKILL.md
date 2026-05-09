@@ -49,19 +49,36 @@ cd C:\Users\kdeptula\Downloads\speech-gen\official-latentsync
 
 This precomputes face alignment data only. It must not synthesize dummy audio or run full lip-sync.
 
+Set `inference_steps` per job, not globally:
+- Use `25` for A-roll, fullscreen presenter, and presenter panels inside `stack2`/`stack3`.
+- Use `15` for PiP/circular presenter overlays on B-roll where the presenter is not a stack panel.
+- Do not rely on one batch-level `--inference_steps` value when `jobs_json` contains mixed presenter layouts.
+
 Batch job file shape:
 
 ```json
 [
   {
-    "job_id": "S04",
+    "job_id": "S04_aroll_full_presenter",
     "video_path": "C:/path/project/source-assets/presenter-front.mp4",
     "source_video_path": "C:/Users/kdeptula/Videos/avatar/front-9x16_2.mp4",
     "video_sha256": "7ff8f11da8e99bd719598acb86aa1e7e20286c7537da2be3f8e9bf17f1006409",
     "affine_cache_dir": "C:/Users/kdeptula/skills/latentsync/.cache/affine",
     "audio_path": "C:/path/project/tts/clean/T04.wav",
     "video_out_path": "C:/path/project/synced/front/S04.mp4",
-    "inference_steps": 30,
+    "inference_steps": 25,
+    "guidance_scale": 1.5,
+    "seed": 1247
+  },
+  {
+    "job_id": "S05_broll_pip_overlay",
+    "video_path": "C:/path/project/source-assets/presenter-profile.mp4",
+    "source_video_path": "C:/Users/kdeptula/Videos/avatar/profile-9x16_1.mp4",
+    "video_sha256": "2c29ef7fb29216879b4a8ca77a9f1b5f6d6f344f4f987b797bfc28d98b312345",
+    "affine_cache_dir": "C:/Users/kdeptula/skills/latentsync/.cache/affine",
+    "audio_path": "C:/path/project/tts/clean/T05.wav",
+    "video_out_path": "C:/path/project/synced/profile/S05.mp4",
+    "inference_steps": 15,
     "guidance_scale": 1.5,
     "seed": 1247
   }
@@ -78,7 +95,7 @@ cd C:\Users\kdeptula\Downloads\speech-gen\official-latentsync
     --inference_ckpt_path "checkpoints/latentsync_unet.pt" `
     --jobs_json "<project-dir>\manifests\latentsync-jobs.json" `
     --report_json "<project-dir>\manifests\latentsync-batch-report.json" `
-    --inference_steps 30 `
+    --inference_steps 25 `
     --guidance_scale 1.5 `
     --reuse_affine_cache `
     --affine_cache_dir "C:\Users\kdeptula\skills\latentsync\.cache\affine"
@@ -95,7 +112,7 @@ cd official-latentsync
     --video_path "../input.mov" `
     --audio_path "../input.wav" `
     --video_out_path "../output_synced.mp4" `
-    --inference_steps 30 `
+    --inference_steps 25 `
     --guidance_scale 1.5
 ```
 
