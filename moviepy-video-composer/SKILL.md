@@ -81,7 +81,7 @@ If paths are omitted, the script defaults to the project directory and common so
 - Use panel-level `clip_start` when panels need different source offsets.
 - Use `layout: "stack2"`, `layout: "stack3"`, or `layout: "grid4"` for multi-panel B-roll.
 - In `layout: "stack2"` only, portrait front-facing presenter panels whose path contains a `front` directory segment are automatically cropped higher than center before `cover` scaling. For a 9:16 front plate in a half-height panel, the crop keeps the upper half starting at 1/8 of source height. This does not apply to PiP/presenter overlays, A-roll fullscreen, B-roll panels, profile plates, `stack3`, or `grid4`.
-- Use panel `treatment: "still_motion"` for subtle bounded camera movement on a local/generated still, or pre-render the motion with [scripts/render_still_motion.py](scripts/render_still_motion.py) before using it as B-roll panel media.
+- Use panel `treatment: "still_motion"` for subtle bounded camera movement on a local/generated still. The composer applies the motion inside fullscreen, stack, and grid panel bounds. Use [scripts/render_still_motion.py](scripts/render_still_motion.py) only when a manually pre-rendered motion clip is explicitly needed.
 - For `A_ROLL`, optionally use `treatment: "camera_motion"` with `motion_type` for subtle virtual camera movement on presenter video:
   ```json
   {

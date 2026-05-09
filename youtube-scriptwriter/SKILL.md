@@ -59,6 +59,45 @@ Generate scripts as production-ready assets, not as plain prose. Always optimize
 - Avoid generic "subscribe" or "follow for more" CTAs when a topic-specific action is possible.
 - Keep CTA segments short, usually 3-7 seconds, and do not introduce a new factual claim, offer, link, or promise that was not present in the brief.
 
+## Anti-AI Voice Rules
+
+Scripts must sound like a real person talking, not like AI-generated text. Consult [references/humanize-guidelines.md](references/humanize-guidelines.md) for full vocabulary tables and rewrite examples in English and Polish.
+
+The lists below are **soft avoids**, not hard bans. A flagged word is acceptable when it is genuinely the best fit, but defaulting to these words signals the script sounds artificial.
+
+### Vocabulary
+
+Strongly avoid these categories in `narration` and `voice_text`:
+
+- **Inflated verbs:** delve, leverage, utilize, harness, streamline, underscore, embark, facilitate, optimize, foster, elevate, navigate (metaphorical). Prefer: use, help, improve, simplify, highlight, start.
+- **Buzzword adjectives:** pivotal, robust, innovative, seamless, cutting-edge, intricate, comprehensive, vibrant, unparalleled, groundbreaking, game-changing. Prefer: key, solid, new, smooth, latest, detailed, big.
+- **Abstract nouns:** landscape (metaphorical), realm, tapestry, synergy, testament, underpinnings, paradigm, ecosystem, framework, treasure trove, journey (metaphorical). Prefer: space, area, mix, proof, basics, system, setup.
+- **Academic transitions:** Furthermore, Moreover, Consequently, Notably, Importantly, Thus, Accordingly, Nonetheless, Subsequently, In conclusion. Prefer: Plus, Also, So, On top of that, That said, Still, Then, Bottom line.
+- **Cliché openers:** "In today's [adj] world/landscape," "Let's dive in," "Without further ado," "In this video we will." Prefer: just start the content.
+
+The same principles apply in Polish — see the reference doc for Polish-specific avoid lists and rewrite examples.
+
+### Sentence Rhythm and Burstiness
+
+- Vary sentence length deliberately. Mix short punchy lines (≤8 words) with medium (12–18) and occasional long (25+).
+- Never stack 3 or more sentences of similar length in a row.
+- The script should look "jagged" on the page — if every line ends in roughly the same column, the rhythm is too uniform.
+
+### Conversational Voice
+
+- Write as if explaining to one friend, not presenting to an auditorium.
+- Use contractions: "don't" not "do not," "it's" not "it is," "you'll" not "you will."
+- Use casual connectors: "But here's the thing," "So," "Plus," "Anyway," "The catch is," "Look," "Thing is."
+- Allow sentence fragments when they improve spoken rhythm.
+- Prefer active voice. Passive voice is permitted only when the object genuinely matters more than the actor.
+
+### Human Color
+
+- Include at least one rhetorical question per script.
+- Use concrete, specific examples over abstract generalizations.
+- Prefer opinionated phrasing ("This is overrated," "Most people get this wrong") over neutral summaries.
+- Avoid triple-balanced lists — it is a pattern AI defaults to and viewers recognize as robotic.
+
 ## TTS-Safe Voice Text
 
 Use `segments[].narration` for the editorial spoken script and `tts_chunks[].voice_text` for the exact TTS input. When a literal may be misread, keep the natural meaning but rewrite the literal in a pronunciation-safe form.
@@ -118,6 +157,10 @@ Always follow this contract:
    - the final CTA appears in `narration`, `on_screen_text`, and `graphics[]`
    - the CTA is topic-specific when a topic-specific action is possible
    - the CTA does not promise anything unsupported by the brief
+   - no soft-avoid AI vocabulary or academic transitions remain in `narration` or `voice_text` without clear justification
+   - sentence lengths vary across the script — no 3+ consecutive sentences of similar word count
+   - at least one rhetorical question exists somewhere in the script
+   - contractions are used consistently; stiff "do not" / "it is" / "you will" phrasing appears only when emphasis is intentional
 
 ## Output Template
 
@@ -126,3 +169,4 @@ Return only valid JSON in the top-level shape from [references/output-schema.md]
 ## Resources
 
 - Schema and field contract: [references/output-schema.md](references/output-schema.md)
+- Anti-AI voice rules and rewrite examples: [references/humanize-guidelines.md](references/humanize-guidelines.md)

@@ -27,11 +27,22 @@ LEGACY_TOP_LEVEL_TYPES = {"A-ROLL", "B-ROLL", "PIP", "TEXT", "TEXT_GRAPHIC", "ST
 BROLL_LAYOUTS = {"fullscreen", "stack2", "stack3", "grid4"}
 BROLL_LAYOUT_PANEL_COUNTS = {"stack2": 2, "stack3": 3, "grid4": 4}
 PANEL_KINDS = {"broll", "presenter"}
-BROLL_PRESENTER_PANEL_MIN_RATIO = 0.5
+BROLL_PRESENTER_PANEL_TARGET_RATIO = 0.5
+BROLL_PRESENTER_PANEL_MIN_RATIO = 0.4
+BROLL_PRESENTER_PANEL_MAX_RATIO = 0.7
 SCRIPT_RELATIVE_PATH = Path("script.json")
 VISUAL_PLAN_RELATIVE_PATH = Path("manifests") / "visual-plan.json"
 APPROVAL_RELATIVE_PATH = Path("manifests") / "creative-approval.json"
 REVIEW_REQUEST_RELATIVE_PATH = Path("manifests") / "creative-review-request.json"
+PROTOTYPE_REVIEW_REQUEST_RELATIVE_PATH = Path("manifests") / "prototype-review-request.json"
+PROTOTYPE_APPROVAL_RELATIVE_PATH = Path("manifests") / "prototype-approval.json"
+PROTOTYPE_MANIFEST_RELATIVE_PATH = Path("manifests") / "prototype-manifest.json"
+TTS_PROTOTYPE_MANIFEST_RELATIVE_PATH = Path("manifests") / "tts-prototype-manifest.json"
+TTS_PRONUNCIATION_QA_RELATIVE_PATH = Path("manifests") / "tts-pronunciation-qa.json"
+FINAL_AUDIO_MANIFEST_RELATIVE_PATH = Path("manifests") / "final-audio-manifest.json"
+FINAL_AUDIO_RELATIVE_PATH = Path("final_audio.wav")
+TIMELINE_PROTOTYPE_RELATIVE_PATH = Path("timeline.prototype.json")
+PROTOTYPE_OUTPUT_RELATIVE_PATH = Path("outputs") / "prototype.mp4"
 PIPELINE_STATE_RELATIVE_PATH = Path("manifests") / "pipeline-state.json"
 
 
@@ -61,6 +72,91 @@ def load_json(path: Path, findings: list[GateFinding], label: str) -> Any | None
     except json.JSONDecodeError as exc:
         findings.append(GateFinding("ERROR", "invalid-json", f"{label} is not valid JSON: {path} ({exc})"))
     return None
+
+
+def normalize_rel_path(path: Path) -> str:
+    return str(path).replace("\\", "/")
+
+
+def is_portable_relative_path(value: Any) -> bool:
+    if not isinstance(value, str) or not value.strip():
+        return False
+    raw = value.strip()
+    if re.match(r"^[A-Za-z]:[\\/]", raw):
+        return False
+    if raw.startswith(("/", "\\\\")):
+        return False
+    path = Path(raw)
+    if path.is_absolute():
+        return False
+    return ".." not in path.parts
+
+
+def project_file(project_dir: Path, relative_path: Path | str) -> Path:
+    return project_dir / Path(str(relative_path))
+
+
+def artifact_record(project_dir: Path, relative_path: Path) -> dict[str, str]:
+    path = project_file(project_dir, relative_path)
+    if not path.exists() or not path.is_file():
+        raise FileNotFoundError(f"Missing artifact: {path}")
+    return {
+        "path": normalize_rel_path(relative_path),
+        "sha256": sha256_file(path),
+    }
+
+
+def validate_sha256(value: Any, findings: list[GateFinding], code: str, message: str) -> str | None:
+    if not isinstance(value, str) or not re.fullmatch(r"[0-9a-fA-F]{64}", value):
+        findings.append(GateFinding("ERROR", code, message))
+        return None
+    return value.lower()
+
+
+def validate_portable_artifact(
+    artifact: Any,
+    project_dir: Path,
+    findings: list[GateFinding],
+    *,
+    context: str,
+    required: bool = True,
+) -> dict[str, Any] | None:
+    if artifact is None and not required:
+        return None
+    if not isinstance(artifact, dict):
+        findings.append(GateFinding("ERROR", "prototype-artifact-shape", f"{context} must be an object"))
+        return None
+    path_value = artifact.get("path")
+    if not is_portable_relative_path(path_value):
+        findings.append(GateFinding("ERROR", "prototype-artifact-path", f"{context}.path must be relative to the project and portable"))
+        return None
+    expected_hash = validate_sha256(
+        artifact.get("sha256"),
+        findings,
+        "prototype-artifact-sha256",
+        f"{context}.sha256 must be a 64-character hex digest",
+    )
+    full_path = project_file(project_dir, Path(str(path_value)))
+    if not full_path.exists() or not full_path.is_file():
+        findings.append(GateFinding("ERROR", "prototype-artifact-missing", f"{context} file not found: {full_path}"))
+        return None
+    if expected_hash:
+        actual_hash = sha256_file(full_path)
+        if actual_hash != expected_hash:
+            findings.append(
+                GateFinding(
+                    "ERROR",
+                    "prototype-artifact-stale",
+                    f"{context} sha256 is stale: expected {expected_hash}, current {actual_hash}",
+                )
+            )
+    return artifact
+
+
+def text_sha256(value: str) -> str:
+    import hashlib
+
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
 def is_non_empty_string(value: Any) -> bool:
@@ -296,13 +392,15 @@ def validate_visual_plan_source_mix(script: Any, visual_plan: Any, scenes: list[
 
     if broll_duration > 0:
         presenter_ratio = presenter_panel_broll_duration / broll_duration
-        if presenter_ratio + 1e-9 < BROLL_PRESENTER_PANEL_MIN_RATIO:
+        if presenter_ratio + 1e-9 < BROLL_PRESENTER_PANEL_MIN_RATIO or presenter_ratio - 1e-9 > BROLL_PRESENTER_PANEL_MAX_RATIO:
             findings.append(
                 GateFinding(
                     "ERROR",
                     "broll-presenter-panel-ratio",
-                    f"only {presenter_ratio * 100:.1f}% of B-roll duration has presenter panels; "
-                    f"required at least {BROLL_PRESENTER_PANEL_MIN_RATIO * 100:.1f}%",
+                    f"{presenter_ratio * 100:.1f}% of B-roll duration has presenter panels; "
+                    f"target is about {BROLL_PRESENTER_PANEL_TARGET_RATIO * 100:.1f}% "
+                    f"(accepted range {BROLL_PRESENTER_PANEL_MIN_RATIO * 100:.1f}%"
+                    f"-{BROLL_PRESENTER_PANEL_MAX_RATIO * 100:.1f}%)",
                 )
             )
         required_source_strategies = int(math.ceil(broll_duration / 20.0))
@@ -455,20 +553,403 @@ def require_broll_source(
         )
 
 
-def write_pipeline_state(project_dir: Path, findings: list[GateFinding]) -> None:
+def visual_plan_requires_generated_images(visual_plan: Any) -> bool:
+    if not isinstance(visual_plan, dict):
+        return False
+    scenes = visual_plan.get("scenes")
+    if not isinstance(scenes, list):
+        return False
+    for scene in scenes:
+        if not isinstance(scene, dict):
+            continue
+        panels = scene.get("panels")
+        if not isinstance(panels, list):
+            continue
+        for panel in panels:
+            if isinstance(panel, dict) and panel.get("kind") == "broll" and panel.get("source") == "generated-image":
+                return True
+    return False
+
+
+def validate_path_like_fields(value: Any, findings: list[GateFinding], context: str = "prototype-manifest") -> None:
+    path_keys = {
+        "path",
+        "local_path",
+        "source_path",
+        "file_path",
+        "audio_path",
+        "video_path",
+        "placeholder_path",
+        "prompt_audio_path",
+        "reference_audio_path",
+    }
+    if isinstance(value, dict):
+        for key, child in value.items():
+            child_context = f"{context}.{key}"
+            if key in path_keys and child is not None and not is_portable_relative_path(child):
+                findings.append(GateFinding("ERROR", "prototype-portable-path", f"{child_context} must be relative to the project and portable"))
+            validate_path_like_fields(child, findings, child_context)
+    elif isinstance(value, list):
+        for index, child in enumerate(value):
+            validate_path_like_fields(child, findings, f"{context}[{index}]")
+
+
+def validate_tts_prototype_contract(manifest: dict[str, Any], project_dir: Path, findings: list[GateFinding]) -> None:
+    tts = manifest.get("tts")
+    if not isinstance(tts, dict):
+        findings.append(GateFinding("ERROR", "prototype-tts", "prototype-manifest.tts must be an object"))
+        return
+    if not any(is_non_empty_string(tts.get(field)) for field in ("engine", "model_id", "model_snapshot")):
+        findings.append(GateFinding("ERROR", "prototype-tts-model", "prototype-manifest.tts needs engine, model_id, or model_snapshot"))
+    run_seed = tts.get("run_seed")
+    if run_seed is not None and (not isinstance(run_seed, int) or isinstance(run_seed, bool)):
+        findings.append(GateFinding("ERROR", "prototype-tts-run-seed", "prototype-manifest.tts.run_seed must be an integer when present"))
+    if tts.get("prototype_inference_timesteps") != 10:
+        findings.append(GateFinding("ERROR", "prototype-tts-steps", "prototype-manifest.tts.prototype_inference_timesteps must be 10"))
+    if tts.get("production_inference_timesteps") != 10:
+        findings.append(GateFinding("ERROR", "prototype-tts-production-steps", "prototype-manifest.tts.production_inference_timesteps must be 10"))
+    if as_number(tts.get("cfg_value")) is None:
+        findings.append(GateFinding("ERROR", "prototype-tts-cfg", "prototype-manifest.tts.cfg_value must be numeric"))
+    for flag in ("normalize", "denoise"):
+        if not isinstance(tts.get(flag), bool):
+            findings.append(GateFinding("ERROR", "prototype-tts-flag", f"prototype-manifest.tts.{flag} must be boolean"))
+    chunks = tts.get("chunks")
+    if not isinstance(chunks, list) or not chunks:
+        findings.append(GateFinding("ERROR", "prototype-tts-chunks", "prototype-manifest.tts.chunks must be a non-empty array"))
+        chunks = []
+    for index, chunk in enumerate(chunks):
+        context = f"prototype-manifest.tts.chunks[{index}]"
+        if not isinstance(chunk, dict):
+            findings.append(GateFinding("ERROR", "prototype-tts-chunk-shape", f"{context} must be an object"))
+            continue
+        if not is_non_empty_string(chunk.get("chunk_id")):
+            findings.append(GateFinding("ERROR", "prototype-tts-chunk-id", f"{context}.chunk_id must be non-empty"))
+        if not is_non_empty_string(chunk.get("voice_text")):
+            findings.append(GateFinding("ERROR", "prototype-tts-chunk-text", f"{context}.voice_text must be non-empty"))
+        if not isinstance(chunk.get("seed"), int) or isinstance(chunk.get("seed"), bool):
+            findings.append(GateFinding("ERROR", "prototype-tts-chunk-seed", f"{context}.seed must be an integer"))
+        if chunk.get("seed_mode") not in {"applied", "recorded_only"}:
+            findings.append(GateFinding("ERROR", "prototype-tts-seed-mode", f"{context}.seed_mode must be 'applied' or 'recorded_only'"))
+        audio_path = chunk.get("audio_path")
+        if not is_portable_relative_path(audio_path):
+            findings.append(GateFinding("ERROR", "prototype-tts-chunk-audio-path", f"{context}.audio_path must be relative to the project and portable"))
+            continue
+        expected_hash = validate_sha256(
+            chunk.get("sha256"),
+            findings,
+            "prototype-tts-chunk-sha256",
+            f"{context}.sha256 must be a 64-character hex digest",
+        )
+        full_path = project_file(project_dir, Path(str(audio_path)))
+        if not full_path.exists() or not full_path.is_file():
+            findings.append(GateFinding("ERROR", "prototype-tts-chunk-audio-missing", f"{context}.audio_path file not found: {full_path}"))
+            continue
+        if expected_hash:
+            actual_hash = sha256_file(full_path)
+            if actual_hash != expected_hash:
+                findings.append(GateFinding("ERROR", "prototype-tts-chunk-audio-stale", f"{context}.sha256 does not match audio_path bytes"))
+    for field in ("prompt_audio", "reference_audio"):
+        audio = tts.get(field)
+        if not isinstance(audio, dict):
+            findings.append(GateFinding("ERROR", "prototype-tts-audio", f"prototype-manifest.tts.{field} must be an object"))
+            continue
+        validate_sha256(
+            audio.get("sha256"),
+            findings,
+            "prototype-tts-audio-sha256",
+            f"prototype-manifest.tts.{field}.sha256 must be a 64-character hex digest",
+        )
+
+
+ALLOWED_PROTOTYPE_PRESENTER_MODES = {"static_frame", "raw_muted_video"}
+
+
+def validate_presenter_prototype_contract(manifest: dict[str, Any], findings: list[GateFinding]) -> None:
+    presenter = manifest.get("presenter")
+    if not isinstance(presenter, dict):
+        findings.append(GateFinding("ERROR", "prototype-presenter", "prototype-manifest.presenter must be an object"))
+        return
+    if presenter.get("latentsync") != "skipped":
+        findings.append(GateFinding("ERROR", "prototype-latentsync", "prototype-manifest.presenter.latentsync must be 'skipped'"))
+    if presenter.get("presenter_mode") not in ALLOWED_PROTOTYPE_PRESENTER_MODES:
+        allowed = ", ".join(sorted(ALLOWED_PROTOTYPE_PRESENTER_MODES))
+        findings.append(GateFinding("ERROR", "prototype-presenter-mode", f"prototype-manifest.presenter.presenter_mode must be one of: {allowed}"))
+    assets = presenter.get("assets")
+    if assets is not None and not isinstance(assets, list):
+        findings.append(GateFinding("ERROR", "prototype-presenter-assets", "prototype-manifest.presenter.assets must be an array when present"))
+        return
+    for index, asset in enumerate(assets or []):
+        if not isinstance(asset, dict):
+            findings.append(GateFinding("ERROR", "prototype-presenter-asset", f"prototype-manifest.presenter.assets[{index}] must be an object"))
+            continue
+        if "path" in asset and not is_portable_relative_path(asset.get("path")):
+            findings.append(GateFinding("ERROR", "prototype-presenter-asset-path", f"prototype-manifest.presenter.assets[{index}].path must be portable"))
+        validate_sha256(
+            asset.get("sha256"),
+            findings,
+            "prototype-presenter-asset-sha256",
+            f"prototype-manifest.presenter.assets[{index}].sha256 must be a 64-character hex digest",
+        )
+
+
+def validate_generated_image_placeholders(
+    manifest: dict[str, Any],
+    project_dir: Path,
+    visual_plan: Any,
+    findings: list[GateFinding],
+) -> None:
+    placeholders = manifest.get("generated_image_placeholders")
+    if placeholders is None:
+        placeholders = []
+    if not isinstance(placeholders, list):
+        findings.append(GateFinding("ERROR", "prototype-placeholders", "prototype-manifest.generated_image_placeholders must be an array"))
+        return
+    if visual_plan_requires_generated_images(visual_plan) and not placeholders:
+        findings.append(GateFinding("ERROR", "prototype-placeholders-missing", "visual-plan uses generated-image but prototype manifest has no placeholders"))
+    for index, placeholder in enumerate(placeholders):
+        context = f"prototype-manifest.generated_image_placeholders[{index}]"
+        if not isinstance(placeholder, dict):
+            findings.append(GateFinding("ERROR", "prototype-placeholder-shape", f"{context} must be an object"))
+            continue
+        text = (
+            placeholder.get("placeholder_text")
+            or placeholder.get("prompt")
+            or placeholder.get("visual_brief")
+        )
+        if not is_non_empty_string(text):
+            findings.append(GateFinding("ERROR", "prototype-placeholder-text", f"{context} needs prompt, visual_brief, or placeholder_text"))
+        expected_hash = validate_sha256(
+            placeholder.get("sha256"),
+            findings,
+            "prototype-placeholder-sha256",
+            f"{context}.sha256 must be a 64-character hex digest",
+        )
+        placeholder_path = placeholder.get("placeholder_path")
+        if placeholder_path is not None:
+            if not is_portable_relative_path(placeholder_path):
+                findings.append(GateFinding("ERROR", "prototype-placeholder-path", f"{context}.placeholder_path must be portable"))
+            else:
+                placeholder_file = project_file(project_dir, Path(str(placeholder_path)))
+                if not placeholder_file.exists() or not placeholder_file.is_file():
+                    findings.append(GateFinding("ERROR", "prototype-placeholder-missing", f"{context}.placeholder_path file not found: {placeholder_file}"))
+                file_hash = placeholder.get("placeholder_file_sha256")
+                if file_hash is not None:
+                    expected_file_hash = validate_sha256(
+                        file_hash,
+                        findings,
+                        "prototype-placeholder-file-sha256",
+                        f"{context}.placeholder_file_sha256 must be a 64-character hex digest",
+                    )
+                    if expected_file_hash and placeholder_file.exists() and placeholder_file.is_file() and sha256_file(placeholder_file) != expected_file_hash:
+                        findings.append(GateFinding("ERROR", "prototype-placeholder-file-stale", f"{context}.placeholder_file_sha256 does not match placeholder_path bytes"))
+        if expected_hash and is_non_empty_string(text) and text_sha256(str(text)) != expected_hash:
+            findings.append(GateFinding("ERROR", "prototype-placeholder-stale", f"{context}.sha256 must match placeholder text"))
+
+
+def validate_prototype_manifest(manifest: Any, project_dir: Path, findings: list[GateFinding], visual_plan: Any = None) -> None:
+    if not isinstance(manifest, dict):
+        findings.append(GateFinding("ERROR", "prototype-manifest-shape", "prototype-manifest.json must be an object"))
+        return
+    validate_path_like_fields(manifest, findings)
+    artifacts = manifest.get("artifacts")
+    if not isinstance(artifacts, dict):
+        findings.append(GateFinding("ERROR", "prototype-artifacts", "prototype-manifest.artifacts must be an object"))
+        artifacts = {}
+    required_artifacts = {
+        "script": SCRIPT_RELATIVE_PATH,
+        "visual_plan": VISUAL_PLAN_RELATIVE_PATH,
+        "timeline_prototype": TIMELINE_PROTOTYPE_RELATIVE_PATH,
+        "prototype_video": PROTOTYPE_OUTPUT_RELATIVE_PATH,
+        "tts_prototype_manifest": TTS_PROTOTYPE_MANIFEST_RELATIVE_PATH,
+        "tts_pronunciation_qa": TTS_PRONUNCIATION_QA_RELATIVE_PATH,
+        "final_audio_manifest": FINAL_AUDIO_MANIFEST_RELATIVE_PATH,
+        "final_audio": FINAL_AUDIO_RELATIVE_PATH,
+    }
+    for key in required_artifacts:
+        validate_portable_artifact(artifacts.get(key), project_dir, findings, context=f"prototype-manifest.artifacts.{key}")
+    validate_tts_pronunciation_qa(project_dir, findings)
+    validate_final_audio_manifest_contract(project_dir, findings)
+    validate_tts_prototype_contract(manifest, project_dir, findings)
+    validate_presenter_prototype_contract(manifest, findings)
+    validate_generated_image_placeholders(manifest, project_dir, visual_plan, findings)
+
+
+def validate_final_audio_manifest_contract(project_dir: Path, findings: list[GateFinding]) -> None:
+    manifest_path = project_dir / FINAL_AUDIO_MANIFEST_RELATIVE_PATH
+    if not manifest_path.exists():
+        return
+    manifest = load_json(manifest_path, findings, "final audio manifest")
+    if not isinstance(manifest, dict):
+        findings.append(GateFinding("ERROR", "prototype-final-audio-manifest", "final-audio-manifest.json must be an object"))
+        return
+    duration = manifest.get("duration_seconds")
+    if duration is not None and (as_number(duration) is None or as_number(duration) <= 0):
+        findings.append(GateFinding("ERROR", "prototype-final-audio-manifest", "final-audio-manifest.duration_seconds must be positive when present"))
+    chunks = manifest.get("tts_chunks")
+    if not isinstance(chunks, list) or not chunks:
+        findings.append(GateFinding("ERROR", "prototype-final-audio-manifest", "final-audio-manifest.tts_chunks must be a non-empty array"))
+        return
+    for index, chunk in enumerate(chunks):
+        context = f"final-audio-manifest.tts_chunks[{index}]"
+        if not isinstance(chunk, dict):
+            findings.append(GateFinding("ERROR", "prototype-final-audio-manifest", f"{context} must be an object"))
+            continue
+        if not is_non_empty_string(chunk.get("chunk")):
+            findings.append(GateFinding("ERROR", "prototype-final-audio-manifest", f"{context}.chunk must be non-empty"))
+        if as_number(chunk.get("timeline_start_seconds")) is None:
+            findings.append(GateFinding("ERROR", "prototype-final-audio-manifest", f"{context}.timeline_start_seconds must be numeric"))
+        chunk_duration = chunk.get("duration_seconds")
+        if chunk_duration is not None and (as_number(chunk_duration) is None or as_number(chunk_duration) <= 0):
+            findings.append(GateFinding("ERROR", "prototype-final-audio-manifest", f"{context}.duration_seconds must be positive when present"))
+
+
+def validate_tts_pronunciation_qa(project_dir: Path, findings: list[GateFinding]) -> None:
+    report_path = project_dir / TTS_PRONUNCIATION_QA_RELATIVE_PATH
+    if not report_path.exists():
+        return
+    report = load_json(report_path, findings, "TTS pronunciation QA")
+    if not isinstance(report, dict):
+        findings.append(GateFinding("ERROR", "prototype-tts-pronunciation-qa", "tts-pronunciation-qa.json must be an object"))
+        return
+    if report.get("status") != "pass":
+        findings.append(GateFinding("ERROR", "prototype-tts-pronunciation-qa", "tts-pronunciation-qa.json status must be 'pass'"))
+        return
+    if report.get("qa_method") == "asr_with_user_approved_override":
+        validate_tts_pronunciation_override(report, findings)
+    elif report.get("qa_method") is not None:
+        findings.append(GateFinding("ERROR", "prototype-tts-pronunciation-qa", "tts-pronunciation-qa.json has unsupported qa_method"))
+    else:
+        validate_tts_pronunciation_automatic_pass(report, findings)
+
+
+def validate_tts_pronunciation_automatic_pass(report: dict[str, Any], findings: list[GateFinding]) -> None:
+    if not is_non_empty_string(report.get("backend")):
+        findings.append(GateFinding("ERROR", "prototype-tts-pronunciation-qa", "automatic TTS pronunciation QA pass needs backend"))
+    if not isinstance(report.get("thresholds"), dict):
+        findings.append(GateFinding("ERROR", "prototype-tts-pronunciation-qa", "automatic TTS pronunciation QA pass needs thresholds"))
+    if report.get("errors") != []:
+        findings.append(GateFinding("ERROR", "prototype-tts-pronunciation-qa", "automatic TTS pronunciation QA pass must have no errors"))
+    chunks = report.get("chunks")
+    if not isinstance(chunks, list) or not chunks:
+        findings.append(GateFinding("ERROR", "prototype-tts-pronunciation-qa", "automatic TTS pronunciation QA pass needs non-empty chunks"))
+        return
+    for index, chunk in enumerate(chunks):
+        if not isinstance(chunk, dict) or chunk.get("passed") is not True:
+            findings.append(GateFinding("ERROR", "prototype-tts-pronunciation-qa", f"automatic TTS pronunciation QA chunks[{index}].passed must be true"))
+
+
+def validate_tts_pronunciation_override(report: dict[str, Any], findings: list[GateFinding]) -> None:
+    if report.get("asr_status") != "fail":
+        findings.append(GateFinding("ERROR", "prototype-tts-pronunciation-qa", "TTS QA override needs asr_status 'fail'"))
+    if report.get("manual_review_status") != "approved":
+        findings.append(GateFinding("ERROR", "prototype-tts-pronunciation-qa", "TTS QA override needs manual_review_status 'approved'"))
+    if report.get("accepted_by") != "user":
+        findings.append(GateFinding("ERROR", "prototype-tts-pronunciation-qa", "TTS QA override needs accepted_by 'user'"))
+    accepted_at = report.get("accepted_at")
+    if not is_non_empty_string(accepted_at):
+        findings.append(GateFinding("ERROR", "prototype-tts-pronunciation-qa", "TTS QA override needs accepted_at"))
+    else:
+        try:
+            datetime.fromisoformat(str(accepted_at).replace("Z", "+00:00"))
+        except ValueError:
+            findings.append(GateFinding("ERROR", "prototype-tts-pronunciation-qa", "TTS QA override accepted_at must be an ISO timestamp"))
+    if report.get("errors") != []:
+        findings.append(GateFinding("ERROR", "prototype-tts-pronunciation-qa", "TTS QA override must have no runtime errors"))
+    chunks = report.get("chunks")
+    if not isinstance(chunks, list) or not chunks:
+        findings.append(GateFinding("ERROR", "prototype-tts-pronunciation-qa", "TTS QA override must retain non-empty ASR chunks"))
+    overrides = report.get("overrides")
+    if not isinstance(overrides, list) or not overrides:
+        findings.append(GateFinding("ERROR", "prototype-tts-pronunciation-qa", "TTS QA override needs non-empty overrides"))
+        return
+    for index, override in enumerate(overrides):
+        context = f"TTS QA override overrides[{index}]"
+        if not isinstance(override, dict):
+            findings.append(GateFinding("ERROR", "prototype-tts-pronunciation-qa", f"{context} must be an object"))
+            continue
+        for field in ("chunk_id", "reason", "expected", "asr_transcript"):
+            if not is_non_empty_string(override.get(field)):
+                findings.append(GateFinding("ERROR", "prototype-tts-pronunciation-qa", f"{context}.{field} must be non-empty"))
+
+
+def validate_prototype_approval(approval: Any, project_dir: Path, findings: list[GateFinding]) -> None:
+    if not isinstance(approval, dict):
+        findings.append(GateFinding("ERROR", "prototype-approval-shape", "prototype-approval.json must be an object"))
+        return
+    if approval.get("status") != "approved":
+        findings.append(GateFinding("ERROR", "prototype-approval-status", "prototype-approval.status must be 'approved'"))
+    if approval.get("approval_type") != "human":
+        findings.append(GateFinding("ERROR", "prototype-approval-type", "prototype-approval.approval_type must be 'human'"))
+    approved_items = approval.get("approved_items")
+    required_items = {"prototype_manifest", "prototype_video", "timeline_prototype", "tts_prototype_manifest", "tts_pronunciation_qa", "final_audio_manifest", "final_audio"}
+    if not isinstance(approved_items, list):
+        findings.append(GateFinding("ERROR", "prototype-approval-items", "prototype-approval.approved_items must be an array"))
+    else:
+        missing = sorted(required_items - set(approved_items))
+        for item in missing:
+            findings.append(GateFinding("ERROR", "prototype-approval-items", f"prototype-approval.approved_items must include {item!r}"))
+
+    review_request = approval.get("review_request")
+    request_payload: dict[str, Any] | None = None
+    if not isinstance(review_request, dict):
+        findings.append(GateFinding("ERROR", "prototype-approval-review-request", "prototype-approval.review_request is required"))
+    else:
+        request_path_value = review_request.get("path")
+        request_sha = review_request.get("sha256")
+        if not is_portable_relative_path(request_path_value):
+            findings.append(GateFinding("ERROR", "prototype-approval-review-request-path", "prototype-approval.review_request.path must be portable"))
+            request_path = project_dir / PROTOTYPE_REVIEW_REQUEST_RELATIVE_PATH
+        else:
+            request_path = project_file(project_dir, Path(str(request_path_value)))
+        expected_hash = validate_sha256(
+            request_sha,
+            findings,
+            "prototype-approval-review-request-sha256",
+            "prototype-approval.review_request.sha256 must be a 64-character hex digest",
+        )
+        if not request_path.exists() or not request_path.is_file():
+            findings.append(GateFinding("ERROR", "prototype-approval-review-request-missing", f"prototype review request not found: {request_path}"))
+        elif expected_hash and sha256_file(request_path) != expected_hash:
+            findings.append(GateFinding("ERROR", "prototype-approval-review-request-stale", "prototype-approval.review_request.sha256 does not match current prototype-review-request.json"))
+        else:
+            loaded_request = load_json(request_path, findings, "prototype review request")
+            if isinstance(loaded_request, dict):
+                request_payload = loaded_request
+
+    artifacts = approval.get("artifacts")
+    if not isinstance(artifacts, dict):
+        findings.append(GateFinding("ERROR", "prototype-approval-artifacts", "prototype-approval.artifacts must be an object"))
+        artifacts = {}
+    for key in ("script", "visual_plan", "prototype_manifest", "timeline_prototype", "prototype_video", "tts_prototype_manifest", "tts_pronunciation_qa", "final_audio_manifest", "final_audio"):
+        artifact = validate_portable_artifact(artifacts.get(key), project_dir, findings, context=f"prototype-approval.artifacts.{key}")
+        request_artifact = approval_artifact(request_payload, key) if request_payload else None
+        if artifact and request_artifact:
+            approval_hash = artifact.get("sha256")
+            request_hash = request_artifact.get("sha256")
+            if isinstance(approval_hash, str) and isinstance(request_hash, str) and approval_hash.lower() != request_hash.lower():
+                findings.append(GateFinding("ERROR", "prototype-approval-request-mismatch", f"prototype approval for {key} does not match the human review request hash"))
+
+
+def write_pipeline_state(project_dir: Path, findings: list[GateFinding], *, gate: str = "creative-gate", blocked_stage: str = "production") -> None:
     errors = [finding for finding in findings if finding.severity == "ERROR"]
     if not errors:
         return
     state_path = project_dir / PIPELINE_STATE_RELATIVE_PATH
     state_path.parent.mkdir(parents=True, exist_ok=True)
+    required_artifact = PROTOTYPE_APPROVAL_RELATIVE_PATH if gate == "prototype-gate" else APPROVAL_RELATIVE_PATH
+    recovery = (
+        "Fix prototype artifacts, regenerate manifests/prototype-review-request.json, then regenerate manifests/prototype-approval.json with approve_prototype.py."
+        if gate == "prototype-gate"
+        else "Fix script.json, manifests/visual-plan.json, then regenerate manifests/creative-approval.json with approve_creative_plan.py."
+    )
     payload = {
         "status": "blocked",
-        "gate": "creative-gate",
-        "blocked_stage": "production",
-        "reason": "Creative gate failed",
-        "required_artifact": str(project_dir / APPROVAL_RELATIVE_PATH),
+        "gate": gate,
+        "blocked_stage": blocked_stage,
+        "reason": f"{gate} failed",
+        "required_artifact": str(project_dir / required_artifact),
         "findings": [finding.__dict__ for finding in findings],
-        "recovery": "Fix script.json, manifests/visual-plan.json, then regenerate manifests/creative-approval.json with approve_creative_plan.py.",
+        "recovery": recovery,
         "updated_at": datetime.now().astimezone().isoformat(timespec="seconds"),
     }
     state_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
@@ -503,7 +984,24 @@ def run_creative_gate(
     require_broll_source(scenes, findings, require_source, scene_id=scene_id, segment_id=segment_id, board_id=board_id)
 
     if write_state:
-        write_pipeline_state(project_dir, findings)
+        write_pipeline_state(project_dir, findings, gate="creative-gate", blocked_stage="production")
+    return findings
+
+
+def run_prototype_gate(project_dir: Path, *, write_state: bool = True) -> list[GateFinding]:
+    project_dir = project_dir.resolve()
+    findings = run_creative_gate(project_dir, write_state=False)
+    visual_plan = load_json(project_dir / VISUAL_PLAN_RELATIVE_PATH, findings, "visual plan")
+    prototype_manifest = load_json(project_dir / PROTOTYPE_MANIFEST_RELATIVE_PATH, findings, "prototype manifest")
+    prototype_approval = load_json(project_dir / PROTOTYPE_APPROVAL_RELATIVE_PATH, findings, "prototype approval")
+
+    if prototype_manifest is not None:
+        validate_prototype_manifest(prototype_manifest, project_dir, findings, visual_plan)
+    if prototype_approval is not None:
+        validate_prototype_approval(prototype_approval, project_dir, findings)
+
+    if write_state:
+        write_pipeline_state(project_dir, findings, gate="prototype-gate", blocked_stage="final-production")
     return findings
 
 
@@ -553,6 +1051,81 @@ def create_approval(project_dir: Path) -> dict[str, Any]:
     }
 
 
+def prototype_artifact_records(project_dir: Path) -> dict[str, dict[str, str]]:
+    return {
+        "script": artifact_record(project_dir, SCRIPT_RELATIVE_PATH),
+        "visual_plan": artifact_record(project_dir, VISUAL_PLAN_RELATIVE_PATH),
+        "prototype_manifest": artifact_record(project_dir, PROTOTYPE_MANIFEST_RELATIVE_PATH),
+        "timeline_prototype": artifact_record(project_dir, TIMELINE_PROTOTYPE_RELATIVE_PATH),
+        "prototype_video": artifact_record(project_dir, PROTOTYPE_OUTPUT_RELATIVE_PATH),
+        "tts_prototype_manifest": artifact_record(project_dir, TTS_PROTOTYPE_MANIFEST_RELATIVE_PATH),
+        "tts_pronunciation_qa": artifact_record(project_dir, TTS_PRONUNCIATION_QA_RELATIVE_PATH),
+        "final_audio_manifest": artifact_record(project_dir, FINAL_AUDIO_MANIFEST_RELATIVE_PATH),
+        "final_audio": artifact_record(project_dir, FINAL_AUDIO_RELATIVE_PATH),
+    }
+
+
+def create_prototype_review_request(project_dir: Path) -> dict[str, Any]:
+    project_dir = project_dir.resolve()
+    findings = run_creative_gate(project_dir, write_state=False)
+    visual_plan = load_json(project_dir / VISUAL_PLAN_RELATIVE_PATH, findings, "visual plan")
+    prototype_manifest = load_json(project_dir / PROTOTYPE_MANIFEST_RELATIVE_PATH, findings, "prototype manifest")
+    if prototype_manifest is not None:
+        validate_prototype_manifest(prototype_manifest, project_dir, findings, visual_plan)
+    errors = [finding for finding in findings if finding.severity == "ERROR"]
+    if errors:
+        messages = "; ".join(f"{finding.code}: {finding.message}" for finding in errors)
+        raise ValueError(f"Cannot create prototype review request: {messages}")
+    return {
+        "schema_version": 1,
+        "status": "awaiting_human_review",
+        "checkpoint_type": "human-verify-prototype",
+        "resume_signal": "approved",
+        "created_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+        "artifacts": prototype_artifact_records(project_dir),
+    }
+
+
+def create_prototype_approval(project_dir: Path) -> dict[str, Any]:
+    project_dir = project_dir.resolve()
+    review_request_path = project_dir / PROTOTYPE_REVIEW_REQUEST_RELATIVE_PATH
+    if not review_request_path.exists():
+        raise FileNotFoundError(f"Missing prototype review request: {review_request_path}")
+    request = json.loads(review_request_path.read_text(encoding="utf-8-sig"))
+    if not isinstance(request, dict) or request.get("status") != "awaiting_human_review":
+        raise ValueError("prototype-review-request.json must have status awaiting_human_review")
+    request_artifacts = request.get("artifacts")
+    if not isinstance(request_artifacts, dict):
+        raise ValueError("prototype-review-request.json is missing artifacts")
+    current_artifacts = prototype_artifact_records(project_dir)
+    for key, artifact in current_artifacts.items():
+        request_hash = (request_artifacts.get(key) or {}).get("sha256")
+        if request_hash != artifact["sha256"]:
+            raise ValueError(f"{artifact['path']} changed after prototype-review-request.json was created")
+    return {
+        "schema_version": 1,
+        "status": "approved",
+        "approval_type": "human",
+        "approved_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+        "approved_items": [
+            "script",
+            "visual_plan",
+            "prototype_manifest",
+            "timeline_prototype",
+            "prototype_video",
+            "tts_prototype_manifest",
+            "tts_pronunciation_qa",
+            "final_audio_manifest",
+            "final_audio",
+        ],
+        "review_request": {
+            "path": normalize_rel_path(PROTOTYPE_REVIEW_REQUEST_RELATIVE_PATH),
+            "sha256": sha256_file(review_request_path),
+        },
+        "artifacts": current_artifacts,
+    }
+
+
 def create_review_request(project_dir: Path) -> dict[str, Any]:
     project_dir = project_dir.resolve()
     script_path = project_dir / SCRIPT_RELATIVE_PATH
@@ -593,6 +1166,7 @@ def create_review_request(project_dir: Path) -> dict[str, Any]:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Validate the YouTube autopipeline creative production gate.")
     parser.add_argument("--project-dir", default=".", help="Project directory.")
+    parser.add_argument("--gate", choices=("creative", "prototype"), default="creative", help="Gate to validate.")
     parser.add_argument("--require-broll-source", choices=sorted(ALLOWED_SOURCE_STRATEGIES), help="Require an approved visual-plan scene with this B-roll panel source.")
     parser.add_argument("--scene-id", help="Scene id to match in visual-plan.")
     parser.add_argument("--segment-id", help="Segment id to match in visual-plan.")
@@ -603,13 +1177,18 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
-    findings = run_creative_gate(
-        Path(args.project_dir),
-        require_source=args.require_broll_source,
-        scene_id=args.scene_id,
-        segment_id=args.segment_id,
-        board_id=args.board_id,
-    )
+    if args.gate == "prototype":
+        if any((args.require_broll_source, args.scene_id, args.segment_id, args.board_id)):
+            raise SystemExit("--require-broll-source/--scene-id/--segment-id/--board-id are only valid for the creative gate")
+        findings = run_prototype_gate(Path(args.project_dir))
+    else:
+        findings = run_creative_gate(
+            Path(args.project_dir),
+            require_source=args.require_broll_source,
+            scene_id=args.scene_id,
+            segment_id=args.segment_id,
+            board_id=args.board_id,
+        )
     if args.json:
         print(json.dumps([finding.__dict__ for finding in findings], indent=2, ensure_ascii=False))
     else:

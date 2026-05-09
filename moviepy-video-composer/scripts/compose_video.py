@@ -940,6 +940,17 @@ def build_panel_clip(
     panel: dict[str, Any] | None = None,
 ):
     path = resolve_media_path(project_dir, raw_path, label)
+    if (
+        isinstance(panel, dict)
+        and panel.get("kind") == "broll"
+        and panel.get("treatment") == "still_motion"
+        and path.suffix.lower() in IMAGE_EXTENSIONS
+    ):
+        if start_offset:
+            raise ValueError(f"{label} clip_start is not valid for still images.")
+        motion_type = str(panel.get("motion_type") or "push-in")
+        return build_still_motion_image_clip(path, duration, size, motion_type, label)
+
     clip, source = normalize_video_clip(path, duration, start_offset, loop_policy, label)
     stack_crop, crop_box = maybe_crop_front_stack_presenter(clip, panel, raw_path, size)
     if crop_box is not None:
@@ -1152,30 +1163,48 @@ def motion_crop_boxes(image_size: tuple[int, int], output_size: tuple[int, int],
     raise ValueError(f"Unsupported still motion type: {motion_type!r}")
 
 
-def build_still_motion_clip(project_dir: Path, entry: TimelineEntry):
-    path = resolve_media_path(project_dir, entry.clip_path, "STILL_MOTION clip_path")
-    if path.suffix.lower() not in IMAGE_EXTENSIONS:
-        return build_standard_clip(project_dir, entry)
-
+def build_still_motion_image_clip(
+    path: Path,
+    duration: float,
+    output_size: tuple[int, int],
+    motion_type: str,
+    label: str,
+):
+    if motion_type not in STILL_MOTION_TYPES:
+        raise ValueError(f"{label} has unsupported still motion type: {motion_type!r}")
     try:
         from PIL import Image
     except ImportError as exc:
         raise RuntimeError("Pillow is required for direct STILL_MOTION image rendering.") from exc
 
     image = Image.open(path).convert("RGB")
-    start_box, end_box = motion_crop_boxes(image.size, (OUTPUT_WIDTH, OUTPUT_HEIGHT), entry.motion_type)
+    start_box, end_box = motion_crop_boxes(image.size, output_size, motion_type)
 
     def make_frame(t: float):
-        progress = 0.0 if entry.duration <= 0 else max(0.0, min(1.0, t / entry.duration))
+        progress = 0.0 if duration <= 0 else max(0.0, min(1.0, t / duration))
         eased = progress * progress * (3 - 2 * progress)
         box = tuple(start_box[i] + (end_box[i] - start_box[i]) * eased for i in range(4))
         left, top, width, height = box
         crop = image.crop((int(round(left)), int(round(top)), int(round(left + width)), int(round(top + height))))
-        resized = crop.resize((OUTPUT_WIDTH, OUTPUT_HEIGHT), Image.Resampling.LANCZOS)
+        resized = crop.resize(output_size, Image.Resampling.LANCZOS)
         return np.array(resized)
 
-    clip = VideoClip(make_frame, duration=entry.duration)
+    clip = VideoClip(make_frame, duration=duration)
     return clip, [clip]
+
+
+def build_still_motion_clip(project_dir: Path, entry: TimelineEntry):
+    path = resolve_media_path(project_dir, entry.clip_path, "STILL_MOTION clip_path")
+    if path.suffix.lower() not in IMAGE_EXTENSIONS:
+        return build_standard_clip(project_dir, entry)
+
+    return build_still_motion_image_clip(
+        path,
+        entry.duration,
+        (OUTPUT_WIDTH, OUTPUT_HEIGHT),
+        entry.motion_type,
+        "STILL_MOTION clip_path",
+    )
 
 
 def build_camera_motion_clip(project_dir: Path, entry: TimelineEntry):

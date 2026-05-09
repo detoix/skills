@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run an external production command only after the creative gate passes."""
+"""Run an external production command only after the required gate passes."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from production_gate import run_creative_gate
+from production_gate import run_creative_gate, run_prototype_gate
 from production_metrics import end_stage, infer_stage, start_stage
 
 
@@ -16,6 +16,12 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Gate and run an external production command.")
     parser.add_argument("--project-dir", required=True, help="Project directory.")
     parser.add_argument("--stage", help="Stage name for production timing logs. Inferred from command when omitted.")
+    parser.add_argument(
+        "--gate-profile",
+        choices=("prototype", "production"),
+        default="production",
+        help="prototype requires only the Creative Gate; production requires Creative Gate plus Prototype Gate.",
+    )
     parser.add_argument("command", nargs=argparse.REMAINDER, help="Command to run after --.")
     return parser.parse_args()
 
@@ -28,9 +34,13 @@ def main() -> int:
     if not command:
         raise SystemExit("Missing command after --")
     project_dir = Path(args.project_dir).resolve()
-    gate_record = start_stage(project_dir, "creative_gate", command=["production_gate.py", "--project-dir", str(project_dir)])
+    gate_name = "creative_gate" if args.gate_profile == "prototype" else "prototype_gate"
+    gate_command = ["production_gate.py", "--project-dir", str(project_dir)]
+    if args.gate_profile == "production":
+        gate_command.extend(["--gate", "prototype"])
+    gate_record = start_stage(project_dir, gate_name, command=gate_command)
     try:
-        findings = run_creative_gate(project_dir)
+        findings = run_creative_gate(project_dir) if args.gate_profile == "prototype" else run_prototype_gate(project_dir)
     except Exception as exc:
         end_stage(project_dir, gate_record, status="error", error=str(exc))
         raise

@@ -96,7 +96,8 @@ Build a YouTube video as a project, not as a loose set of clips. Keep the whole 
 
 Before generating assets, the agent verifies the runtime and required inputs directly:
 
-- Complete the Creative Approval Gate before production work. Do not generate TTS, lip-sync clips, stock clips, B-roll clips, generated images, synthetic-motion boards, timelines, captions, or final renders until the user has approved `script.json` and `manifests\visual-plan.json`, and `manifests\creative-approval.json` validates with `pipeline_check.py --mode creative-gate`.
+- Complete the Creative Approval Gate before prototype work. Do not generate prototype TTS, stock clips, B-roll clips, synthetic-motion boards, prototype timelines, or prototype renders until the user has approved `script.json` and `manifests\visual-plan.json`, and `manifests\creative-approval.json` validates with `pipeline_check.py --mode creative-gate`.
+- Complete the Prototype Approval Gate before final production work. Do not generate generated images, LatentSync clips, final timelines, captions, or final renders until `manifests\prototype-approval.json` validates with `pipeline_check.py --mode prototype-gate`. The prototype uses final-quality TTS and final production reuses that approved audio.
 - Real production runs must use user-provided identity assets: presenter plates, voice sample, exact voice-sample transcript, and optional music.
 - If the user has not provided the required identity assets, stop and ask for the asset root, presenter plates, voice sample, and exact voice-sample transcript before promising a production reel.
 - `youtube-scriptwriter`, `tts`, `latentsync`, `animated-broll-boards`, `playwright-broll-recorder`, `moviepy-video-composer`, and `reel-captions` are available.
@@ -115,53 +116,21 @@ Do not run a scripted preflight. If a required item is missing, stop before expe
 
 ## Workflow
 
-1. Gather or infer the required inputs, including the format mode (landscape or vertical).
-2. Create a project directory and normalize the asset set.
-   - Inspect source media with:
-     ```powershell
-     python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\asset_inventory.py `
-       --asset-root <asset-root> `
-       --output <project-dir>\manifests\assets-manifest.json
-     ```
-   - For test-only runs, mark disposable test inputs explicitly:
-     ```powershell
-     python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\asset_inventory.py `
-       --asset-root <test-asset-root> `
-       --test-input-label <test-run-label> `
-       --output <project-dir>\manifests\assets-manifest.json
-     ```
-   - Review the manifest before selecting presenter plates, voice samples, stills, overlays, music, B-roll candidates, or previous outputs for comparison.
-3. Ingest user-provided local background music, or explicitly disable it when no music should be mixed:
+The pipeline has three mandatory stages. Do not collapse them into one run, and do not start a later stage until the previous gate has a valid approval artifact.
+
+### Stage 1: Creative Gate
+
+1. Gather or infer the required inputs, including the format mode (`landscape` or `vertical`). Create the project directory.
+2. Normalize the asset set with `asset_inventory.py`, then review `manifests\assets-manifest.json` before selecting presenter plates, voice samples, stills, overlays, music, B-roll candidates, or previous outputs:
    ```powershell
-   python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\music_intake.py `
-     --project-dir <project-dir> `
-     --music <local-audio-path-or-NONE>
+   python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\asset_inventory.py `
+     --asset-root <asset-root> `
+     --output <project-dir>\manifests\assets-manifest.json
    ```
-   Validate the resulting manifest when music was part of the project contract:
-   ```powershell
-   python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\pipeline_check.py `
-     --project-dir <project-dir> `
-     --music-manifest <project-dir>\manifests\music-manifest.json `
-     --mode assets
-   ```
-4. Call `youtube-scriptwriter` and use its structured output as the planning source of truth. Create `<project-dir>\manifests\visual-plan.json` before generating any assets. The script and visual plan use one segment model: `type: "A_ROLL"` for presenter segments and `type: "B_ROLL"` for non-presenter visual segments. B-roll scenes must include `layout` and `panels[]`; only panels with `kind: "broll"` define a source. Source diversity is validated only from B-roll panel `source` values. `A_ROLL`, presenter panels, overlays, avatars, layouts, still motion, and punch-in treatments do not count toward source diversity. Present the generated `script.json`, `script.md` when available, and `visual-plan.json` to the user for approval. Summarize the hook, narration, on-screen text, visual idea, B-roll panel sources per scene, target duration, tone, music decision, and any factual claims needing citations. Stop and wait for approval or edits.
-   The creative gate also requires at least 50% of planned `B_ROLL` duration to include a `presenter` panel. This is measured by B-roll duration, not segment count. It does not impose any A-roll/B-roll ratio.
-   Before asking for approval, create the blocking review request:
-   ```powershell
-   python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\request_creative_review.py `
-     --project-dir <project-dir>
-   ```
-   Stop after this request and wait for the user to review the script and visual plan. After the user answers exactly
-   `approved`, create the approval artifact:
-   ```powershell
-   python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\approve_creative_plan.py `
-     --project-dir <project-dir> `
-     --resume-signal approved
-   ```
-   These helpers are the only official way to create `<project-dir>\manifests\creative-review-request.json` and
-   `<project-dir>\manifests\creative-approval.json`. Chat phrases such as "continue", "implement", or "go ahead" are
-   not approval artifacts.
-5. Validate the script JSON:
+   For test-only runs, add `--test-input-label <test-run-label>`.
+3. Ingest music with `music_intake.py`, or explicitly disable music with `--music NONE`. Validate `manifests\music-manifest.json` when music is part of the project contract.
+4. Call `youtube-scriptwriter`. Produce `script.json`, `script.md` when available, and `manifests\visual-plan.json`. Present those artifacts to the user and stop for creative review. The visual plan must use `A_ROLL` and `B_ROLL`; B-roll source diversity comes only from `B_ROLL` panels with `kind: "broll"`. The creative plan targets roughly 50% of planned `B_ROLL` duration with a `presenter` panel, but this is not a reason to put presenter overlays on every B-roll.
+5. Validate `script.json`, language quality, asset intake, and music intake before creating the review request:
    ```powershell
    python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\pipeline_check.py `
      --project-dir <project-dir> `
@@ -169,8 +138,6 @@ Do not run a scripted preflight. If a required item is missing, stop before expe
      --format <landscape-or-vertical> `
      --mode script
    ```
-   Before TTS, perform language QA on `script.json`: verify that `metadata.language` matches the actual language of `segments[].narration`, `tts_chunks[].voice_text`, `segments[].on_screen_text`, and `graphics[].copy`; verify that the text preserves the normal writing system, accents, diacritics, punctuation, and encoding conventions for that language. For non-English scripts, ASCII-only narration is a QA failure unless the target language normally uses ASCII-only writing or the text is intentionally a quoted literal such as code, IDs, URLs, brand names, ingredient names, or other fixed strings. If the script appears transliterated, ASCII-stripped, mojibake-corrupted, accidentally mixed-language, or otherwise unnatural for the declared language, stop and fix `script.json` before generating audio.
-   Validate asset intake before production work. This must fail for manifests marked as test input unless this is explicitly a test run:
    ```powershell
    python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\pipeline_check.py `
      --project-dir <project-dir> `
@@ -178,16 +145,33 @@ Do not run a scripted preflight. If a required item is missing, stop before expe
      --format <landscape-or-vertical> `
      --mode assets
    ```
-   For test-only regression runs, add `--allow-test-input` and label the report as a test artifact.
-6. Run the hard Creative Approval Gate before every production command, including TTS, stock download, generated-image work, webpage/screen recording, synthetic-motion board creation/render, LatentSync, timeline assembly, captions, and final render:
+6. Before creating the blocking creative review request, surface this soft pre-gate checklist when the user asks for a checklist, FAQ, review notes, or wants to sanity-check the plan. This is not a hard gate and does not replace `pipeline_check.py`:
+   - Presenter variety: did the plan select varied presenter assets/roles and avoid counting duplicate source files as variety?
+   - Script humanization: does the narration sound natural for the target language, with no stiff AI/corporate phrasing?
+   - B-roll variety: does the visual plan use varied section patterns and B-roll source strategies appropriate to the story?
+   - Language/TTS readiness: are target-language characters intact, and are acronyms, numbers, symbols, brand names, and mixed-language literals written safely for TTS?
+7. Create the blocking creative review request and stop. Only after the user replies exactly `approved`, create `manifests\creative-approval.json`:
+   ```powershell
+   python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\request_creative_review.py `
+     --project-dir <project-dir>
+   ```
+   ```powershell
+   python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\approve_creative_plan.py `
+     --project-dir <project-dir> `
+     --resume-signal approved
+   ```
+   Chat phrases such as "continue", "implement", or "go ahead" are not approval artifacts.
+
+### Stage 2: Prototype Stage and Prototype Gate
+
+1. Before every prototype command, validate the Creative Gate. Prototype commands run through `guarded_production_command.py --gate-profile prototype` when a command wrapper is used:
    ```powershell
    python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\pipeline_check.py `
      --project-dir <project-dir> `
      --mode creative-gate
    ```
-   If this command fails, stop. Do not call producers directly to bypass the gate.
-7. Call `tts` to generate chunked cloned speech from the scriptwriter payload, then verify every chunk is target-only. Trim only if a generated file actually contains a prompt/sample prefix.
-7. Run pronunciation QA on all clean TTS chunks before using them for lip-sync or final narration assembly. The QA must transcribe `<project-dir>\tts\clean\*.wav`, compare each result with `script.json` `tts_chunks[].voice_text`, and fail before `latentsync` if spoken words are materially missing or changed. Use `metadata.language`; do not hardcode Polish or any other language. This QA reads audio for ASR only and must not convert, normalize, denoise, overwrite, or otherwise modify the audio files:
+2. Generate final-quality TTS from approved `script.json` with `inference_timesteps: 10`. Save clean target-only chunks, assemble the approved narration as `<project-dir>\final_audio.wav`, and write both `manifests\tts-prototype-manifest.json` and `manifests\final-audio-manifest.json`. Each chunk must record `chunk_id`, `voice_text`, per-chunk integer `seed`, `seed_mode`, `audio_path`, and `sha256`. `final-audio-manifest.json` is created in Stage 2 because Stage 3 reuses this exact audio and `reel-captions` requires real final audio timings. If the user rejects a specific TTS chunk during prototype review, regenerate only that chunk with a new seed and rebuild the prototype artifacts.
+3. Run pronunciation QA against the prototype TTS chunks before using the audio in the prototype:
    ```powershell
    python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\tts_pronunciation_qa.py `
      --project-dir <project-dir> `
@@ -196,44 +180,58 @@ Do not run a scripted preflight. If a required item is missing, stop before expe
      --language <metadata.language> `
      --output <project-dir>\manifests\tts-pronunciation-qa.json
    ```
-8. Presenter Plate Variety QA must pass before `latentsync`. Read `manifests/assets-manifest.json`, create `manifests/presenter-plan.json`, and treat presenter source identity by tool-computed `sha256`, not by filename. The agent must not hand-author `sha256`; hashes must come from the asset manifest or a file-hashing tool. If the same presenter video `sha256` is assigned more than once in the film, the agent must add a measurable `repeat_decisions` entry with the repeated `sha256`, all uses, `reason_code`, `available_unique_sources_for_role`, `used_unique_sources_for_role`, and a concrete reason for repeating that source. Allowed `reason_code` values are `limited_available_sources`, `continuity_choice`, `source_quality_rejection`, `duration_or_framing_constraint`, and `production_time_constraint`. Use `limited_available_sources` only when the asset manifest has exactly one unique usable source for that role. Repeats are allowed when justified; there is no hard maximum repeat count. Do not claim two files add presenter variety when their `sha256` is identical.
-9. Call `latentsync` to build synced presenter clips from the silent motion plates and clean chunk audio using `scripts.inference` for both single-clip and multi-clip inference. When more than one presenter clip is needed, write `<project-dir>\manifests\latentsync-jobs.json`. Use the same checkpoint, `inference_steps`, `guidance_scale`, seed policy, source plates, and clean audio; this must be a performance-only change. Group jobs by identical source presenter video and order longer audio chunks before shorter chunks inside each group. If `manifests\assets-manifest.json` has `asset_root`, set the persistent affine cache directory to `<asset_root>\.latentsync-cache`, include each job's `source_video_path` and `video_sha256`, and pass `--reuse_affine_cache --affine_cache_dir <asset_root>\.latentsync-cache`. Run the inference command through `guarded_production_command.py` exactly like any other production command. After it finishes, verify every output path is non-empty and duration-matches its clean audio before timeline assembly.
-10. When presenter clips look soft, compressed, or artifacted after lip-sync, call `codeformer-postprocess` on the synced presenter outputs before timeline assembly.
-11. Build B-roll with the panel `source` values approved for that segment in `manifests\visual-plan.json`.
-   - For abstract UI boards, checklists, timelines, comparisons, maps, process diagrams, counters, logistics, cost/risk boards, local synthetic HTML/mock UI, kinetic typography, and other synthetic-motion sections, call `animated-broll-boards` as an art-direction workflow when a polished custom board is the strongest production path. Create a custom motion scene from a creative brief; do not route the segment to a checklist/timeline/template layout. Production reels must use animated `.webm` clips for these sections, not ad hoc static PNG/Pillow boards.
-   - Call `playwright-broll-recorder` for real webpage/app B-roll and for recording local synthetic-motion scenes when needed.
-   - For webpage and screen-record B-roll, every capture must have a validation screenshot taken after cleanup. Use `--cookie-consent auto` and explicit `--click` / `--hide` selectors for visible overlays. Do not accept or add a webpage/screen-record asset to `selected-visuals.json` if the screenshot or recorded clip shows any popup, modal, cookie banner, newsletter prompt, chat widget, login wall, other obstructive overlay, missing CSS/unloaded styling, or non-functional page state; re-record with stronger cleanup selectors first.
-   - Call `pexels-stock-downloader` when non-web stock footage is needed.
-   - When the script needs photographic, cinematic, illustrative, product-neutral, or non-UI generated visual support, create a `z-image-turbo` plan:
-     ```powershell
-     python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\z_image_plan.py `
-       --project-dir <project-dir> `
-       --script <project-dir>\script.json
-     ```
-   - Generate only the selected images with `z-image-turbo`, review them, record accepted/rejected outputs in the asset manifest, then use accepted stills as `B_ROLL` panel media. Do not use `z-image-turbo` as the default path for UI boards, diagrams, checklists, timelines, or synthetic dashboard-style visuals.
-   - Validate the generated-image plan before using outputs in the timeline:
-     ```powershell
-     python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\pipeline_check.py `
-       --project-dir <project-dir> `
-       --z-image-plan <project-dir>\manifests\z-image-plan.json `
-       --mode assets `
-       --require-z-image-review
-     ```
-12. Build `timeline.json` using the schema matching the format mode.
-   - Do not use `caption_text` for spoken narration captions when creating reels, Shorts, TikToks, or other modern short-form outputs. Spoken captions belong to the `reel-captions` stage after base render.
-   - Keep text as an overlay/treatment inside `A_ROLL` or `B_ROLL`; do not create `TEXT` timeline entries.
-   - For reels, use [references/broll-section-library.md](references/broll-section-library.md) as a menu when a non-presenter visual needs a section pattern.
-   - Write `<project-dir>\manifests\selected-visuals.json` only after `pipeline_check.py --mode creative-gate` passes and before final timeline use. Each accepted non-presenter visual needs `segment_id`, `local_path` or `source_url`, `section_pattern`, `duration_seconds`, `intended_use`, `accepted`, `reason`, and `risk`, and must match one scene in `manifests\visual-plan.json`. Do not hand-author `source_type`, `sha256`, `provenance`, or other identity fields as validation truth; those fields must come from an automatic resolver/indexer. Board-created synthetic-motion visuals also require `board_id`, `creative_concept`, `visual_metaphor`, and `motion_summary`.
-13. Validate the timeline and final audio before composition:
+   If the ASR report fails, do not overwrite it, mark it pass, or continue silently. Show the user each failed chunk with `chunk_id`, `expected`, `asr_transcript`, `missing_words`, and `extra_words`; if the mismatch looks like ASR normalization of intentional TTS-safe spelling, say that explicitly. Only after the user replies exactly `approved` may the agent convert the report to a manual pass, preserving the failed ASR details and adding `qa_method: "asr_with_user_approved_override"`, `asr_status: "fail"`, `manual_review_status: "approved"`, `accepted_by: "user"`, `accepted_at`, and `overrides[]` entries with `chunk_id`, `expected`, `asr_transcript`, and `reason`.
+4. Build prototype B-roll from the approved `visual-plan.json` panel sources. Do not invent ad hoc replacements:
+   - `synthetic-motion`: use `animated-broll-boards` and record accepted board clips in selected visuals metadata.
+   - `webpage` or `screen-record`: use `playwright-broll-recorder`; reject captures with popups, missing CSS, unloaded styling, or non-functional page state.
+   - `stock`: use `pexels-stock-downloader`.
+   - `manual`: use the referenced project asset.
+   - `generated-image`: do not run image generation; use text placeholders from the prompt or visual brief.
+5. Create prototype selected-visuals intent for real prototype B-roll assets. Keep it project-relative. Do not hand-author resolver-owned truth fields such as `source_type`, `sha256`, or `provenance`; those remain resolver output.
+6. Build a prototype source timeline at `<project-dir>\timeline.prototype.source.json`. It must use approved prototype audio timing, real prototype B-roll assets, prototype presenter assets, and unresolved `generated-image` panel placeholders from the visual brief. Then replace `generated-image` panels with concrete placeholder media and create `timeline.prototype.json`:
+   ```powershell
+   python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\build_prototype_timeline.py `
+     --project-dir <project-dir> `
+     --timeline <project-dir>\timeline.prototype.source.json `
+     --visual-plan <project-dir>\manifests\visual-plan.json `
+     --output <project-dir>\timeline.prototype.json `
+     --format <landscape-or-vertical>
+   ```
+7. Build prototype presenter visuals without LatentSync. Use either static presenter frames/assets or raw muted presenter video selected from approved presenter plates. Prefer `raw_muted_video` when motion helps the user understand framing and placement, but avoid visibly speaking source footage that conflicts with the approved prototype audio. Record `presenter.latentsync: "skipped"`, `presenter.presenter_mode: "static_frame"` or `presenter.presenter_mode: "raw_muted_video"`, and the presenter asset hashes in `manifests\prototype-manifest.json`.
+8. Render the uncaptioned prototype review video with `moviepy-video-composer` using `timeline.prototype.json` and `final_audio.wav`. Output must be `outputs\prototype.mp4`. Do not run `reel-captions` in Stage 2.
+9. Write `manifests\prototype-manifest.json` with project-relative paths only. It must bind `script.json`, `manifests\visual-plan.json`, `timeline.prototype.json`, `outputs\prototype.mp4`, `final_audio.wav`, `manifests\final-audio-manifest.json`, `manifests\tts-prototype-manifest.json`, `manifests\tts-pronunciation-qa.json`, presenter assets, TTS chunks, and generated-image placeholders by SHA-256.
+10. Create the prototype review request and portable handoff ZIP, then stop. Show both `outputs\prototype.mp4` and `outputs\prototype-bundle-no-mp4.zip` to the user:
+    ```powershell
+    python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\request_prototype_review.py `
+      --project-dir <project-dir>
+    ```
+11. Only after the user replies exactly `approved`, create `manifests\prototype-approval.json`:
+    ```powershell
+    python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\approve_prototype.py `
+      --project-dir <project-dir> `
+      --resume-signal approved
+    ```
+
+### Stage 3: Final Production Stage
+
+1. Before every final production command, validate the Prototype Gate. If the project already contains a valid `prototype-approval.json`, do not rebuild the prototype and do not return to Stage 1:
    ```powershell
    python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\pipeline_check.py `
      --project-dir <project-dir> `
-     --timeline <project-dir>\timeline.json `
-     --audio <project-dir>\final_audio.wav `
-     --format <landscape-or-vertical> `
-     --mode timeline
+     --mode prototype-gate
    ```
-   Resolve and validate selected visuals as one atomic gate before production render. This command must generate a fresh `<project-dir>\manifests\selected-visuals.resolved.json`, overwrite any stale or hand-authored resolved manifest, and validate only the fresh resolver output. Do not run the resolver and validation as separate manual steps:
+   Final production commands run through `guarded_production_command.py --gate-profile production`.
+2. Reuse the approved `final_audio.wav` and `manifests\final-audio-manifest.json` from Stage 2 as final narration. Do not regenerate TTS after Prototype Approval unless the user explicitly rejects the approved audio and reopens Stage 2. Final timing must come from the approved prototype audio manifest and may be adjusted only for final visual substitutions.
+3. Create or update `manifests\presenter-plan.json`. Presenter Plate Variety QA must pass before LatentSync. Hashes must come from the asset manifest or a file-hashing tool, never from hand-authored values.
+4. Run `latentsync` with the approved audio and selected silent motion plates. Write `manifests\latentsync-jobs.json` when multiple presenter clips are needed. Verify every output is non-empty and duration-matches its clean audio before timeline assembly.
+5. Run `codeformer-postprocess` only when synced presenter clips look soft, compressed, or artifacted after LatentSync.
+6. Produce final generated images only for visual-plan panels that were represented by `generated-image` placeholders in the prototype. Use `z_image_plan.py`, `z-image-turbo`, human/agent image review, and `--require-z-image-review` before using generated images in the final timeline.
+7. Reuse prototype B-roll assets for `synthetic-motion`, `webpage`, `screen-record`, `stock`, and `manual` when they still match the approved visual plan and pass final quality checks. Re-record or replace only assets that fail QA or were explicitly rejected.
+8. Build final `timeline.json` from `timeline.prototype.json`, replacing only the prototype-specific assets:
+   - static presenter assets become LatentSync presenter clips.
+   - generated-image placeholders become accepted final generated images.
+   - final captions are still absent from `timeline.json`; they are burned after base render by `reel-captions`.
+9. Write `manifests\selected-visuals.json` for final non-presenter visual assets, then run the resolver/check as one atomic gate:
    ```powershell
    python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\pipeline_check.py `
      --project-dir <project-dir> `
@@ -241,50 +239,32 @@ Do not run a scripted preflight. If a required item is missing, stop before expe
      --mode assets `
      --resolve-selected-visuals
    ```
-14. Call `moviepy-video-composer` with the matching `--format` value to render the uncaptioned base video. Pass `<project-dir>\source-assets\soundtrack.<ext>` when the music manifest is enabled; pass `--music NONE` when it is disabled. The composer writes `<project-dir>\manifests\audio-mix-manifest.json`.
-15. Call `reel-captions` to generate word-level ASS captions from the approved transcript and burn them into the base render. The captioned output is the delivery candidate and preserves the already mixed narration/music audio. Production runs require WhisperX forced alignment; if WhisperX is unavailable, install it before captioning or stop and report the blocker. Do not use `--words-json` for production unless it is a real precomputed timing file explicitly approved by the user. Before captioning, `<project-dir>\manifests\final-audio-manifest.json` must exist and contain the real `tts_chunks[].timeline_start_seconds` for `final_audio.wav`; captioning without this manifest is a production error.
-   ```powershell
-   & "<caption-python>" C:\Users\kdeptula\skills\reel-captions\scripts\generate_reel_captions.py `
-     --project-dir <project-dir> `
-     --audio <project-dir>\final_audio.wav `
-     --video <project-dir>\final_output.mp4 `
-     --script <project-dir>\script.json `
-     --output <project-dir>\final_output_captioned.mp4 `
-     --language pl
-   ```
-   Use the target language code from the script metadata. Use `--transcript` instead of `--script` only when no script JSON exists. If captions are explicitly disabled by the user, record that exception in the final QA notes.
-16. Run final visual QA on the captioned video by extracting representative frames across the timeline and inspecting them. If any frame fails the visual acceptance criteria, revise assets, typography, presenter overlay crop/shape, captions, layout, or timeline and rerender. Final visual QA fails unless `manifests\captions-manifest.json` records `alignment_source: "final-audio-manifest"`.
-   ```powershell
-    python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\visual_qa.py `
-     --project-dir <project-dir> `
-     --video <project-dir>\final_output_captioned.mp4 `
-     --timeline <project-dir>\timeline.json `
-     --status needs_review
-   ```
-   - The helper cannot mark final success by itself. A final pass requires agent visual review with concrete notes:
-     ```powershell
-     python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\visual_qa.py `
-       --project-dir <project-dir> `
-       --video <project-dir>\final_output_captioned.mp4 `
-       --timeline <project-dir>\timeline.json `
-       --format vertical `
-       --min-duration 60 `
-       --max-duration 90 `
-       --z-image-plan <project-dir>\manifests\z-image-plan.json `
-       --agent-visual-review-pass `
-       --visual-review-notes "Specific notes covering hook, word-level caption sync/readability/safe zones, visual variety, generated visuals, presenter overlay quality, and rejected frames." `
-       --status pass
-     ```
-17. Production timing logs are written to `<project-dir>\manifests\production-timings.jsonl` by guarded commands and major local production stages. After a full run, summarize them before performance analysis:
-   ```powershell
-   python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\summarize_production_timings.py `
-     --project-dir <project-dir>
-   ```
-18. Report any blockers immediately if a required runtime tool or asset is missing.
+10. Validate the final timeline and approved final audio before composition:
+    ```powershell
+    python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\pipeline_check.py `
+      --project-dir <project-dir> `
+      --timeline <project-dir>\timeline.json `
+      --audio <project-dir>\final_audio.wav `
+      --format <landscape-or-vertical> `
+      --mode timeline
+    ```
+11. Render the uncaptioned final base video with `moviepy-video-composer` to `final_output.mp4`. Pass project music when enabled, or `--music NONE` when disabled. The composer writes `manifests\audio-mix-manifest.json`.
+12. Burn spoken captions only in final production with `reel-captions`. Before captioning, `manifests\final-audio-manifest.json` must exist and contain real `tts_chunks[].timeline_start_seconds` for `final_audio.wav`:
+    ```powershell
+    & "<caption-python>" C:\Users\kdeptula\skills\reel-captions\scripts\generate_reel_captions.py `
+      --project-dir <project-dir> `
+      --audio <project-dir>\final_audio.wav `
+      --video <project-dir>\final_output.mp4 `
+      --script <project-dir>\script.json `
+      --output <project-dir>\final_output_captioned.mp4 `
+      --language <metadata.language>
+    ```
+13. Run final visual QA on `final_output_captioned.mp4` unless captions are explicitly disabled by the user. Final pass requires concrete agent visual review notes; structural checks alone cannot mark delivery success.
+14. Summarize production timing logs from `manifests\production-timings.jsonl`, then report final outputs or blockers.
 
 ## Creative Approval Gate
 
-Before production work, interview the user and produce a visual plan plus an approval artifact. Production work means TTS, lip-sync, stock download, B-roll generation, image generation, synthetic-motion board creation/rendering, timeline assembly, captioning, or final render.
+Before prototype or final production work, interview the user and produce a visual plan plus an approval artifact. Gated work means TTS, lip-sync, stock download, B-roll generation, image generation, synthetic-motion board creation/rendering, timeline assembly, captioning, or final render.
 
 No production before approved creative plan:
 
@@ -294,7 +274,7 @@ python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\pipeline_check.py `
   --mode creative-gate
 ```
 
-This must pass before every production command. If it fails, stop. Do not bypass it with direct producer commands.
+This must pass before every prototype command and every final production command. If it fails, stop. Do not bypass it with direct producer commands.
 
 Required approval fields:
 
@@ -329,6 +309,62 @@ python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\approve_creative_pl
 When the user gave enough detail to draft the plan, create or update `script.json`, optionally `script.md`, and `manifests\visual-plan.json` as planning artifacts only, then stop and ask for approval. Do not treat this as permission to continue production.
 
 There is no production override. If the user requests a one-shot production run, still stop at this gate.
+
+## Prototype Approval Gate
+
+After the Creative Approval Gate passes, build a portable prototype bundle before final production. The prototype can be created on this machine or another machine as long as the same skill contract is used. The bundle must not depend on absolute paths.
+
+Prototype work is allowed after the Creative Approval Gate. Final production work is blocked until the Prototype Approval Gate passes:
+
+```powershell
+python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\pipeline_check.py `
+  --project-dir <project-dir> `
+  --mode prototype-gate
+```
+
+Required prototype artifacts:
+
+- `outputs/prototype.mp4`
+- `final_audio.wav`
+- `timeline.prototype.json`
+- `manifests/tts-prototype-manifest.json`
+- `manifests/tts-pronunciation-qa.json`
+- `manifests/final-audio-manifest.json`
+- `manifests/prototype-manifest.json`
+- `manifests/prototype-review-request.json`
+- `manifests/prototype-approval.json` after human approval
+
+Required review handoff:
+
+- `outputs/prototype.mp4` for direct viewing
+- `outputs/prototype-bundle-no-mp4.zip` as the portable handoff bundle without the review MP4
+
+`outputs\prototype.mp4` is the uncaptioned prototype review output. `final_audio.wav` is the approved final narration source used by both the prototype and final production. Spoken captions are generated only in final production, after Prototype Approval. `manifests\prototype-manifest.json` must include only project-relative paths and must bind these artifacts by SHA-256: `script.json`, `manifests/visual-plan.json`, `timeline.prototype.json`, `outputs/prototype.mp4`, `final_audio.wav`, `manifests/final-audio-manifest.json`, `manifests/tts-prototype-manifest.json`, and `manifests/tts-pronunciation-qa.json`.
+
+The prototype TTS contract is fixed: use the same text as production, `prototype_inference_timesteps: 10`, and `production_inference_timesteps: 10`. This makes the prototype audio the approved final narration source. Do not regenerate final TTS after Prototype Approval unless the user explicitly rejects the approved audio and reopens the prototype gate.
+
+Seed is per chunk, not a global promise that every prototype revision will sound the same. Each `prototype-manifest.json` `tts.chunks[]` entry must include `chunk_id`, `voice_text`, integer `seed`, `seed_mode`, `audio_path`, and `sha256`. Use `seed_mode: "applied"` when the runtime actually used the seed, and `seed_mode: "recorded_only"` only when the runtime cannot enforce it. Optional `tts.run_seed` may be recorded as run metadata, but it never replaces per-chunk seeds. Production uses the approved chunk audio by SHA and does not use seed to regenerate narration.
+
+The prototype presenter contract is fixed: `latentsync: "skipped"` and `presenter_mode` must be either `static_frame` or `raw_muted_video`. Use `static_frame` for maximum audio/visual neutrality, or `raw_muted_video` when motion makes the prototype easier to review. Raw muted presenter video must use source presenter media without its original audio, must not be looped silently, and should avoid obvious mouth movement that conflicts with the approved prototype audio. Run LatentSync only after Prototype Approval.
+
+For `source: "generated-image"` panels, the prototype must use text placeholders from the prompt or visual brief, not generated images. Use `scripts\build_prototype_timeline.py` to create placeholder assets and `timeline.prototype.json`. Run generated-image production only after Prototype Approval.
+
+Approval flow:
+
+```powershell
+python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\request_prototype_review.py `
+  --project-dir <project-dir>
+```
+
+The request command must create and print two user-facing handoff paths: `outputs\prototype.mp4` and `outputs\prototype-bundle-no-mp4.zip`. The ZIP is for portable transfer and intentionally excludes the MP4. Stop and wait for the user to review the prototype and handoff bundle. Only after the user replies exactly `approved`, run:
+
+```powershell
+python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\approve_prototype.py `
+  --project-dir <project-dir> `
+  --resume-signal approved
+```
+
+If a project already contains a valid `prototype-approval.json`, do not rebuild the prototype. Validate the gate and continue directly to final production.
 
 ## Interview Rules
 
@@ -876,7 +912,7 @@ Composer: `moviepy-video-composer --format vertical`
 
 The same contract applies in vertical mode. Use `layout: "fullscreen"`, `layout: "stack2"`, `layout: "stack3"`, or `layout: "grid4"` on `B_ROLL` entries. A presenter can be an overlay or one panel by adding a `{"kind": "presenter"}` panel.
 For vertical fullscreen B-roll with a presenter overlay panel, set `overlay_position` explicitly on the presenter panel. Choose the position for the actual frame, captions, and B-roll composition; no vertical overlay position is globally preferred.
-Timeline validation requires at least 50% of total `B_ROLL` duration to include a `presenter` panel. Count duration, not segment count; `A_ROLL` is outside this calculation.
+Timeline validation targets roughly 50% of total `B_ROLL` duration to include a `presenter` panel. Count duration, not segment count; `A_ROLL` is outside this calculation.
 
 ### Timeline Safety Fields
 

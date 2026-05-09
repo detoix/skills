@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from production_gate import run_creative_gate, validate_visual_plan
+from production_gate import run_creative_gate, run_prototype_gate, validate_visual_plan
 
 
 SEGMENT_TYPES = {"A_ROLL", "B_ROLL"}
@@ -23,7 +23,9 @@ LEGACY_TOP_LEVEL_TYPES = {"A-ROLL", "B-ROLL", "PIP", "TEXT", "TEXT_GRAPHIC", "ST
 BROLL_LAYOUTS = {"fullscreen", "stack2", "stack3", "grid4"}
 BROLL_LAYOUT_PANEL_COUNTS = {"stack2": 2, "stack3": 3, "grid4": 4}
 PANEL_KINDS = {"broll", "presenter"}
-BROLL_PRESENTER_PANEL_MIN_RATIO = 0.5
+BROLL_PRESENTER_PANEL_TARGET_RATIO = 0.5
+BROLL_PRESENTER_PANEL_MIN_RATIO = 0.4
+BROLL_PRESENTER_PANEL_MAX_RATIO = 0.7
 LOOP_POLICIES = {"loop", "error"}
 SPLIT_AXES = {"horizontal", "vertical"}
 STILL_MOTION_TYPES = {"push-in", "pull-back", "pan-left", "pan-right", "pan-up", "pan-down", "diagonal-drift", "swipe-in"}
@@ -693,11 +695,13 @@ def validate_timeline(
 
     if broll_duration > 0:
         presenter_ratio = presenter_panel_broll_duration / broll_duration
-        if presenter_ratio + 1e-9 < BROLL_PRESENTER_PANEL_MIN_RATIO:
+        if presenter_ratio + 1e-9 < BROLL_PRESENTER_PANEL_MIN_RATIO or presenter_ratio - 1e-9 > BROLL_PRESENTER_PANEL_MAX_RATIO:
             report.error(
                 "broll-presenter-panel-ratio",
-                f"only {presenter_ratio * 100:.1f}% of B-roll duration has presenter panels; "
-                f"required at least {BROLL_PRESENTER_PANEL_MIN_RATIO * 100:.1f}%",
+                f"{presenter_ratio * 100:.1f}% of B-roll duration has presenter panels; "
+                f"target is about {BROLL_PRESENTER_PANEL_TARGET_RATIO * 100:.1f}% "
+                f"(accepted range {BROLL_PRESENTER_PANEL_MIN_RATIO * 100:.1f}%"
+                f"-{BROLL_PRESENTER_PANEL_MAX_RATIO * 100:.1f}%)",
             )
 
 
@@ -1328,7 +1332,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--format", choices=("landscape", "vertical"), help="Expected output format.")
     parser.add_argument(
         "--mode",
-        choices=("all", "preflight", "script", "timeline", "assets", "creative-gate"),
+        choices=("all", "preflight", "script", "timeline", "assets", "creative-gate", "prototype-gate"),
         default="all",
         help="Validation scope.",
     )
@@ -1361,6 +1365,15 @@ def main() -> int:
             script = load_json(script_path, report, "script")
             if script is not None:
                 validate_script(script, report, args.format)
+
+    if args.mode == "prototype-gate":
+        for finding in run_prototype_gate(project_dir):
+            if finding.severity == "ERROR":
+                report.error(finding.code, finding.message)
+            elif finding.severity == "WARN":
+                report.warn(finding.code, finding.message)
+            else:
+                report.info(finding.code, finding.message)
 
     if args.mode in {"all", "preflight"}:
         preflight(project_dir, report, args.require_pexels)
