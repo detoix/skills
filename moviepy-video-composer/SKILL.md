@@ -111,6 +111,7 @@ If paths are omitted, the script defaults to the project directory and common so
 - Write `manifests/audio-mix-manifest.json` with narration probe data, music probe data, ducking settings, fallback status, and output path.
 - Attach the final mixed audio after the visual timeline is assembled.
 - Render standard output with `fps=30`, `codec=libx264`, `audio_codec=aac`.
+- When rendering text overlays on Linux, use an installed `.ttf` font path instead of Windows-only defaults such as `C:\Windows\Fonts\arialbd.ttf`. A verified fallback is `/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf`.
 
 ## Visual QA
 
