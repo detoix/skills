@@ -7,6 +7,8 @@ import argparse
 import json
 import math
 import re
+import shutil
+import subprocess
 import sys
 from dataclasses import dataclass
 from datetime import datetime
@@ -171,6 +173,44 @@ def as_number(value: Any) -> float | None:
     return None
 
 
+def find_ffprobe() -> str | None:
+    ffprobe = shutil.which("ffprobe")
+    if ffprobe:
+        return ffprobe
+    ffmpeg = shutil.which("ffmpeg")
+    if ffmpeg:
+        candidate = Path(ffmpeg).with_name("ffprobe.exe")
+        if candidate.exists():
+            return str(candidate)
+    local = Path.home() / "Documents" / "FFmpeg" / "ffmpeg-master-latest-win64-gpl" / "bin" / "ffprobe.exe"
+    if local.exists():
+        return str(local)
+    return None
+
+
+def media_duration(path: Path, findings: list[GateFinding]) -> float | None:
+    ffprobe = find_ffprobe()
+    if not ffprobe:
+        findings.append(GateFinding("WARN", "ffprobe-missing", "ffprobe not found; prototype presenter durations could not be checked"))
+        return None
+    command = [
+        ffprobe,
+        "-v",
+        "error",
+        "-show_entries",
+        "format=duration",
+        "-of",
+        "default=noprint_wrappers=1:nokey=1",
+        str(path),
+    ]
+    try:
+        completed = subprocess.run(command, check=True, capture_output=True, text=True)
+        return float(completed.stdout.strip())
+    except (subprocess.CalledProcessError, ValueError) as exc:
+        findings.append(GateFinding("WARN", "duration-unavailable", f"could not read duration for {path}: {exc}"))
+        return None
+
+
 def broll_panel_sources(item: dict[str, Any], findings: list[GateFinding], context: str) -> list[str]:
     if "primary_visual" in item:
         findings.append(GateFinding("ERROR", "legacy-visual-field", f"{context}.primary_visual is not supported; use type A_ROLL or B_ROLL"))
@@ -282,6 +322,91 @@ def validate_visual_plan(plan: Any, findings: list[GateFinding]) -> list[dict[st
             seen_scene_ids.add(scene_id)
         valid_scenes.append(scene)
     return valid_scenes
+
+
+def validate_prototype_presenter_media(
+    project_dir: Path,
+    findings: list[GateFinding],
+    *,
+    path_value: Any,
+    loop_policy: Any,
+    clip_start: Any,
+    segment_duration: float,
+    context: str,
+) -> None:
+    if loop_policy != "error":
+        findings.append(GateFinding("ERROR", "prototype-presenter-loop-policy", f"{context}.loop_policy must be 'error'"))
+    if not is_portable_relative_path(path_value):
+        findings.append(GateFinding("ERROR", "prototype-presenter-path", f"{context}.path must be relative to the project and portable"))
+        return
+    path = project_file(project_dir, Path(str(path_value)))
+    if not path.exists() or not path.is_file():
+        findings.append(GateFinding("ERROR", "prototype-presenter-missing", f"{context}.path file not found: {path}"))
+        return
+    start_offset = as_number(clip_start) or 0.0
+    if start_offset < 0:
+        findings.append(GateFinding("ERROR", "prototype-presenter-clip-start", f"{context}.clip_start must be non-negative"))
+        return
+    source_duration = media_duration(path, findings)
+    if source_duration is None:
+        return
+    available = source_duration - start_offset
+    if available <= 0:
+        findings.append(GateFinding("ERROR", "prototype-presenter-clip-start", f"{context}.clip_start exceeds source duration"))
+    elif available + 0.05 < segment_duration:
+        findings.append(
+            GateFinding(
+                "ERROR",
+                "prototype-presenter-too-short",
+                f"{context} has {available:.2f}s available for {segment_duration:.2f}s segment",
+            )
+        )
+
+
+def validate_prototype_timeline_presenter_policy(project_dir: Path, findings: list[GateFinding]) -> None:
+    timeline = load_json(project_dir / TIMELINE_PROTOTYPE_RELATIVE_PATH, findings, "prototype timeline")
+    if not isinstance(timeline, list):
+        findings.append(GateFinding("ERROR", "prototype-timeline-shape", "timeline.prototype.json must be an array"))
+        return
+    for index, entry in enumerate(timeline):
+        context = f"timeline.prototype[{index}]"
+        if not isinstance(entry, dict):
+            findings.append(GateFinding("ERROR", "prototype-timeline-entry", f"{context} must be an object"))
+            continue
+        start = as_number(entry.get("start_time"))
+        end = as_number(entry.get("end_time"))
+        if start is None or end is None or end <= start:
+            findings.append(GateFinding("ERROR", "prototype-timeline-timing", f"{context} must include valid numeric start_time and end_time"))
+            continue
+        duration = end - start
+        entry_clip_start = entry.get("clip_start")
+        if entry.get("type") == "A_ROLL":
+            validate_prototype_presenter_media(
+                project_dir,
+                findings,
+                path_value=entry.get("clip_path"),
+                loop_policy=entry.get("loop_policy"),
+                clip_start=entry_clip_start,
+                segment_duration=duration,
+                context=f"{context}.clip_path",
+            )
+        if entry.get("type") != "B_ROLL":
+            continue
+        panels = entry.get("panels")
+        if not isinstance(panels, list):
+            continue
+        for panel_index, panel in enumerate(panels):
+            if not isinstance(panel, dict) or panel.get("kind") != "presenter":
+                continue
+            validate_prototype_presenter_media(
+                project_dir,
+                findings,
+                path_value=panel.get("path"),
+                loop_policy=panel.get("loop_policy"),
+                clip_start=panel.get("clip_start", entry_clip_start),
+                segment_duration=duration,
+                context=f"{context}.panels[{panel_index}]",
+            )
 
 
 def validate_script_contract(script: Any, findings: list[GateFinding]) -> None:
@@ -997,6 +1122,7 @@ def run_prototype_gate(project_dir: Path, *, write_state: bool = True) -> list[G
 
     if prototype_manifest is not None:
         validate_prototype_manifest(prototype_manifest, project_dir, findings, visual_plan)
+    validate_prototype_timeline_presenter_policy(project_dir, findings)
     if prototype_approval is not None:
         validate_prototype_approval(prototype_approval, project_dir, findings)
 
