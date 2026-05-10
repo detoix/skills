@@ -62,7 +62,7 @@ DEFAULT_MUSIC_CANDIDATES = (
 FRONT_STACK_CROP_Y_FRACTION = 1 / 8
 FRONT_STACK_CROP_HEIGHT_FRACTION = 1 / 2
 VOICE_LOUDNORM = "loudnorm=I=-16:LRA=11:TP=-1.5"
-MUSIC_BASE_GAIN = 0.30
+MUSIC_BASE_GAIN = 0.5
 DUCK_THRESHOLD = 0.015
 DUCK_RATIO = 5
 DUCK_ATTACK_MS = 15
@@ -1313,7 +1313,7 @@ def build_pip_clip(project_dir: Path, entry: TimelineEntry):
 
     resized_overlay = overlay_clip.resized(height=int(OUTPUT_HEIGHT * overlay_scale))
     overlay_mask = build_rounded_mask((resized_overlay.w, resized_overlay.h), PIP_CORNER_RADIUS, entry.duration)
-    masked_overlay = resized_overlay.with_mask(overlay_mask)
+    masked_overlay = resized_overlay.with_mask(overlay_mask).with_duration(entry.duration)
     requested_position = entry.overlay_position or DEFAULT_OVERLAY_POSITION
     if requested_position is None:
         raise ValueError("Vertical presenter overlays require explicit overlay_position.")
