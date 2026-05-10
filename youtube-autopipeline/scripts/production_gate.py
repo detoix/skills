@@ -188,10 +188,11 @@ def find_ffprobe() -> str | None:
     return None
 
 
-def media_duration(path: Path, findings: list[GateFinding]) -> float | None:
+def media_duration(path: Path, findings: list[GateFinding], *, required: bool = False) -> float | None:
     ffprobe = find_ffprobe()
     if not ffprobe:
-        findings.append(GateFinding("WARN", "ffprobe-missing", "ffprobe not found; prototype presenter durations could not be checked"))
+        severity = "ERROR" if required else "WARN"
+        findings.append(GateFinding(severity, "ffprobe-missing", "ffprobe not found; prototype presenter durations could not be checked"))
         return None
     command = [
         ffprobe,
@@ -207,7 +208,8 @@ def media_duration(path: Path, findings: list[GateFinding]) -> float | None:
         completed = subprocess.run(command, check=True, capture_output=True, text=True)
         return float(completed.stdout.strip())
     except (subprocess.CalledProcessError, ValueError) as exc:
-        findings.append(GateFinding("WARN", "duration-unavailable", f"could not read duration for {path}: {exc}"))
+        severity = "ERROR" if required else "WARN"
+        findings.append(GateFinding(severity, "duration-unavailable", f"could not read duration for {path}: {exc}"))
         return None
 
 
@@ -347,7 +349,7 @@ def validate_prototype_presenter_media(
     if start_offset < 0:
         findings.append(GateFinding("ERROR", "prototype-presenter-clip-start", f"{context}.clip_start must be non-negative"))
         return
-    source_duration = media_duration(path, findings)
+    source_duration = media_duration(path, findings, required=True)
     if source_duration is None:
         return
     available = source_duration - start_offset
@@ -786,7 +788,7 @@ def validate_tts_prototype_contract(manifest: dict[str, Any], project_dir: Path,
         )
 
 
-ALLOWED_PROTOTYPE_PRESENTER_MODES = {"static_frame", "raw_muted_video"}
+ALLOWED_PROTOTYPE_PRESENTER_MODES = {"raw_muted_video"}
 
 
 def validate_presenter_prototype_contract(manifest: dict[str, Any], findings: list[GateFinding]) -> None:
