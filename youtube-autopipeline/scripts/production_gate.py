@@ -415,12 +415,12 @@ def validate_script_contract(script: Any, findings: list[GateFinding]) -> None:
     if not isinstance(script, dict):
         findings.append(GateFinding("ERROR", "script-shape", "script.json must be an object"))
         return
-    for key in ("metadata", "segments", "tts_chunks", "broll_queries", "graphics", "assembly_notes"):
+    for key in ("metadata", "segments", "tts_chunks", "broll_queries", "assembly_notes"):
         if key not in script:
             findings.append(GateFinding("ERROR", "script-missing-key", f"script.json is missing {key!r}"))
     if not isinstance(script.get("metadata"), dict):
         findings.append(GateFinding("ERROR", "script-metadata", "script.metadata must be an object"))
-    for key in ("segments", "tts_chunks", "broll_queries", "graphics", "assembly_notes"):
+    for key in ("segments", "tts_chunks", "broll_queries", "assembly_notes"):
         if key in script and not isinstance(script.get(key), list):
             findings.append(GateFinding("ERROR", "script-list", f"script.{key} must be an array"))
     segments = script.get("segments")
@@ -728,9 +728,6 @@ def validate_tts_prototype_contract(manifest: dict[str, Any], project_dir: Path,
         return
     if not any(is_non_empty_string(tts.get(field)) for field in ("engine", "model_id", "model_snapshot")):
         findings.append(GateFinding("ERROR", "prototype-tts-model", "prototype-manifest.tts needs engine, model_id, or model_snapshot"))
-    run_seed = tts.get("run_seed")
-    if run_seed is not None and (not isinstance(run_seed, int) or isinstance(run_seed, bool)):
-        findings.append(GateFinding("ERROR", "prototype-tts-run-seed", "prototype-manifest.tts.run_seed must be an integer when present"))
     if tts.get("prototype_inference_timesteps") != 10:
         findings.append(GateFinding("ERROR", "prototype-tts-steps", "prototype-manifest.tts.prototype_inference_timesteps must be 10"))
     if tts.get("production_inference_timesteps") != 10:
@@ -753,10 +750,6 @@ def validate_tts_prototype_contract(manifest: dict[str, Any], project_dir: Path,
             findings.append(GateFinding("ERROR", "prototype-tts-chunk-id", f"{context}.chunk_id must be non-empty"))
         if not is_non_empty_string(chunk.get("voice_text")):
             findings.append(GateFinding("ERROR", "prototype-tts-chunk-text", f"{context}.voice_text must be non-empty"))
-        if not isinstance(chunk.get("seed"), int) or isinstance(chunk.get("seed"), bool):
-            findings.append(GateFinding("ERROR", "prototype-tts-chunk-seed", f"{context}.seed must be an integer"))
-        if chunk.get("seed_mode") not in {"applied", "recorded_only"}:
-            findings.append(GateFinding("ERROR", "prototype-tts-seed-mode", f"{context}.seed_mode must be 'applied' or 'recorded_only'"))
         audio_path = chunk.get("audio_path")
         if not is_portable_relative_path(audio_path):
             findings.append(GateFinding("ERROR", "prototype-tts-chunk-audio-path", f"{context}.audio_path must be relative to the project and portable"))

@@ -216,7 +216,7 @@ def validate_script(script: Any, report: Report, format_mode: str | None = None)
 
     require_keys(
         script,
-        ("metadata", "segments", "tts_chunks", "broll_queries", "graphics", "assembly_notes"),
+        ("metadata", "segments", "tts_chunks", "broll_queries", "assembly_notes"),
         report,
         "script",
     )
@@ -224,7 +224,7 @@ def validate_script(script: Any, report: Report, format_mode: str | None = None)
     segments = script.get("segments")
     tts_chunks = script.get("tts_chunks")
     broll_queries = script.get("broll_queries")
-    graphics = script.get("graphics")
+
     assembly_notes = script.get("assembly_notes")
 
     if not isinstance(metadata, dict):
@@ -265,9 +265,7 @@ def validate_script(script: Any, report: Report, format_mode: str | None = None)
     if not isinstance(broll_queries, list):
         report.error("script-broll", "broll_queries must be an array")
         broll_queries = []
-    if not isinstance(graphics, list):
-        report.error("script-graphics", "graphics must be an array")
-        graphics = []
+
     if not isinstance(assembly_notes, list):
         report.error("script-assembly-notes", "assembly_notes must be an array")
 
@@ -290,7 +288,6 @@ def validate_script(script: Any, report: Report, format_mode: str | None = None)
                 "pattern_interrupt",
                 "pattern_interrupt_type",
                 "narration",
-                "on_screen_text",
                 "visual_direction",
                 "broll_search_query",
                 "avatar_direction",
@@ -375,16 +372,7 @@ def validate_script(script: Any, report: Report, format_mode: str | None = None)
             if orientation not in {"vertical", "either"}:
                 report.warn("generated-orientation", f"broll_queries[{index}] generated image should prefer vertical or either")
 
-    for index, item in enumerate(graphics):
-        if not isinstance(item, dict):
-            report.error("graphics-shape", f"graphics[{index}] must be an object")
-            continue
-        ref = item.get("segment_id")
-        if ref not in segment_ids:
-            report.error("graphics-ref", f"graphics[{index}] references unknown segment {ref!r}")
-        require_keys(item, ("segment_id", "graphic_type", "copy", "composer_target"), report, f"graphics[{index}]")
-        if item.get("composer_target") not in GRAPHIC_TARGETS:
-            report.error("graphics-target", f"graphics[{index}].composer_target must be one of {sorted(GRAPHIC_TARGETS)}")
+
 
     for index, item in enumerate(assembly_notes):
         if not isinstance(item, dict):

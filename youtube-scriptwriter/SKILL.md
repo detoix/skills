@@ -31,7 +31,7 @@ Generate scripts as production-ready assets, not as plain prose. Always optimize
    - `segments`
    - `tts_chunks`
    - `broll_queries`
-   - `graphics`
+
    - `assembly_notes`
 
 ## Operating Rules
@@ -42,7 +42,7 @@ Generate scripts as production-ready assets, not as plain prose. Always optimize
 - If `B_ROLL` is used, make its `layout` and `panels[]` concrete enough for production.
 - Use `generated-image` in `broll_queries.source_type` when a controlled synthetic still is stronger than stock, webpage capture, or manual assets for an abstract or privacy-safe segment.
 - Do not use generated-image plans to hide missing user assets when the topic depends on the user's real product, presenter, brand, location, or app.
-- Make `on_screen_text` usable as `caption_text` when the timeline needs burned-in reel captions: short, punchy, and not a full transcript dump.
+
 - Keep the spoken narration aligned with the claimed duration.
 - If the requested duration is too short for the topic, compress tightly instead of relaxing the pacing constraints.
 - If the topic is abstract, use concrete examples or metaphors when helpful.
@@ -54,7 +54,7 @@ Generate scripts as production-ready assets, not as plain prose. Always optimize
 - Avoid dense clusters of acronyms or product terms in a single `voice_text` sentence. Split them with punctuation or connective words so TTS has natural pauses.
 - Preserve the target language's normal writing system, accents, punctuation, and diacritics in both `narration` and `voice_text`.
 - By default, make the final segment a concrete `close-cta` segment unless the user explicitly disables CTA or the format makes CTA inappropriate.
-- Put the CTA in the final segment's `narration`, a short version in `on_screen_text`, and a matching `graphics[]` entry with `graphic_type: "cta"`.
+
 - Select CTAs by purpose: tutorials/checklists should ask viewers to save or use the checklist; comparisons should ask viewers to compare before deciding; diagnostics should ask viewers to check their own case; lead comments should ask for a specific keyword; education series may ask viewers to follow only when no more specific CTA fits.
 - Avoid generic "subscribe" or "follow for more" CTAs when a topic-specific action is possible.
 - Keep CTA segments short, usually 3-7 seconds, and do not introduce a new factual claim, offer, link, or promise that was not present in the brief.
@@ -141,20 +141,19 @@ Always follow this contract:
 4. Ensure no `A_ROLL` segment exceeds 20 seconds.
 5. Insert a pattern interrupt every 5-15 seconds.
 6. Use visual changes only when they improve clarity, pacing, or retention.
-7. Fill the production payload arrays so the output can drive TTS, B-roll fetch, text graphics, and assembly.
+7. Fill the production payload arrays so the output can drive TTS, B-roll fetch, and assembly.
 8. Before finalizing, check:
    - no timing gaps
    - no overlong `A_ROLL`
    - no long interrupt gaps
    - B-roll queries are concrete when present
-   - on-screen text is readable and short
-   - caption-style text fits phone viewing and avoids bottom UI/presenter overlay collisions
+
    - generated-image B-roll panels are explicitly justified in `broll_queries` or `assembly_notes`
    - narration is natural for spoken delivery in the target language
    - `tts_chunks[].voice_text` is TTS-safe: no avoidable raw symbols, digit-heavy shorthand, or hard-to-say acronym clusters
    - all numbers, measurements, percentages, screen sizes, refresh rates, and technical shorthand in `voice_text` are written as they should be spoken
    - the final segment contains a concrete CTA unless CTA was explicitly disabled
-   - the final CTA appears in `narration`, `on_screen_text`, and `graphics[]`
+   - the final CTA appears in `narration`
    - the CTA is topic-specific when a topic-specific action is possible
    - the CTA does not promise anything unsupported by the brief
    - no soft-avoid AI vocabulary or academic transitions remain in `narration` or `voice_text` without clear justification

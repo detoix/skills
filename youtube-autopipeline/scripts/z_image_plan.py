@@ -86,7 +86,7 @@ def build_plan(script: dict[str, Any], output_dir: Path, style: str, limit: int 
         }
         if segment_type != "B_ROLL" or (not broll_query and BROLL_SOURCE not in panel_sources):
             continue
-        text = str(segment.get("on_screen_text") or segment.get("visual_direction") or segment_id)
+        text = str(segment.get("visual_direction") or segment_id)
         output = output_dir / f"{segment_id}_{safe_slug(text)}.png"
         prompt = prompt_for_segment(segment, broll_query, style)
         items.append(

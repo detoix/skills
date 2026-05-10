@@ -39,6 +39,13 @@ def write_json(path: Path, payload: object) -> None:
 
 
 class PrototypeGateTests(unittest.TestCase):
+    def setUp(self):
+        self.media_duration_patcher = patch("production_gate.media_duration", return_value=10.0)
+        self.mock_media_duration = self.media_duration_patcher.start()
+
+    def tearDown(self):
+        self.media_duration_patcher.stop()
+
     def write_creative_project(self, root: Path, *, generated_image: bool = False) -> None:
         (root / "manifests").mkdir(parents=True, exist_ok=True)
         segment_type = "B_ROLL" if generated_image else "A_ROLL"
@@ -58,7 +65,6 @@ class PrototypeGateTests(unittest.TestCase):
             "segments": [script_segment],
             "tts_chunks": [{"chunk_id": "T01", "voice_text": "Test narration."}],
             "broll_queries": [],
-            "graphics": [],
             "assembly_notes": [],
         }
         scene = {
@@ -82,7 +88,9 @@ class PrototypeGateTests(unittest.TestCase):
         write_json(root / production_gate.APPROVAL_RELATIVE_PATH, approval)
 
     def write_prototype_bundle(self, root: Path, *, generated_image: bool = False) -> None:
-        write_json(root / "timeline.prototype.json", [{"type": "A_ROLL", "clip_path": "avatar/front.png", "start_time": 0, "end_time": 3}])
+        (root / "avatar").mkdir(exist_ok=True)
+        (root / "avatar" / "front.png").write_bytes(b"presenter plate")
+        write_json(root / "timeline.prototype.json", [{"type": "A_ROLL", "clip_path": "avatar/front.png", "loop_policy": "error", "start_time": 0, "end_time": 3}])
         (root / "outputs").mkdir(exist_ok=True)
         (root / "outputs" / "prototype.mp4").write_bytes(b"prototype video")
         (root / "tts" / "clean").mkdir(parents=True, exist_ok=True)
@@ -136,7 +144,6 @@ class PrototypeGateTests(unittest.TestCase):
             "tts": {
                 "engine": "voxcpm",
                 "model_id": "openbmb/VoxCPM2",
-                "run_seed": 1000,
                 "prototype_inference_timesteps": 10,
                 "production_inference_timesteps": 10,
                 "cfg_value": 2.0,
@@ -148,8 +155,6 @@ class PrototypeGateTests(unittest.TestCase):
                     {
                         "chunk_id": "T01",
                         "voice_text": "Test narration.",
-                        "seed": 424242,
-                        "seed_mode": "applied",
                         "audio_path": "tts/clean/T01.wav",
                         "sha256": production_gate.sha256_file(chunk_path),
                     }
@@ -157,7 +162,7 @@ class PrototypeGateTests(unittest.TestCase):
             },
             "presenter": {
                 "latentsync": "skipped",
-                "presenter_mode": "static_frame",
+                "presenter_mode": "raw_muted_video",
             },
             "generated_image_placeholders": placeholders,
         }
@@ -388,31 +393,6 @@ class PrototypeGateTests(unittest.TestCase):
             write_json(root / production_gate.TTS_PRONUNCIATION_QA_RELATIVE_PATH, {"status": "pass", "chunks": [], "errors": [], "changed": True})
             findings = production_gate.run_prototype_gate(root, write_state=False)
             self.assertIn("prototype-artifact-stale", {item.code for item in findings})
-
-    def test_tts_chunk_seed_is_required(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            self.write_creative_project(root)
-            self.write_prototype_bundle(root)
-            manifest_path = root / production_gate.PROTOTYPE_MANIFEST_RELATIVE_PATH
-            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-            del manifest["tts"]["chunks"][0]["seed"]
-            write_json(manifest_path, manifest)
-            findings = production_gate.run_prototype_gate(root, write_state=False)
-            self.assertIn("prototype-tts-chunk-seed", {item.code for item in findings})
-
-    def test_run_seed_does_not_replace_chunk_seed(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            self.write_creative_project(root)
-            self.write_prototype_bundle(root)
-            manifest_path = root / production_gate.PROTOTYPE_MANIFEST_RELATIVE_PATH
-            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-            manifest["tts"]["seed"] = 424242
-            del manifest["tts"]["chunks"][0]["seed"]
-            write_json(manifest_path, manifest)
-            findings = production_gate.run_prototype_gate(root, write_state=False)
-            self.assertIn("prototype-tts-chunk-seed", {item.code for item in findings})
 
     def test_prototype_bundle_zip_excludes_review_mp4(self):
         with tempfile.TemporaryDirectory() as tmp:

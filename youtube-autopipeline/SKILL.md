@@ -170,7 +170,7 @@ The pipeline has three mandatory stages. Do not collapse them into one run, and 
      --project-dir <project-dir> `
      --mode creative-gate
    ```
-2. Generate final-quality TTS from approved `script.json` with `inference_timesteps: 10`. Save clean target-only chunks, assemble the approved narration as `<project-dir>\final_audio.wav`, and write both `manifests\tts-prototype-manifest.json` and `manifests\final-audio-manifest.json`. Each chunk must record `chunk_id`, `voice_text`, per-chunk integer `seed`, `seed_mode`, `audio_path`, and `sha256`. `final-audio-manifest.json` is created in Stage 2 because Stage 3 reuses this exact audio and `reel-captions` requires real final audio timings. If the user rejects a specific TTS chunk during prototype review, regenerate only that chunk with a new seed and rebuild the prototype artifacts.
+2. Generate final-quality TTS from approved `script.json` with `inference_timesteps: 10`. Save clean target-only chunks, assemble the approved narration as `<project-dir>\final_audio.wav`, and write both `manifests\tts-prototype-manifest.json` and `manifests\final-audio-manifest.json`. Each chunk must record `chunk_id`, `voice_text`, `audio_path`, and `sha256`. `final-audio-manifest.json` is created in Stage 2 because Stage 3 reuses this exact audio and `reel-captions` requires real final audio timings. If the user rejects a specific TTS chunk during prototype review, regenerate only that chunk and rebuild the prototype artifacts.
 3. Run pronunciation QA against the prototype TTS chunks before using the audio in the prototype:
    ```powershell
    python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\tts_pronunciation_qa.py `
@@ -343,7 +343,7 @@ Required review handoff:
 
 The prototype TTS contract is fixed: use the same text as production, `prototype_inference_timesteps: 10`, and `production_inference_timesteps: 10`. This makes the prototype audio the approved final narration source. Do not regenerate final TTS after Prototype Approval unless the user explicitly rejects the approved audio and reopens the prototype gate.
 
-Seed is per chunk, not a global promise that every prototype revision will sound the same. Each `prototype-manifest.json` `tts.chunks[]` entry must include `chunk_id`, `voice_text`, integer `seed`, `seed_mode`, `audio_path`, and `sha256`. Use `seed_mode: "applied"` when the runtime actually used the seed, and `seed_mode: "recorded_only"` only when the runtime cannot enforce it. Optional `tts.run_seed` may be recorded as run metadata, but it never replaces per-chunk seeds. Production uses the approved chunk audio by SHA and does not use seed to regenerate narration.
+Each `prototype-manifest.json` `tts.chunks[]` entry must include `chunk_id`, `voice_text`, `audio_path`, and `sha256`. Production uses the approved chunk audio by SHA and does not regenerate narration.
 
 The prototype presenter contract is fixed: `latentsync: "skipped"` and `presenter_mode: "raw_muted_video"`. Use raw muted presenter video selected from approved presenter plates; do not use static presenter frames/assets for presenter panels in the prototype. Prototype presenter entries must set `loop_policy: "error"`. Prototype Gate fails when presenter media is shorter than its timeline segment after `clip_start`. Raw muted presenter video must use source presenter media without its original audio, must not be looped silently, and should avoid obvious mouth movement that conflicts with the approved prototype audio. Run LatentSync only after Prototype Approval.
 

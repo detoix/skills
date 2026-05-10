@@ -20,7 +20,7 @@ python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\pipeline_check.py `
   "segments": [],
   "tts_chunks": [],
   "broll_queries": [],
-  "graphics": [],
+
   "assembly_notes": []
 }
 ```
@@ -54,7 +54,7 @@ Each item must contain:
 - `pattern_interrupt`: `true` or `false`
 - `pattern_interrupt_type`: short label such as `hook`, `zoom`, `stat-overlay`, `cutaway`, `screen-demo`
 - `narration`: spoken line for that segment
-- `on_screen_text`: exact overlay copy, or `""`
+
 - `visual_direction`: concrete editing instruction
 - `broll_search_query`: search query or shot brief, or `""`
 - `avatar_direction`: performance note for the avatar, or `""`
@@ -85,10 +85,8 @@ Rules:
 - A pattern interrupt must occur every 5-15 seconds.
 - Visual changes should be intentional and tied to clarity, pacing, or retention.
 - Keep narration conversational and easy for TTS.
-- Keep `on_screen_text` short enough to map directly to `caption_text` or a `TEXT` segment in vertical reels.
 - By default, the final segment must be a close-CTA unless the user explicitly disables CTA.
 - For the final CTA segment, set `pattern_interrupt_type` to `close-cta`.
-- The final CTA must appear in `narration`, with a short version in `on_screen_text`.
 - Keep the final CTA segment short, usually 3-7 seconds, and do not introduce a new factual claim, offer, link, or promise that was not present in the brief.
 
 ## `tts_chunks`
@@ -114,16 +112,7 @@ Each item must contain:
 
 Use `generated-image` when a controlled synthetic visual is likely stronger than stock or screen capture, especially for abstract concepts, privacy-safe metaphor scenes, neutral fake UI backgrounds, or clean caption-safe graphic inserts. Do not use it to hide missing user assets when the brief depends on a real product, person, location, brand, or app.
 
-## `graphics`
 
-Each item must contain:
-
-- `segment_id`
-- `graphic_type`
-- `copy`
-- `composer_target`: `B_ROLL` or `manual`
-
-By default, include a `graphics[]` entry for the final segment with `graphic_type: "cta"`, unless the user explicitly disables CTA. Its `copy` must match or compress the final segment's `on_screen_text`.
 
 ## `assembly_notes`
 

@@ -47,23 +47,12 @@ Use it for deterministic short Polish clone tests or emergency CPU fallback when
   /home/detoix/.local/share/voxcpm2-cpu/scripts/generate_clone.py \
   --voice-dir /home/detoix/.local/share/voxcpm2-cpu/voices/krzysztof \
   --text "Cześć, to jest krótka próba klonowania głosu po polsku." \
-  --seed 424242 \
   --steps 4 \
   --max-len 80 \
   --output /home/detoix/.local/share/voxcpm2-cpu/outputs/out.wav
 ```
 
-Verified runtime facts:
-- VoxCPM source commit: `19b6bf7590025418821a86dcb817504e0ad7e5df`.
-- Uses CPU-only PyTorch: `torch==2.11.0+cpu`, `torchaudio==2.11.0+cpu`; `torch.cuda.is_available() == False`.
-- Model/cache/venv are sandboxed under `/home/detoix/.local/share/voxcpm2-cpu`; current verified size was about `7.3G` after model download.
-- Cleanup if this runtime must be removed: `/home/detoix/.local/share/voxcpm2-cpu/cleanup_runtime.sh`.
-- Determinism verified for fixed settings: seed `424242`, steps `4`, `cfg_value=2.0`, `max_len=80` produced identical WAV SHA256 across two runs: `8a0b6436a9e61da5c785935da7cc392fa8792d39ee1279f2dd7d121719b1fc1a`.
-- Changing `--steps` changes the sampling trajectory and may change duration/prosody; do not treat a 4-step draft as the same sample simply refined at 6/8 steps.
-- Performance on the i5-2520M CPU is slow: short full prompt+reference generations take roughly 6-8 minutes for ~3-4 seconds of audio.
-- Peak RAM during generation is about `10.7-11G`; do not run clone jobs in parallel.
-
-The script writes a JSON manifest next to each WAV containing seed, steps, hashes, VoxCPM commit, Torch version, device, and output SHA256.
+The script writes a JSON manifest next to each WAV containing steps, hashes, VoxCPM commit, Torch version, device, and output SHA256.
 
 ## Workflow
 
@@ -76,7 +65,7 @@ The script writes a JSON manifest next to each WAV containing seed, steps, hashe
 - Use **MOSS-TTS** when stability matters most or the text is longer.
 - Use **OmniVoice** when the user wants a voice described with explicit tags such as accent, gender, age, or pitch.    
 - Use **VoxCPM2** when the user wants cloning from a real speech sample.
-- When the user provides both a speech sample and its exact transcription, use the VoxCPM prompt-audio + prompt-text + reference-audio path as the default; prefer `voxcpm.cli batch` for chunk generation with shared settings, and use `voxcpm.cli clone` for exact seed control or one-off regeneration.
+- When the user provides both a speech sample and its exact transcription, use the VoxCPM prompt-audio + prompt-text + reference-audio path as the default; prefer `voxcpm.cli batch` for chunk generation with shared settings, and use `voxcpm.cli clone` for one-off regeneration.
 - Do not ask for generic voice labels such as `male calm` or `female assertive` if a cloned voice is the goal.
 
 ### 3. Speech Generation
@@ -102,7 +91,7 @@ Basic cloning:
 .\venv\Scripts\python.exe generate_voxcpm.py --text "Your text" --reference "ref.wav" --output "out.wav"
 ```
 
-Single-output cloning path when exact seed control or one-off regeneration is needed:
+Single-output cloning path when one-off regeneration is needed:
 ```bash
 .\venv\Scripts\python.exe -m voxcpm.cli clone ^
   --text "Final target text" ^
@@ -123,7 +112,7 @@ Batch cloning path for chunk generation with shared prompt/reference settings:
 ```
 Map `output_001.wav`, `output_002.wav`, etc. back to chunk ids in input-line order.
 
-Use batch mode by default for chunk generation whenever the chunks share the same prompt/reference settings. Use single-output clone mode for exact seed control or one-off regeneration.
+Use batch mode by default for chunk generation whenever the chunks share the same prompt/reference settings. Use single-output clone mode for one-off regeneration.
 
 Preferred PowerShell invocation for reliable local runs:
 ```powershell
@@ -145,7 +134,7 @@ Exact transcript of the sample audio
 - The local wrapper `generate_voxcpm.py` only exposes plain TTS and basic `--reference` cloning.
 - For cloning, prefer the upstream CLI entrypoint:
   `.\venv\Scripts\python.exe -m voxcpm.cli ...`
-- Treat `prompt-audio + prompt-text + reference-audio` as the default clone path when the user can provide a transcript of the sample; use it through `voxcpm.cli batch` for chunk generation with shared settings, or `voxcpm.cli clone` for exact seed control or one-off regeneration.
+- Treat `prompt-audio + prompt-text + reference-audio` as the default clone path when the user can provide a transcript of the sample; use it through `voxcpm.cli batch` for chunk generation with shared settings, or `voxcpm.cli clone` for one-off regeneration.
 - `prompt-text` should be the exact spoken words from the sample audio, not a paraphrase.
 - If the user wants cloning and does not provide a transcript, ask for it explicitly before continuing.
 - Only fall back to basic `--reference` cloning if the user explicitly approves that downgrade.
@@ -167,7 +156,7 @@ Exact transcript of the sample audio
 ### 5. Target-Only Clone Outputs
 The required output for every cloned chunk is **target speech only**. The saved WAV must not include the prompt/sample transcript at the beginning.
 
-Use the VoxCPM prompt/reference path with `--prompt-audio`, `--prompt-text`, and `--reference-audio`; prefer `voxcpm.cli batch` for chunk generation with shared settings, and use `voxcpm.cli clone` for exact seed control or one-off regeneration. On the current local VoxCPM2 CLI this normally writes target-only audio: prompt audio/text are used as conditioning inputs, while the saved waveform contains the requested text.
+Use the VoxCPM prompt/reference path with `--prompt-audio`, `--prompt-text`, and `--reference-audio`; prefer `voxcpm.cli batch` for chunk generation with shared settings, and use `voxcpm.cli clone` for one-off regeneration. On the current local VoxCPM2 CLI this normally writes target-only audio: prompt audio/text are used as conditioning inputs, while the saved waveform contains the requested text.
 
 Do not trim by default. After generation, verify the raw output before using it:
 
@@ -188,7 +177,7 @@ Use prefix trimming only as a corrective step for observed prefix contamination,
 ### 6. Notes
 - VoxCPM2 uses the installed `voxcpm` package and the local wrapper `generate_voxcpm.py`.
 - The wrapper is convenient, but it does not expose the stronger `clone` workflow that uses prompt audio and a transcript.
-- When the user wants a cloned voice, use `python -m voxcpm.cli batch` for chunk generation with shared settings, or `python -m voxcpm.cli clone` for exact seed control or one-off regeneration, instead of the wrapper unless they explicitly ask for a fallback.
+- When the user wants a cloned voice, use `python -m voxcpm.cli batch` for chunk generation with shared settings, or `python -m voxcpm.cli clone` for one-off regeneration, instead of the wrapper unless they explicitly ask for a fallback.
 - VoxCPM2 basic clone mode uses `--reference` and maps to the upstream `reference_wav_path` API.
 - `generate_voxcpm_samples.py` prepares the numbered sample set `voxcpm_1.wav`, `voxcpm_2.wav`, `voxcpm_3.wav`, and `voxcpm_clone_test.wav`.
 - The clone sample expects a placeholder reference file at `temp\voxcpm_clone_reference.wav`.
