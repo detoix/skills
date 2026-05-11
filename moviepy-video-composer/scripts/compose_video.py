@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
 import json
 import shutil
 import subprocess
@@ -181,6 +182,12 @@ def parse_args() -> argparse.Namespace:
         default="landscape",
         choices=("landscape", "vertical", "16:9", "9:16", "16x9", "9x16", "portrait"),
         help="Output format. landscape/16:9 renders 1920x1080; vertical/9:16 renders 1080x1920.",
+    )
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=4,
+        help="Number of parallel segment render workers. Default: 4. Use 1 for sequential.",
     )
     return parser.parse_args()
 
@@ -1358,12 +1365,63 @@ def close_all(clips: Iterable[Any]) -> None:
             close()
 
 
+def _render_segment_worker(
+    index: int,
+    entry: TimelineEntry,
+    project_dir: Path,
+    format_name: str,
+    n_frames: int,
+    seg_path: Path,
+) -> Path:
+    configure_output_format(format_name)
+
+    if entry.type == "A_ROLL":
+        if entry.treatment == "camera_motion":
+            segment, handles = build_camera_motion_clip(project_dir, entry)
+        else:
+            segment, handles = build_standard_clip(project_dir, entry)
+    elif entry.type == "B_ROLL":
+        if entry.layout == "fullscreen" and entry.overlay_path:
+            segment, handles = build_pip_clip(project_dir, entry)
+        elif entry.layout == "fullscreen":
+            if (entry.panels or [{}])[0].get("treatment") == "still_motion":
+                segment, handles = build_still_motion_clip(project_dir, entry)
+            else:
+                segment, handles = build_standard_clip(project_dir, entry)
+        elif entry.layout == "stack2":
+            segment, handles = build_stack_2_clip(project_dir, entry)
+        elif entry.layout == "stack3":
+            segment, handles = build_stack_3_clip(project_dir, entry)
+        elif entry.layout == "grid4":
+            segment, handles = build_grid_4_clip(project_dir, entry)
+        else:
+            raise ValueError(f"Unsupported B_ROLL layout: {entry.layout}")
+    else:
+        raise ValueError(f"Unsupported timeline type: {entry.type}")
+
+    segment, caption_handles = add_caption_overlay(segment, entry)
+    adjusted_duration = n_frames / DEFAULT_FPS
+    segment = segment.with_duration(adjusted_duration)
+
+    segment.write_videofile(
+        str(seg_path),
+        fps=DEFAULT_FPS,
+        codec=DEFAULT_CODEC,
+        audio=False,
+        logger=None,
+    )
+    close_all([segment, *handles, *caption_handles])
+    return seg_path
+
+
 def compose_video(
     project_dir: Path,
     timeline_path: Path,
     audio_path: Path,
     music_path: Path | None,
     output_path: Path,
+    format_name: str = "landscape",
+    max_workers: int = 4,
 ) -> Path:
     entries = load_timeline(timeline_path)
     ensure_file(audio_path, "Audio file")
@@ -1373,59 +1431,51 @@ def compose_video(
         ensure_file(music_path, "Music file")
         music_probe = probe_audio_file(music_path, "Music file")
 
-    opened: list[Any] = []
-    visual_segments = []
-    final_video = None
-    temp_video_path = None
+    temp_dir = Path(tempfile.mkdtemp(prefix="compose_segments_"))
+    segment_paths: list[Path] = []
 
     try:
-        for entry in entries:
-            if entry.type == "A_ROLL":
-                if entry.treatment == "camera_motion":
-                    segment, handles = build_camera_motion_clip(project_dir, entry)
-                else:
-                    segment, handles = build_standard_clip(project_dir, entry)
-            elif entry.type == "B_ROLL":
-                if entry.layout == "fullscreen" and entry.overlay_path:
-                    segment, handles = build_pip_clip(project_dir, entry)
-                elif entry.layout == "fullscreen":
-                    if (entry.panels or [{}])[0].get("treatment") == "still_motion":
-                        segment, handles = build_still_motion_clip(project_dir, entry)
-                    else:
-                        segment, handles = build_standard_clip(project_dir, entry)
-                elif entry.layout == "stack2":
-                    segment, handles = build_stack_2_clip(project_dir, entry)
-                elif entry.layout == "stack3":
-                    segment, handles = build_stack_3_clip(project_dir, entry)
-                elif entry.layout == "grid4":
-                    segment, handles = build_grid_4_clip(project_dir, entry)
-                else:
-                    raise ValueError(f"Unsupported B_ROLL layout: {entry.layout}")
-            else:
-                raise ValueError(f"Unsupported timeline type: {entry.type}")
-            segment, caption_handles = add_caption_overlay(segment, entry)
-            visual_segments.append(segment)
-            opened.extend([*handles, *caption_handles])
+        total_frames = round(entries[-1].end_time * DEFAULT_FPS)
+        segment_frame_counts = [round(entry.duration * DEFAULT_FPS) for entry in entries]
+        frame_diff = total_frames - sum(segment_frame_counts)
+        if frame_diff != 0:
+            segment_frame_counts[-1] += frame_diff
 
-        final_video = concatenate_videoclips(visual_segments, method="compose")
+        workers = max(1, min(max_workers, len(entries)))
+        seg_paths = [temp_dir / f"seg_{i:03d}.mp4" for i in range(len(entries))]
+        with concurrent.futures.ProcessPoolExecutor(max_workers=workers) as executor:
+            futures = {}
+            for i, entry in enumerate(entries):
+                future = executor.submit(
+                    _render_segment_worker,
+                    i, entry, project_dir, format_name,
+                    segment_frame_counts[i], seg_paths[i],
+                )
+                futures[future] = i
+            for future in concurrent.futures.as_completed(futures):
+                future.result()
+        segment_paths = seg_paths
+
+        concat_list_path = temp_dir / "concat_list.txt"
+        with concat_list_path.open("w", encoding="utf-8") as f:
+            for j in range(len(segment_paths)):
+                f.write(f"file 'seg_{j:03d}.mp4'\n")
+
+        temp_concat_path = temp_dir / "concat.mp4"
+        ffmpeg_bin = require_ffmpeg()
+        run_ffmpeg([
+            ffmpeg_bin, "-y", "-f", "concat", "-safe", "0",
+            "-i", str(concat_list_path),
+            "-c", "copy",
+            str(temp_concat_path),
+        ])
+
         output_path.parent.mkdir(parents=True, exist_ok=True)
-
-        with tempfile.NamedTemporaryFile(prefix="compose_video_", suffix=".mp4", delete=False) as handle:
-            temp_video_path = Path(handle.name)
-
-        final_video.write_videofile(
-            str(temp_video_path),
-            fps=DEFAULT_FPS,
-            codec=DEFAULT_CODEC,
-            audio=False,
-        )
-        mix_mode = mux_with_processed_audio(temp_video_path, audio_path, music_path, output_path, entries[-1].end_time)
+        mix_mode = mux_with_processed_audio(temp_concat_path, audio_path, music_path, output_path, entries[-1].end_time)
         write_audio_mix_manifest(project_dir, output_path, entries[-1].end_time, narration_probe, music_probe, mix_mode)
         return output_path
     finally:
-        close_all([final_video, *visual_segments, *opened])
-        if temp_video_path is not None and temp_video_path.exists():
-            temp_video_path.unlink()
+        shutil.rmtree(str(temp_dir), ignore_errors=True)
 
 
 def main() -> int:
@@ -1450,7 +1500,7 @@ def main() -> int:
         metadata={"timeline": str(timeline_path), "output": str(output_path), "music": str(music_path) if music_path else None},
     )
     try:
-        result = compose_video(project_dir, timeline_path, audio_path, music_path, output_path)
+        result = compose_video(project_dir, timeline_path, audio_path, music_path, output_path, format_name=args.format, max_workers=args.workers)
     except Exception as exc:
         end_stage(project_dir, render_record, status="error", error=str(exc))
         raise
