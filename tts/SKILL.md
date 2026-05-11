@@ -1,20 +1,20 @@
 ---
 name: tts
-description: Use when you need local neural speech generation or voice cloning with the MOSS-TTS, OmniVoice, or VoxCPM2 engines, especially when choosing between stable long-form TTS, tag-driven voice design, and GPU-first expressive synthesis.
+description: Use when you need local neural speech generation or voice cloning with the VoxCPM2 engine, especially for GPU-first expressive synthesis.
 ---
 
-# MOSS, OmniVoice & VoxCPM2 TTS
+# VoxCPM2 TTS
 
-This skill provides access to three local TTS engines for speech generation and voice cloning.
+This skill provides access to VoxCPM2 for speech generation and voice cloning.
 
 ## Environment Note
-**OmniVoice** and **VoxCPM2** are installed in the local speech generation environment at:
+
+**VoxCPM2** is installed in the local speech generation environment at:
 
 `%USERPROFILE%\Downloads\speech-gen\venv`
 
 Prefer that interpreter explicitly for local runs:
 ```bash
-%USERPROFILE%\Downloads\speech-gen\venv\Scripts\python.exe generate_omnivoice.py ...
 %USERPROFILE%\Downloads\speech-gen\venv\Scripts\python.exe generate_voxcpm.py ...
 %USERPROFILE%\Downloads\speech-gen\venv\Scripts\python.exe -m voxcpm.cli ...
 ```
@@ -28,7 +28,7 @@ python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\guarded_production_
   -- <tts command...>
 ```
 
-The wrapper scripts such as `generate_voxcpm.py` and `generate_omnivoice.py` live in:
+The wrapper script `generate_voxcpm.py` lives in:
 
 `%USERPROFILE%\Downloads\speech-gen`
 
@@ -56,29 +56,7 @@ The script writes a JSON manifest next to each WAV containing steps, hashes, Vox
 
 ## Workflow
 
-### 1. Engine Selection
-- **MOSS-TTS (GGUF)**: Best for stable, high-quality generation. Ideal for long-form content.
-- **OmniVoice**: Best for rapid voice design using specific tags or zero-shot cloning.
-- **VoxCPM2**: Best for GPU-first expressive synthesis and basic cloning when you want to test whether it can outperform MOSS on the local RTX 4050 6 GB setup.
-
-### 2. Quick Selection Guide
-- Use **MOSS-TTS** when stability matters most or the text is longer.
-- Use **OmniVoice** when the user wants a voice described with explicit tags such as accent, gender, age, or pitch.    
-- Use **VoxCPM2** when the user wants cloning from a real speech sample.
-- When the user provides both a speech sample and its exact transcription, use the VoxCPM prompt-audio + prompt-text + reference-audio path as the default; prefer `voxcpm.cli batch` for chunk generation with shared settings, and use `voxcpm.cli clone` for one-off regeneration.
-- Do not ask for generic voice labels such as `male calm` or `female assertive` if a cloned voice is the goal.
-
-### 3. Speech Generation
-
-#### Using MOSS-TTS
-```bash
-python generate_moss.py --text "Your text" --output "out.wav" [--reference "ref.wav"]
-```
-
-#### Using OmniVoice
-```bash
-.\venv\Scripts\python.exe generate_omnivoice.py --text "Your text" --instruct "tags" --output "out.wav"
-```
+### 1. Speech Generation
 
 #### Using VoxCPM2
 Plain TTS:
@@ -130,7 +108,7 @@ Exact transcript of the sample audio
   --output 'C:\path\to\out.wav'
 ```
 
-### 4. VoxCPM2 Practical Guidance
+### 2. VoxCPM2 Practical Guidance
 - The local wrapper `generate_voxcpm.py` only exposes plain TTS and basic `--reference` cloning.
 - For cloning, prefer the upstream CLI entrypoint:
   `.\venv\Scripts\python.exe -m voxcpm.cli ...`
@@ -153,7 +131,7 @@ Exact transcript of the sample audio
 - Plain English and Polish TTS were verified to fit in VRAM at roughly `5247 MiB allocated` and `~5.6-5.7 GiB reserved`.
 - Start with plain TTS before cloning. Cloning is the next likely point of VRAM failure.
 
-### 5. Target-Only Clone Outputs
+### 3. Target-Only Clone Outputs
 The required output for every cloned chunk is **target speech only**. The saved WAV must not include the prompt/sample transcript at the beginning.
 
 Use the VoxCPM prompt/reference path with `--prompt-audio`, `--prompt-text`, and `--reference-audio`; prefer `voxcpm.cli batch` for chunk generation with shared settings, and use `voxcpm.cli clone` for one-off regeneration. On the current local VoxCPM2 CLI this normally writes target-only audio: prompt audio/text are used as conditioning inputs, while the saved waveform contains the requested text.
@@ -174,7 +152,7 @@ Keep a manifest field such as `trim_mode`:
 
 Use prefix trimming only as a corrective step for observed prefix contamination, not as the normal VoxCPM2 clone path.
 
-### 6. Notes
+### 4. Notes
 - VoxCPM2 uses the installed `voxcpm` package and the local wrapper `generate_voxcpm.py`.
 - The wrapper is convenient, but it does not expose the stronger `clone` workflow that uses prompt audio and a transcript.
 - When the user wants a cloned voice, use `python -m voxcpm.cli batch` for chunk generation with shared settings, or `python -m voxcpm.cli clone` for one-off regeneration, instead of the wrapper unless they explicitly ask for a fallback.
@@ -183,8 +161,4 @@ Use prefix trimming only as a corrective step for observed prefix contamination,
 - The clone sample expects a placeholder reference file at `temp\voxcpm_clone_reference.wav`.
 
 ## References
-- **Config**: MOSS-TTS uses `moss_local_config.yaml`.
-- **Models**:
-  - MOSS: `models/MOSS-TTS-GGUF/MOSS_TTS_Q4_K_M.gguf`
-  - OmniVoice: `drbaph/OmniVoice-bf16`
-  - VoxCPM2: `openbmb/VoxCPM2`
+- **Model**: `openbmb/VoxCPM2`
