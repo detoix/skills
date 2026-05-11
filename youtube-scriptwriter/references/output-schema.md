@@ -99,6 +99,8 @@ Each item must contain:
 - `delivery_style`
 - `estimated_seconds`
 
+`segment_ids` maps each TTS chunk to its referenced `segments[].narration`. Production captions use that written narration. `voice_text` is TTS input only and must not be used for captions.
+
 ## `broll_queries`
 
 Each item must contain:

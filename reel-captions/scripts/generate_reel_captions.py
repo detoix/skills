@@ -88,7 +88,22 @@ def load_script_segments(script_path: Path, audio_duration: float) -> tuple[str,
     data = json.loads(script_path.read_text(encoding="utf-8-sig"))
     tts_chunks = data.get("tts_chunks") or []
     if not tts_chunks:
-        raise ValueError("script.json must contain tts_chunks for caption alignment")
+        raise ValueError("script.json must contain tts_chunks for caption timing")
+
+    segments = data.get("segments") or []
+    if not segments:
+        raise ValueError("script.json must contain segments for written narration")
+    narration_by_segment: dict[str, str] = {}
+    for index, segment in enumerate(segments):
+        if not isinstance(segment, dict):
+            raise ValueError(f"script.json segments[{index}] must be an object")
+        segment_id = segment.get("segment_id")
+        if not isinstance(segment_id, str) or not segment_id.strip():
+            raise ValueError(f"script.json segments[{index}] is missing segment_id")
+        narration = str(segment.get("narration", "")).strip()
+        if not narration:
+            raise ValueError(f"script.json segment {segment_id!r} has empty narration")
+        narration_by_segment[segment_id] = narration
 
     manifest_path = script_path.parent / "manifests" / "final-audio-manifest.json"
     if not manifest_path.exists():
@@ -131,9 +146,13 @@ def load_script_segments(script_path: Path, audio_duration: float) -> tuple[str,
         chunk_id = chunk.get("chunk_id")
         if not isinstance(chunk_id, str) or not chunk_id.strip():
             raise ValueError("script.json tts_chunks entry is missing chunk_id")
-        text = str(chunk.get("voice_text", "")).strip()
-        if not text:
-            raise ValueError(f"script.json chunk {chunk_id!r} has empty voice_text")
+        segment_ids = chunk.get("segment_ids")
+        if not isinstance(segment_ids, list) or not segment_ids:
+            raise ValueError(f"script.json chunk {chunk_id!r} must contain non-empty segment_ids for written narration")
+        missing_segments = [segment_id for segment_id in segment_ids if segment_id not in narration_by_segment]
+        if missing_segments:
+            raise ValueError(f"script.json chunk {chunk_id!r} references missing segment narration: {missing_segments}")
+        text = " ".join(narration_by_segment[segment_id] for segment_id in segment_ids)
         if chunk_id not in timing_by_chunk:
             raise ValueError(f"final-audio-manifest.json is missing timing for script chunk {chunk_id!r}")
         timing = timing_by_chunk[chunk_id]

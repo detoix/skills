@@ -249,7 +249,7 @@ The pipeline has three mandatory stages. Do not collapse them into one run, and 
       --mode timeline
     ```
 11. Render the uncaptioned final base video with `moviepy-video-composer` to `final_output.mp4`. Pass project music when enabled, or `--music NONE` when disabled. The composer writes `manifests\audio-mix-manifest.json`.
-12. Burn spoken captions only in final production with `reel-captions`. Before captioning, `manifests\final-audio-manifest.json` must exist and contain real `tts_chunks[].timeline_start_seconds` for `final_audio.wav`:
+12. Burn captions from `segments[].narration` only in final production with `reel-captions`. Before captioning, `manifests\final-audio-manifest.json` must exist and contain real `tts_chunks[].timeline_start_seconds` for `final_audio.wav`. Use `tts_chunks[].segment_ids` only to map chunk timing to segment narration. `tts_chunks[].voice_text` is TTS input only:
     ```powershell
     & "<caption-python>" C:\Users\kdeptula\skills\reel-captions\scripts\generate_reel_captions.py `
       --project-dir <project-dir> `

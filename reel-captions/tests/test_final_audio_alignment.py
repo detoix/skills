@@ -16,10 +16,14 @@ class FinalAudioAlignmentTests(unittest.TestCase):
     def write_project(self, root: Path, manifest_chunks: list[dict]) -> Path:
         (root / "manifests").mkdir()
         script = {
+            "segments": [
+                {"segment_id": "S10", "narration": "Przed zakupem sprawdz tez pilot."},
+                {"segment_id": "S11", "narration": "Etykieta energetyczna w Unii jest od A do G."},
+            ],
             "tts_chunks": [
-                {"chunk_id": "T10", "voice_text": "Przed zakupem sprawdź też pilot."},
-                {"chunk_id": "T11", "voice_text": "Etykieta energetyczna w Unii jest od A do G."},
-            ]
+                {"chunk_id": "T10", "segment_ids": ["S10"], "voice_text": "Przed zakupem sprawdz tesz pilot."},
+                {"chunk_id": "T11", "segment_ids": ["S11"], "voice_text": "Etykieta energetyczna w Unii jest od A do G."},
+            ],
         }
         script_path = root / "script.json"
         script_path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
@@ -43,6 +47,7 @@ class FinalAudioAlignmentTests(unittest.TestCase):
             _transcript, segments, info = captions.load_script_segments(script_path, 86.76)
 
             self.assertEqual(info["alignment_source"], "final-audio-manifest")
+            self.assertEqual(segments[0]["text"], "Przed zakupem sprawdz tez pilot.")
             self.assertEqual(segments[1]["start"], 72.56)
             self.assertNotAlmostEqual(segments[1]["start"], 76.17, places=2)
 
@@ -52,7 +57,12 @@ class FinalAudioAlignmentTests(unittest.TestCase):
             (root / "manifests").mkdir()
             script_path = root / "script.json"
             script_path.write_text(
-                json.dumps({"tts_chunks": [{"chunk_id": "T11", "voice_text": "Tekst."}]}),
+                json.dumps(
+                    {
+                        "segments": [{"segment_id": "S11", "narration": "Tekst."}],
+                        "tts_chunks": [{"chunk_id": "T11", "segment_ids": ["S11"], "voice_text": "Tekst."}],
+                    }
+                ),
                 encoding="utf-8",
             )
             with self.assertRaises(FileNotFoundError):
@@ -80,6 +90,28 @@ class FinalAudioAlignmentTests(unittest.TestCase):
             )
             with self.assertRaisesRegex(ValueError, "timeline_start_seconds"):
                 captions.load_script_segments(script_path, 86.76)
+
+    def test_missing_segment_mapping_fails_instead_of_using_voice_text(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "manifests").mkdir()
+            script_path = root / "script.json"
+            script_path.write_text(
+                json.dumps(
+                    {
+                        "segments": [{"segment_id": "S10", "narration": "Written caption."}],
+                        "tts_chunks": [{"chunk_id": "T10", "voice_text": "Spoken fallback must not be used."}],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (root / "manifests" / "final-audio-manifest.json").write_text(
+                json.dumps({"tts_chunks": [{"chunk": "T10", "timeline_start_seconds": 0, "duration_seconds": 1}]}),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ValueError, "segment_ids"):
+                captions.load_script_segments(script_path, 1.0)
 
 
 if __name__ == "__main__":

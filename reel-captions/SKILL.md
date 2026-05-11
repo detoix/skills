@@ -52,9 +52,11 @@ If WhisperX is missing, install it explicitly into the selected runtime. If inst
 
 WhisperX default behavior:
 
-- Use supplied transcript text from `script.json`.
+- Use written narration from `script.json` `segments[].narration`.
 - Use `<project-dir>/manifests/final-audio-manifest.json` as the only timing source for `script.json` chunk alignment.
 - Map `final-audio-manifest.json` `tts_chunks[].chunk` to `script.json` `tts_chunks[].chunk_id`.
+- Map `script.json` `tts_chunks[].segment_ids` to `segments[].segment_id` for written narration.
+- Do not fall back to `tts_chunks[].voice_text`.
 - Use `tts_chunks[].timeline_start_seconds` plus `duration_seconds` for each forced-alignment segment.
 - Do not use `manifests/tts-manifest.json` for caption alignment.
 - Do not scale `script.json` planned segment timings to match final audio.

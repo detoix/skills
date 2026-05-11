@@ -20,4 +20,4 @@ Default vertical placement uses ASS alignment 2 with a bottom margin around 420 
 
 ## Transcript Policy
 
-The display transcript comes from the approved script or transcript file. Alignment may normalize text for matching, but the visible caption words preserve the approved source text.
+For `script.json`, captions are generated from `segments[].narration`, mapped through `tts_chunks[].segment_ids`. Alignment may normalize text for matching, but the caption words preserve the approved narration text. `tts_chunks[].voice_text` is reserved for TTS input and must not be used as a fallback.
