@@ -636,17 +636,10 @@ def validate_approval(approval: Any, project_dir: Path, findings: list[GateFindi
             )
 
 
-def scene_matches_identifier(scene: dict[str, Any], *, scene_id: str | None, segment_id: str | None, board_id: str | None) -> bool:
-    candidates = {
-        str(scene.get("scene_id", "")).strip(),
-        str(scene.get("segment_id", "")).strip(),
-        str(scene.get("board_id", "")).strip(),
-    }
-    board_ids = scene.get("board_ids")
-    if isinstance(board_ids, list):
-        candidates.update(str(item).strip() for item in board_ids if str(item).strip())
-    wanted = {value for value in (scene_id, segment_id, board_id) if value}
-    return bool(wanted & candidates)
+def scene_matches_segment(scene: dict[str, Any], *, segment_id: str | None) -> bool:
+    if not segment_id:
+        return True
+    return str(scene.get("segment_id", "")).strip() == segment_id
 
 
 def require_broll_source(
@@ -654,9 +647,7 @@ def require_broll_source(
     findings: list[GateFinding],
     source: str | None,
     *,
-    scene_id: str | None = None,
     segment_id: str | None = None,
-    board_id: str | None = None,
 ) -> None:
     if not source:
         return
@@ -667,15 +658,15 @@ def require_broll_source(
         scene
         for scene in scenes
         if source in broll_panel_sources(scene, findings, f"visual-plan scene {scene.get('scene_id')!r}")
-        and scene_matches_identifier(scene, scene_id=scene_id, segment_id=segment_id, board_id=board_id)
+        and scene_matches_segment(scene, segment_id=segment_id)
     ]
     if not matches:
-        identifiers = ", ".join(f"{key}={value}" for key, value in (("scene_id", scene_id), ("segment_id", segment_id), ("board_id", board_id)) if value)
+        identifier = f"segment_id={segment_id}" if segment_id else "the requested item"
         findings.append(
             GateFinding(
                 "ERROR",
                 "broll-source-not-approved",
-                f"visual-plan has no approved B-roll panel source={source!r} matching {identifiers or 'the requested item'}",
+                f"visual-plan has no approved B-roll panel source={source!r} matching {identifier}",
             )
         )
 
@@ -1079,9 +1070,7 @@ def run_creative_gate(
     project_dir: Path,
     *,
     require_source: str | None = None,
-    scene_id: str | None = None,
     segment_id: str | None = None,
-    board_id: str | None = None,
     write_state: bool = True,
 ) -> list[GateFinding]:
     project_dir = project_dir.resolve()
@@ -1101,7 +1090,7 @@ def run_creative_gate(
     if approval is not None:
         validate_approval(approval, project_dir, findings)
 
-    require_broll_source(scenes, findings, require_source, scene_id=scene_id, segment_id=segment_id, board_id=board_id)
+    require_broll_source(scenes, findings, require_source, segment_id=segment_id)
 
     if write_state:
         write_pipeline_state(project_dir, findings, gate="creative-gate", blocked_stage="production")
@@ -1289,9 +1278,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--project-dir", default=".", help="Project directory.")
     parser.add_argument("--gate", choices=("creative", "prototype"), default="creative", help="Gate to validate.")
     parser.add_argument("--require-broll-source", choices=sorted(ALLOWED_SOURCE_STRATEGIES), help="Require an approved visual-plan scene with this B-roll panel source.")
-    parser.add_argument("--scene-id", help="Scene id to match in visual-plan.")
     parser.add_argument("--segment-id", help="Segment id to match in visual-plan.")
-    parser.add_argument("--board-id", help="Board id to match in visual-plan.")
     parser.add_argument("--json", action="store_true", help="Emit JSON findings.")
     return parser.parse_args()
 
@@ -1299,16 +1286,14 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     if args.gate == "prototype":
-        if any((args.require_broll_source, args.scene_id, args.segment_id, args.board_id)):
-            raise SystemExit("--require-broll-source/--scene-id/--segment-id/--board-id are only valid for the creative gate")
+        if any((args.require_broll_source, args.segment_id)):
+            raise SystemExit("--require-broll-source/--segment-id are only valid for the creative gate")
         findings = run_prototype_gate(Path(args.project_dir))
     else:
         findings = run_creative_gate(
             Path(args.project_dir),
             require_source=args.require_broll_source,
-            scene_id=args.scene_id,
             segment_id=args.segment_id,
-            board_id=args.board_id,
         )
     if args.json:
         print(json.dumps([finding.__dict__ for finding in findings], indent=2, ensure_ascii=False))

@@ -35,12 +35,8 @@ function parseArgs(argv) {
         options.projectDir = next;
         i += 1;
         break;
-      case "--board-id":
-        options.boardId = next;
-        i += 1;
-        break;
-      case "--data-json":
-        options.dataJson = next;
+      case "--segment-id":
+        options.segmentId = next;
         i += 1;
         break;
       case "--help":
@@ -54,34 +50,37 @@ function parseArgs(argv) {
   }
 
   if (!options.projectDir) throw new Error("Missing required --project-dir");
-  if (!options.boardId) throw new Error("Missing required --board-id");
-  if (!options.dataJson) throw new Error("Missing required --data-json. Animated boards require a creative brief.");
+  if (!options.segmentId) throw new Error("Missing required --segment-id");
   return options;
 }
 
 function printHelp() {
   console.log(`Usage:
-  node scripts/create_board.mjs --project-dir <dir> --board-id <id> --data-json <board-creative-brief.json>
+  node scripts/create_board.mjs --project-dir <dir> --segment-id <id>
 
-The data JSON must be a creative brief, not a template config. Required fields:
-  ${REQUIRED_BRIEF_FIELDS.join(", ")}
-
-Optional fields:
-  format: vertical|landscape
-  duration: seconds
-  narrative_intent: semantic board intent such as process-flow, checklist, timeline
-  preset: high-level aesthetic hint only
+Default mode derives the creative brief from script.json and manifests/visual-plan.json.
 `);
 }
 
 function safeId(value) {
-  const cleaned = String(value).replace(/[^a-zA-Z0-9_-]/g, "_");
-  if (!cleaned) throw new Error("--board-id must contain a usable filename");
+  if (value === undefined || value === null || String(value).trim() === "") {
+    throw new Error("Output id must be derivable from segment_id");
+  }
+  const cleaned = String(value).trim().replace(/[^a-zA-Z0-9_-]/g, "_");
+  if (!cleaned) throw new Error("Output id must contain a usable filename");
   return cleaned;
 }
 
 function hashText(value) {
   return crypto.createHash("sha256").update(value, "utf8").digest("hex");
+}
+
+async function readJson(filePath, label) {
+  try {
+    return JSON.parse((await fs.readFile(filePath, "utf8")).replace(/^\uFEFF/, ""));
+  } catch (error) {
+    throw new Error(`Cannot read ${label} at ${filePath}: ${error.message}`);
+  }
 }
 
 function requireString(value, field) {
@@ -101,9 +100,7 @@ function requireArray(value, field) {
   }
 }
 
-async function loadCreativeBrief(dataJson) {
-  const briefPath = path.resolve(dataJson);
-  const brief = JSON.parse((await fs.readFile(briefPath, "utf8")).replace(/^\uFEFF/, ""));
+function normalizeCreativeBrief(brief) {
   if (!brief || typeof brief !== "object" || Array.isArray(brief)) {
     throw new Error("Creative brief JSON must be an object");
   }
@@ -120,7 +117,96 @@ async function loadCreativeBrief(dataJson) {
   if (!FORMATS[format]) throw new Error("Creative brief format must be vertical or landscape");
   const duration = Number(brief.duration || 6);
   if (!Number.isFinite(duration) || duration <= 0) throw new Error("Creative brief duration must be positive");
-  return { briefPath, brief: { ...brief, format, duration } };
+  return { ...brief, format, duration };
+}
+
+function firstString(...values) {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return "";
+}
+
+function toStringArray(value) {
+  if (Array.isArray(value)) {
+    return value.map((item) => String(item).trim()).filter(Boolean);
+  }
+  if (typeof value === "string" && value.trim()) return [value.trim()];
+  return [];
+}
+
+function formatFromMetadata(script, visualPlan) {
+  const raw = firstString(script?.metadata?.format_mode, visualPlan?.metadata?.format_mode, "vertical").toLowerCase();
+  if (raw === "landscape" || raw === "16:9") return "landscape";
+  return "vertical";
+}
+
+function findVisualScene(visualPlan, segmentId) {
+  const scenes = Array.isArray(visualPlan?.scenes) ? visualPlan.scenes : [];
+  const scene = scenes.find((item) => {
+    if (!item || typeof item !== "object") return false;
+    if (segmentId && item.segment_id === segmentId) return true;
+    return false;
+  });
+  if (!scene) throw new Error(`No visual-plan scene found for segment_id=${segmentId}`);
+  return scene;
+}
+
+function findSegment(script, visualScene, segmentId) {
+  const segments = Array.isArray(script?.segments) ? script.segments : [];
+  const wanted = segmentId || visualScene?.segment_id;
+  const segment = segments.find((item) => item && item.segment_id === wanted);
+  if (!segment) throw new Error(`No script segment found for segment_id=${wanted || "(missing)"}`);
+  return segment;
+}
+
+async function deriveCreativeBrief(projectDir, segmentId) {
+  const root = path.resolve(projectDir);
+  const scriptPath = path.join(root, "script.json");
+  const visualPlanPath = path.join(root, "manifests", "visual-plan.json");
+  const script = await readJson(scriptPath, "script.json");
+  const visualPlan = await readJson(visualPlanPath, "visual-plan.json");
+  const visualScene = findVisualScene(visualPlan, segmentId);
+  const segment = findSegment(script, visualScene, segmentId);
+  const acceptance = toStringArray(visualScene.acceptance_criteria);
+  const copyBlocks = toStringArray(segment.on_screen_text || visualScene.on_screen_text);
+  const promptText = firstString(segment.broll_search_query);
+  if (promptText) copyBlocks.push(promptText);
+  const motionBeats = [
+    firstString(segment.pattern_interrupt_type, visualScene.layout, segment.layout),
+    firstString(visualScene.visual_idea, segment.visual_direction),
+    ...acceptance.slice(0, 2),
+  ].filter(Boolean);
+  const avoid = [
+    "fake product UI",
+    "long paragraphs",
+    "unreadable phone-scale text",
+    ...acceptance.filter((item) => /\b(no|not|avoid|without|bez|nie)\b/i.test(item)).slice(0, 3),
+  ];
+  const brief = {
+    segment_id: segment.segment_id,
+    intent: firstString(visualScene.purpose, segment.visual_direction, segment.narration),
+    audience: firstString(script?.metadata?.target_audience, "reel viewer"),
+    visual_metaphor: firstString(visualScene.visual_idea, segment.visual_direction),
+    art_direction: firstString(visualPlan?.metadata?.visual_style, segment.editor_notes, "custom motion-design board"),
+    composition: firstString(
+      visualScene.layout ? `${visualScene.layout}: ${visualScene.visual_idea || ""}` : "",
+      segment.layout ? `${segment.layout}: ${segment.visual_direction || ""}` : "",
+      visualScene.visual_idea,
+    ),
+    motion_beats: motionBeats.length ? motionBeats : ["establish visual metaphor", "animate key states", "resolve on readable message"],
+    copy_blocks: copyBlocks.length ? copyBlocks : [firstString(segment.on_screen_text, segment.narration, visualScene.purpose)],
+    avoid,
+    acceptance_notes: acceptance.length ? acceptance.join(" ") : firstString(segment.editor_notes, "Readable at phone scale and aligned with visual plan."),
+    format: formatFromMetadata(script, visualPlan),
+    duration: Number(segment.duration_seconds || 6),
+    narrative_intent: firstString(segment.pattern_interrupt_type, visualScene.purpose),
+    preset: "custom-directed",
+  };
+  return {
+    briefPath: `${path.relative(root, scriptPath)} + ${path.relative(root, visualPlanPath)}`,
+    brief: normalizeCreativeBrief(brief),
+  };
 }
 
 async function fileExists(filePath) {
@@ -157,19 +243,14 @@ html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#111;color:
 </html>`;
 }
 
-function runProductionGate(projectDir, boardId, brief) {
+function runProductionGate(projectDir, brief) {
   const args = [
     PRODUCTION_GATE,
     "--project-dir",
     path.resolve(projectDir),
     "--require-broll-source",
     "synthetic-motion",
-    "--board-id",
-    boardId,
   ];
-  if (typeof brief.scene_id === "string" && brief.scene_id.trim()) {
-    args.push("--scene-id", brief.scene_id.trim());
-  }
   if (typeof brief.segment_id === "string" && brief.segment_id.trim()) {
     args.push("--segment-id", brief.segment_id.trim());
   }
@@ -185,17 +266,17 @@ function runProductionGate(projectDir, boardId, brief) {
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
-  const boardId = safeId(args.boardId);
-  const { briefPath, brief } = await loadCreativeBrief(args.dataJson);
-  await runProductionGate(args.projectDir, boardId, brief);
+  const { briefPath, brief } = await deriveCreativeBrief(args.projectDir, args.segmentId);
+  const outputId = safeId(args.segmentId);
+  await runProductionGate(args.projectDir, brief);
   const dimensions = FORMATS[brief.format];
-  const boardDir = path.join(path.resolve(args.projectDir), "broll", "boards", boardId);
+  const boardDir = path.join(path.resolve(args.projectDir), "broll", "boards", outputId);
   await fs.mkdir(boardDir, { recursive: true });
 
   const indexPath = path.join(boardDir, "index.html");
   const briefOutputPath = path.join(boardDir, "board-creative-brief.json");
   const manifestPath = path.join(boardDir, "board-manifest.json");
-  const clipPath = path.join(boardDir, `${boardId}.webm`);
+  const clipPath = path.join(boardDir, `${outputId}.webm`);
   const previewPath = path.join(boardDir, "preview.png");
 
   if (!(await fileExists(indexPath))) {
@@ -206,7 +287,6 @@ async function main() {
   const sceneHash = hashText(html);
   const briefHash = hashText(JSON.stringify(brief));
   const manifest = {
-    board_id: boardId,
     narrative_intent: brief.narrative_intent || brief.intent,
     preset: brief.preset || "custom-directed",
     format: brief.format,

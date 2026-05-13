@@ -53,8 +53,8 @@ function parseArgs(argv) {
         options.projectDir = next;
         i += 1;
         break;
-      case "--board-id":
-        options.boardId = next;
+      case "--segment-id":
+        options.segmentId = next;
         i += 1;
         break;
       case "--help":
@@ -67,13 +67,14 @@ function parseArgs(argv) {
     }
   }
   if (!options.projectDir) throw new Error("Missing required --project-dir");
-  if (!options.boardId) throw new Error("Missing required --board-id");
+  options.outputId = options.segmentId;
+  if (!options.outputId) throw new Error("Missing required --segment-id");
   return options;
 }
 
 function printHelp() {
   console.log(`Usage:
-  node scripts/qa_board.mjs --project-dir <dir> --board-id <id>
+  node scripts/qa_board.mjs --project-dir <dir> --segment-id <id>
 `);
 }
 
@@ -133,7 +134,7 @@ function validateCopyBlocks(manifest, bodyText, failures) {
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
-  const boardDir = path.join(path.resolve(args.projectDir), "broll", "boards", args.boardId);
+  const boardDir = path.join(path.resolve(args.projectDir), "broll", "boards", args.outputId);
   const manifestPath = path.join(boardDir, "board-manifest.json");
   if (!(await fileExists(manifestPath))) throw new Error(`Missing board manifest: ${manifestPath}`);
   const manifest = JSON.parse(await fs.readFile(manifestPath, "utf8"));
@@ -250,7 +251,6 @@ async function main() {
     validateCopyBlocks(manifest, dom.bodyText, failures);
 
     const qa = {
-      board_id: manifest.board_id,
       status: failures.length ? "fail" : "pass",
       failures,
       preview: previewPath,

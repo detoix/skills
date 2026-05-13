@@ -19,8 +19,8 @@ function parseArgs(argv) {
         options.projectDir = next;
         i += 1;
         break;
-      case "--board-id":
-        options.boardId = next;
+      case "--segment-id":
+        options.segmentId = next;
         i += 1;
         break;
       case "--output":
@@ -41,13 +41,14 @@ function parseArgs(argv) {
     }
   }
   if (!options.projectDir) throw new Error("Missing required --project-dir");
-  if (!options.boardId) throw new Error("Missing required --board-id");
+  options.outputId = options.segmentId;
+  if (!options.outputId) throw new Error("Missing required --segment-id");
   return options;
 }
 
 function printHelp() {
   console.log(`Usage:
-  node scripts/render_board.mjs --project-dir <dir> --board-id <id> [--output <file.webm>] [--duration <seconds>]
+  node scripts/render_board.mjs --project-dir <dir> --segment-id <id> [--output <file.webm>] [--duration <seconds>]
 `);
 }
 
@@ -87,30 +88,30 @@ function runCommand(command, args) {
   });
 }
 
-function runProductionGate(projectDir, boardId) {
-  return runCommand(process.env.PYTHON || "python", [
+function runProductionGate(projectDir, args) {
+  const gateArgs = [
     PRODUCTION_GATE,
     "--project-dir",
     path.resolve(projectDir),
     "--require-broll-source",
     "synthetic-motion",
-    "--board-id",
-    boardId,
-  ]);
+  ];
+  if (args.segmentId) gateArgs.push("--segment-id", args.segmentId);
+  return runCommand(process.env.PYTHON || "python", gateArgs);
 }
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
-  await runProductionGate(args.projectDir, args.boardId);
-  const boardDir = path.join(path.resolve(args.projectDir), "broll", "boards", args.boardId);
+  await runProductionGate(args.projectDir, args);
+  const boardDir = path.join(path.resolve(args.projectDir), "broll", "boards", args.outputId);
   const manifestPath = path.join(boardDir, "board-manifest.json");
   if (!(await fileExists(manifestPath))) throw new Error(`Missing board manifest: ${manifestPath}`);
   const manifest = JSON.parse(await fs.readFile(manifestPath, "utf8"));
   const htmlPath = path.resolve(manifest.html || path.join(boardDir, "index.html"));
-  const output = path.resolve(args.output || manifest.clip || path.join(boardDir, `${args.boardId}.webm`));
+  const output = path.resolve(args.output || manifest.clip || path.join(boardDir, `${args.outputId}.webm`));
   const preview = path.resolve(manifest.preview || path.join(boardDir, "preview.png"));
   const duration = Number.isFinite(args.duration) ? args.duration : Number(manifest.duration || 6);
-  const rawOutput = path.join(boardDir, `${args.boardId}.raw-recording.webm`);
+  const rawOutput = path.join(boardDir, `${args.outputId}.raw-recording.webm`);
   const qaPath = path.join(boardDir, "board-qa.json");
   if (!(await fileExists(htmlPath))) throw new Error(`Missing board HTML: ${htmlPath}`);
   if (!(await fileExists(qaPath))) throw new Error(`Missing passing QA report. Run qa_board.mjs before render: ${qaPath}`);

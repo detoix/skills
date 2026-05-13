@@ -744,9 +744,9 @@ Use `animated-broll-boards` only when `manifests\visual-plan.json` includes a B-
 
 Rules:
 
-- Save outputs under `<project-dir>\broll\boards\<board-id>\`.
+- Save outputs under `<project-dir>\broll\boards\<segment-id>\`.
 - Render boards as `.webm` clips from project-local `HTML/CSS/JS`.
-- Record accepted board clips in `manifests\selected-visuals.json` with a full intent entry: `segment_id`, `section_pattern`, `local_path: "broll/boards/<board-id>/<board-id>.webm"`, `duration_seconds`, `accepted: true`, `intended_use`, `reason`, `risk: "synthetic explanatory motion graphic"`, `board_id: "<board-id>"`, `creative_concept`, `visual_metaphor`, and `motion_summary`. Do not write `source_type`; the resolver must assign `source_type: "synthetic-motion"` from the path/provenance.
+- Record accepted board clips in `manifests\selected-visuals.json` with a full intent entry: `segment_id`, `section_pattern`, `local_path: "broll/boards/<segment-id>/<segment-id>.webm"`, `duration_seconds`, `accepted: true`, `intended_use`, `reason`, `risk: "synthetic explanatory motion graphic"`, `creative_concept`, `visual_metaphor`, and `motion_summary`. Do not write `source_type`; the resolver must assign `source_type: "synthetic-motion"` from the path/provenance.
 - Run `qa_board.mjs` and inspect the preview before timeline use.
 - Do not create production abstract/UI/infographic B-roll as ad hoc static PNG/Pillow boards. Static PNGs are allowed only as tiny auxiliary assets or when the user explicitly requests a still.
 - Reject boards that look like old infographics, test harnesses, template placeholders, generic cards, clipart layouts, repeated component layouts, or low-effort mock UI.
