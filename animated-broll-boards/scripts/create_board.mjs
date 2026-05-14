@@ -170,8 +170,6 @@ async function deriveCreativeBrief(projectDir, segmentId) {
   const segment = findSegment(script, visualScene, segmentId);
   const acceptance = toStringArray(visualScene.acceptance_criteria);
   const copyBlocks = toStringArray(segment.on_screen_text || visualScene.on_screen_text);
-  const promptText = firstString(segment.broll_search_query);
-  if (promptText) copyBlocks.push(promptText);
   const motionBeats = [
     firstString(segment.pattern_interrupt_type, visualScene.layout, segment.layout),
     firstString(visualScene.visual_idea, segment.visual_direction),

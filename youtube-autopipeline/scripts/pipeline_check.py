@@ -289,7 +289,6 @@ def validate_script(script: Any, report: Report, format_mode: str | None = None)
                 "pattern_interrupt_type",
                 "narration",
                 "visual_direction",
-                "broll_search_query",
                 "avatar_direction",
                 "editor_notes",
             ),

@@ -56,7 +56,6 @@ Each item must contain:
 - `narration`: spoken line for that segment
 
 - `visual_direction`: concrete editing instruction
-- `broll_search_query`: search query or shot brief, or `""`
 - `avatar_direction`: performance note for the avatar, or `""`
 - `sfx_cue`: optional cue, or `""`
 - `editor_notes`: practical assembly note
