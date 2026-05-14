@@ -53,7 +53,7 @@ Each item must contain:
 - `panels`: required only for `B_ROLL`; each panel is `{ "kind": "broll", "source": "<source>" }` or `{ "kind": "presenter" }`
 - `pattern_interrupt`: `true` or `false`
 - `pattern_interrupt_type`: short label such as `hook`, `zoom`, `stat-overlay`, `cutaway`, `screen-demo`
-- `narration`: spoken line for that segment
+- `narration`: natural, correctly written line for that segment
 
 - `visual_direction`: concrete editing instruction
 - `avatar_direction`: performance note for the avatar, or `""`
@@ -83,7 +83,7 @@ Rules:
 - `B_ROLL` must include at least one panel with `kind: "broll"` and a valid `source`.
 - A pattern interrupt must occur every 5-15 seconds.
 - Visual changes should be intentional and tied to clarity, pacing, or retention.
-- Keep narration conversational and easy for TTS.
+- Keep `narration` conversational.
 - By default, the final segment must be a close-CTA unless the user explicitly disables CTA.
 - For the final CTA segment, set `pattern_interrupt_type` to `close-cta`.
 - Keep the final CTA segment short, usually 3-7 seconds, and do not introduce a new factual claim, offer, link, or promise that was not present in the brief.
@@ -98,7 +98,7 @@ Each item must contain:
 - `delivery_style`
 - `estimated_seconds`
 
-`segment_ids` maps each TTS chunk to its referenced `segments[].narration`. Production captions use that written narration. `voice_text` is TTS input only and must not be used for captions.
+`segment_ids` maps each TTS chunk to its referenced `segments[].narration`.
 
 ## `broll_queries`
 

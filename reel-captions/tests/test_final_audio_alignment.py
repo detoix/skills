@@ -21,8 +21,8 @@ class FinalAudioAlignmentTests(unittest.TestCase):
                 {"segment_id": "S11", "narration": "Etykieta energetyczna w Unii jest od A do G."},
             ],
             "tts_chunks": [
-                {"chunk_id": "T10", "segment_ids": ["S10"], "voice_text": "Przed zakupem sprawdz tesz pilot."},
-                {"chunk_id": "T11", "segment_ids": ["S11"], "voice_text": "Etykieta energetyczna w Unii jest od A do G."},
+                {"chunk_id": "T10", "segment_ids": ["S10"]},
+                {"chunk_id": "T11", "segment_ids": ["S11"]},
             ],
         }
         script_path = root / "script.json"
@@ -60,7 +60,7 @@ class FinalAudioAlignmentTests(unittest.TestCase):
                 json.dumps(
                     {
                         "segments": [{"segment_id": "S11", "narration": "Tekst."}],
-                        "tts_chunks": [{"chunk_id": "T11", "segment_ids": ["S11"], "voice_text": "Tekst."}],
+                        "tts_chunks": [{"chunk_id": "T11", "segment_ids": ["S11"]}],
                     }
                 ),
                 encoding="utf-8",
@@ -91,7 +91,7 @@ class FinalAudioAlignmentTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "timeline_start_seconds"):
                 captions.load_script_segments(script_path, 86.76)
 
-    def test_missing_segment_mapping_fails_instead_of_using_voice_text(self):
+    def test_missing_segment_mapping_fails(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "manifests").mkdir()
@@ -100,7 +100,7 @@ class FinalAudioAlignmentTests(unittest.TestCase):
                 json.dumps(
                     {
                         "segments": [{"segment_id": "S10", "narration": "Written caption."}],
-                        "tts_chunks": [{"chunk_id": "T10", "voice_text": "Spoken fallback must not be used."}],
+                        "tts_chunks": [{"chunk_id": "T10"}],
                     }
                 ),
                 encoding="utf-8",

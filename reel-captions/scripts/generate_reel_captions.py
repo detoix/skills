@@ -11,11 +11,6 @@ import sys
 from pathlib import Path
 from typing import Any
 
-AUTOPIPELINE_SCRIPTS = Path(__file__).resolve().parents[2] / "youtube-autopipeline" / "scripts"
-sys.path.insert(0, str(AUTOPIPELINE_SCRIPTS))
-from production_gate import run_creative_gate  # noqa: E402
-from production_metrics import end_stage, start_stage  # noqa: E402
-
 
 DEFAULT_FONT = "Arial"
 DEFAULT_WORDS_PER_PHRASE = 4
@@ -520,15 +515,6 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     project_dir = args.project_dir.resolve()
-    gate_record = start_stage(project_dir, "creative_gate", command=["production_gate.py", "--project-dir", str(project_dir)])
-    gate_findings = run_creative_gate(project_dir)
-    gate_errors = [finding for finding in gate_findings if finding.severity == "ERROR"]
-    if gate_errors:
-        for finding in gate_findings:
-            print(f"{finding.severity}: {finding.code}: {finding.message}", file=sys.stderr)
-        end_stage(project_dir, gate_record, status="fail", return_code=1, metadata={"errors": len(gate_errors)})
-        return 1
-    end_stage(project_dir, gate_record, status="pass", return_code=0)
     captions_dir = project_dir / "captions"
     manifests_dir = project_dir / "manifests"
     captions_dir.mkdir(parents=True, exist_ok=True)
@@ -555,25 +541,14 @@ def main() -> int:
             raise ValueError("Provide --script, --transcript, or --words-json")
         if not transcript.strip():
             raise ValueError("Transcript is empty")
-        align_record = start_stage(
-            project_dir,
-            "caption_alignment",
-            command=["generate_reel_captions.py", "--stage", "align"],
-            metadata={"language": args.language, "device": args.device, "align_model": args.align_model, "segments": len(align_segments)},
+        words = align_with_whisperx(
+            audio_path=audio_path,
+            align_segments=align_segments,
+            language=args.language,
+            align_model=args.align_model,
+            device=args.device,
+            model_dir=args.model_dir,
         )
-        try:
-            words = align_with_whisperx(
-                audio_path=audio_path,
-                align_segments=align_segments,
-                language=args.language,
-                align_model=args.align_model,
-                device=args.device,
-                model_dir=args.model_dir,
-            )
-        except Exception as exc:
-            end_stage(project_dir, align_record, status="error", error=str(exc))
-            raise
-        end_stage(project_dir, align_record, status="pass", return_code=0, metadata={"words": len(words)})
 
     total, untimed = validate_words(words, args.max_untimed_ratio)
     words_path = captions_dir / "words.json"
@@ -608,18 +583,7 @@ def main() -> int:
     if not args.skip_burn:
         if not args.video or not args.output:
             raise ValueError("--video and --output are required unless --skip-burn is set")
-        burn_record = start_stage(
-            project_dir,
-            "caption_burn_in",
-            command=["generate_reel_captions.py", "--stage", "burn"],
-            metadata={"video": str(args.video.resolve()), "output": str(args.output.resolve())},
-        )
-        try:
-            burn_ass(args.video.resolve(), ass_path, args.output.resolve(), project_dir)
-        except Exception as exc:
-            end_stage(project_dir, burn_record, status="error", error=str(exc))
-            raise
-        end_stage(project_dir, burn_record, status="pass", return_code=0)
+        burn_ass(args.video.resolve(), ass_path, args.output.resolve(), project_dir)
         output_meta = ffprobe_video(args.output.resolve())
         if video_meta and (
             output_meta["width"] != video_meta["width"]

@@ -147,9 +147,9 @@ The pipeline has three mandatory stages. Do not collapse them into one run, and 
    ```
 6. Before creating the blocking creative review request, surface this soft pre-gate checklist when the user asks for a checklist, FAQ, review notes, or wants to sanity-check the plan. This is not a hard gate and does not replace `pipeline_check.py`:
    - Presenter variety: did the plan select varied presenter assets/roles and avoid counting duplicate source files as variety?
-   - Script humanization: does the narration sound natural for the target language, with no stiff AI/corporate phrasing?
+   - Script humanization: does `segments[].narration` read naturally as the text humans review and captions display?
    - B-roll variety: does the visual plan use varied section patterns and B-roll source strategies appropriate to the story?
-   - Language/TTS readiness: are target-language characters intact, and are acronyms, numbers, symbols, brand names, and mixed-language literals written safely for TTS?
+   - Language readiness: are target-language characters intact in `narration`?
 7. Create the blocking creative review request and stop. Only after the user replies exactly `approved`, create `manifests\creative-approval.json`:
    ```powershell
    python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\request_creative_review.py `
@@ -221,6 +221,7 @@ The pipeline has three mandatory stages. Do not collapse them into one run, and 
      --mode prototype-gate
    ```
    Final production commands run through `guarded_production_command.py --gate-profile production`.
+   TODO: Move gate and production timing ownership into this orchestrator for child tools that still import `production_gate` or `production_metrics` directly.
 2. Reuse the approved `final_audio.wav` and `manifests\final-audio-manifest.json` from Stage 2 as final narration. Do not regenerate TTS after Prototype Approval unless the user explicitly rejects the approved audio and reopens Stage 2. Final timing must come from the approved prototype audio manifest and may be adjusted only for final visual substitutions.
 3. Create or update `manifests\presenter-plan.json`. Presenter Plate Variety QA must pass before LatentSync. Hashes must come from the asset manifest or a file-hashing tool, never from hand-authored values.
 4. Run `latentsync` with the approved audio and selected silent motion plates. Write `manifests\latentsync-jobs.json` when multiple presenter clips are needed. Verify every output is non-empty and duration-matches its clean audio before timeline assembly.
@@ -249,15 +250,20 @@ The pipeline has three mandatory stages. Do not collapse them into one run, and 
       --mode timeline
     ```
 11. Render the uncaptioned final base video with `moviepy-video-composer` to `final_output.mp4`. Pass project music when enabled, or `--music NONE` when disabled. The composer writes `manifests\audio-mix-manifest.json`.
-12. Burn captions from `segments[].narration` only in final production with `reel-captions`. Before captioning, `manifests\final-audio-manifest.json` must exist and contain real `tts_chunks[].timeline_start_seconds` for `final_audio.wav`. Use `tts_chunks[].segment_ids` only to map chunk timing to segment narration. `tts_chunks[].voice_text` is TTS input only:
+12. Burn captions with `reel-captions`. Caption text comes from `script.json` `segments[].narration`; alignment uses `final_audio.wav` and `manifests\final-audio-manifest.json`:
     ```powershell
-    & "<caption-python>" C:\Users\kdeptula\skills\reel-captions\scripts\generate_reel_captions.py `
+    python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\guarded_production_command.py `
       --project-dir <project-dir> `
-      --audio <project-dir>\final_audio.wav `
-      --video <project-dir>\final_output.mp4 `
-      --script <project-dir>\script.json `
-      --output <project-dir>\final_output_captioned.mp4 `
-      --language <metadata.language>
+      --gate-profile production `
+      --stage captions `
+      -- `
+      "<caption-python>" C:\Users\kdeptula\skills\reel-captions\scripts\generate_reel_captions.py `
+        --project-dir <project-dir> `
+        --audio <project-dir>\final_audio.wav `
+        --video <project-dir>\final_output.mp4 `
+        --script <project-dir>\script.json `
+        --output <project-dir>\final_output_captioned.mp4 `
+        --language <metadata.language>
     ```
 13. Run final visual QA on `final_output_captioned.mp4` unless captions are explicitly disabled by the user. Final pass requires concrete agent visual review notes; structural checks alone cannot mark delivery success.
 14. Summarize production timing logs from `manifests\production-timings.jsonl`, then report final outputs or blockers.

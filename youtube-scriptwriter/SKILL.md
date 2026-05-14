@@ -46,11 +46,10 @@ Generate scripts as production-ready assets, not as plain prose. Always optimize
 - Keep the spoken narration aligned with the claimed duration.
 - If the requested duration is too short for the topic, compress tightly instead of relaxing the pacing constraints.
 - If the topic is abstract, use concrete examples or metaphors when helpful.
-- Write narration for spoken delivery, not for visual text-only reading.
-- Keep narration natural in the target language, but avoid overfitting the script to a specific TTS engine.
+- Write `segments[].narration` as natural, correctly written text.
 - If a line contains literals such as digits, shorthand, passwords, or mixed-language tokens, it is acceptable to keep the authored wording when that is important for the script, as long as the line is still understandable to a human reader.
-- Treat `tts_chunks[].voice_text` as the TTS-safe spoken version of the script. It may differ from `segments[].narration` when pronunciation improves.
-- In `voice_text`, write numbers, units, symbols, abbreviations, and mixed technical shorthand the way they should be spoken.
+- Treat `tts_chunks[].voice_text` as the TTS-safe spoken version of the script.
+- In `voice_text`, write phonetic brand pronunciation, numbers, units, symbols, abbreviations, and mixed technical shorthand the way they should be spoken.
 - Avoid dense clusters of acronyms or product terms in a single `voice_text` sentence. Split them with punctuation or connective words so TTS has natural pauses.
 - Preserve the target language's normal writing system, accents, punctuation, and diacritics in both `narration` and `voice_text`.
 - By default, make the final segment a concrete `close-cta` segment unless the user explicitly disables CTA or the format makes CTA inappropriate.
@@ -100,7 +99,7 @@ The same principles apply in Polish — see the reference doc for Polish-specifi
 
 ## TTS-Safe Voice Text
 
-Use `segments[].narration` for the editorial spoken script and `tts_chunks[].voice_text` for the exact TTS input. When a literal may be misread, keep the natural meaning but rewrite the literal in a pronunciation-safe form.
+Use `segments[].narration` for the written script. Use `tts_chunks[].voice_text` for TTS-friendly wording when pronunciation needs adjustment.
 
 Examples for Polish TTS:
 
@@ -113,7 +112,7 @@ Examples for Polish TTS:
 - `m²` -> `metrów kwadratowych`
 - `OLED/QLED/Mini LED` -> `OLED, QLED albo Mini LED`
 
-Do not phoneticize every brand or acronym blindly. Keep common acronyms as written when they are normally pronounced as letters and the TTS voice is likely to handle them; rewrite only when the literal is likely to produce awkward or incorrect speech.
+For brands and acronyms, keep common letter-by-letter forms as written when the TTS voice is likely to handle them; use pronunciation-safe rewrites when the literal is likely to produce awkward or incorrect speech.
 
 ## Direct Agent Use
 

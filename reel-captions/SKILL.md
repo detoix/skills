@@ -7,15 +7,13 @@ description: Generate and hard-burn modern word-by-word captions for reels, shor
 
 Use this skill to add modern short-form captions to a rendered reel. The default workflow preserves the approved transcript and uses alignment only for timing.
 
-For YouTube autopipeline production projects, `scripts\generate_reel_captions.py` enforces the parent Creative Approval Gate before generating or burning captions.
-
 ## Workflow
 
 1. Confirm inputs:
    - rendered video, usually `<project-dir>\final_output.mp4`
    - final narration audio, usually `<project-dir>\final_audio.wav`
-   - final audio timing manifest, exactly `<project-dir>\manifests\final-audio-manifest.json`
-   - approved transcript source: `script.json` `tts_chunks` or a plain transcript file
+   - transcript source: `script.json`
+   - when using `script.json`, a timing manifest at `<project-dir>\manifests\final-audio-manifest.json`
 2. Generate word timings and ASS captions:
    ```powershell
    & "<caption-python>" C:\Users\kdeptula\skills\reel-captions\scripts\generate_reel_captions.py `
@@ -52,11 +50,11 @@ If WhisperX is missing, install it explicitly into the selected runtime. If inst
 
 WhisperX default behavior:
 
-- Use written narration from `script.json` `segments[].narration`.
-- Use `<project-dir>/manifests/final-audio-manifest.json` as the only timing source for `script.json` chunk alignment.
+- For `script.json`, use written narration from `segments[].narration` as the caption transcript.
+- Use `<project-dir>/manifests/final-audio-manifest.json` for `script.json` chunk alignment.
 - Map `final-audio-manifest.json` `tts_chunks[].chunk` to `script.json` `tts_chunks[].chunk_id`.
-- Map `script.json` `tts_chunks[].segment_ids` to `segments[].segment_id` for written narration.
-- Do not fall back to `tts_chunks[].voice_text`.
+- Map `script.json` `tts_chunks[].segment_ids` to `segments[].segment_id` for audio timing to written narration.
+- Caption text comes from `segments[].narration`.
 - Use `tts_chunks[].timeline_start_seconds` plus `duration_seconds` for each forced-alignment segment.
 - Do not use `manifests/tts-manifest.json` for caption alignment.
 - Do not scale `script.json` planned segment timings to match final audio.
