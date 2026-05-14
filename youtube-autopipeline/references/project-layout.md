@@ -7,7 +7,6 @@ Create one project directory per video.
 ```text
 project-root/
   brief.json
-  script.md
   script.json
   validation-report.json
   manifests/
@@ -62,7 +61,6 @@ project-root/
 ```text
 project-root/
   brief.json
-  script.md
   script.json
   validation-report.json
   manifests/

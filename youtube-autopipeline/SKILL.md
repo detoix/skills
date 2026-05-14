@@ -129,7 +129,7 @@ The pipeline has three mandatory stages. Do not collapse them into one run, and 
    ```
    For test-only runs, add `--test-input-label <test-run-label>`.
 3. Ingest music with `music_intake.py`, or explicitly disable music with `--music NONE`. Validate `manifests\music-manifest.json` when music is part of the project contract.
-4. Call `youtube-scriptwriter`. Produce `script.json`, `script.md` when available, and `manifests\visual-plan.json`. Present those artifacts to the user and stop for creative review. The visual plan must use `A_ROLL` and `B_ROLL`; B-roll source diversity comes only from `B_ROLL` panels with `kind: "broll"`. The creative plan targets roughly 50% of planned `B_ROLL` duration with a `presenter` panel, but this is not a reason to put presenter overlays on every B-roll.
+4. Call `youtube-scriptwriter`. Produce `script.json` and `manifests\visual-plan.json`. Present those artifacts to the user and stop for creative review. The visual plan must use `A_ROLL` and `B_ROLL`; B-roll source diversity comes only from `B_ROLL` panels with `kind: "broll"`. The creative plan targets roughly 50% of planned `B_ROLL` duration with a `presenter` panel, but this is not a reason to put presenter overlays on every B-roll.
 5. Validate `script.json`, language quality, asset intake, and music intake before creating the review request:
    ```powershell
    python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\pipeline_check.py `
@@ -303,7 +303,7 @@ python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\request_creative_re
   --project-dir <project-dir>
 ```
 
-Stop and wait for the user to review `script.json`, `script.md` when present, and `manifests\visual-plan.json`. Only
+Stop and wait for the user to review `script.json` and `manifests\visual-plan.json`. Only
 after the user replies exactly `approved`, run:
 
 ```powershell
@@ -312,7 +312,7 @@ python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\approve_creative_pl
   --resume-signal approved
 ```
 
-When the user gave enough detail to draft the plan, create or update `script.json`, optionally `script.md`, and `manifests\visual-plan.json` as planning artifacts only, then stop and ask for approval. Do not treat this as permission to continue production.
+When the user gave enough detail to draft the plan, create or update `script.json` and `manifests\visual-plan.json` as planning artifacts only, then stop and ask for approval. Do not treat this as permission to continue production.
 
 There is no production override. If the user requests a one-shot production run, still stop at this gate.
 
