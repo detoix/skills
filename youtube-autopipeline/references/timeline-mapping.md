@@ -18,7 +18,6 @@ Presenter-only segment:
   "type": "A_ROLL",
   "clip_path": "synced/front/A01.mp4",
   "clip_start": 0.0,
-  "loop_policy": "error",
   "start_time": 0.0,
   "end_time": 6.5
 }
@@ -82,7 +81,7 @@ Presenter as one stacked panel:
   "type": "B_ROLL",
   "layout": "stack2",
   "panels": [
-    { "kind": "presenter", "path": "synced/front/A02.mp4", "loop_policy": "error" },
+    { "kind": "presenter", "path": "synced/front/A02.mp4" },
     { "kind": "broll", "source": "generated-image", "path": "broll/generated/S04.png", "treatment": "still_motion" }
   ],
   "start_time": 18.0,
@@ -114,4 +113,3 @@ Punch-in is an A-roll crop/edit treatment, not a segment type. Keep it as an edi
 - Duration is `end_time - start_time`.
 - Use `clip_start` on an entry as a fallback source offset.
 - Use panel-level `clip_start` when different panels need different source offsets.
-- Use `loop_policy: "error"` for all visible presenter media.

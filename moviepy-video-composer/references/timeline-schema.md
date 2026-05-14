@@ -14,7 +14,6 @@ The composer does not accept layout or treatment names as top-level `type` value
   "type": "A_ROLL",
   "clip_path": "synced/front/A01.mp4",
   "clip_start": 0.0,
-  "loop_policy": "error",
   "start_time": 0.0,
   "end_time": 5.0
 }
@@ -74,7 +73,7 @@ Presenter as a stack panel:
   "type": "B_ROLL",
   "layout": "stack2",
   "panels": [
-    { "kind": "presenter", "path": "synced/front/A02.mp4", "loop_policy": "error" },
+    { "kind": "presenter", "path": "synced/front/A02.mp4" },
     { "kind": "broll", "source": "generated-image", "path": "broll/generated/S02.png", "treatment": "still_motion" }
   ],
   "start_time": 16.0,

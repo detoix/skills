@@ -108,7 +108,6 @@ class FrontStackCropTests(unittest.TestCase):
                     "panel.png",
                     2.0,
                     0.0,
-                    "loop",
                     "STACK_2 bottom clip",
                     (1080, 960),
                     {"kind": "broll", "path": "panel.png", "treatment": "still_motion", "motion_type": "pan-left"},
@@ -136,7 +135,6 @@ class FrontStackCropTests(unittest.TestCase):
                     "panel.png",
                     2.0,
                     0.0,
-                    "loop",
                     "STACK_2 bottom clip",
                     (1080, 960),
                     {"kind": "broll", "path": "panel.png"},
@@ -145,7 +143,7 @@ class FrontStackCropTests(unittest.TestCase):
             self.assertEqual(clip, "fitted")
             self.assertEqual(handles, [source_clip, None, source_clip, "fitted", "scale_handle"])
             motion.assert_not_called()
-            normalize.assert_called_once_with(image_path.resolve(), 2.0, 0.0, "loop", "STACK_2 bottom clip")
+            normalize.assert_called_once_with(image_path.resolve(), 2.0, 0.0, "STACK_2 bottom clip", "loop_safe_broll")
             scale.assert_called_once_with(source_clip, (1080, 960), "cover")
 
     def test_broll_still_motion_panel_defaults_to_push_in(self):
@@ -160,13 +158,29 @@ class FrontStackCropTests(unittest.TestCase):
                     "panel.png",
                     2.0,
                     0.0,
-                    "loop",
                     "GRID_4 clip 1",
                     (540, 960),
                     {"kind": "broll", "path": "panel.png", "treatment": "still_motion"},
                 )
 
             motion.assert_called_once_with(image_path.resolve(), 2.0, (540, 960), "push-in", "GRID_4 clip 1")
+
+    def test_duration_fit_holds_tiny_presenter_tail(self):
+        self.assertEqual(compose_video.duration_fit_action(5.95, 6.0, "presenter"), "hold_last_frame")
+
+    def test_duration_fit_ping_pongs_bounded_presenter_tail(self):
+        self.assertEqual(compose_video.duration_fit_action(5.2, 6.0, "presenter"), "ping_pong")
+
+    def test_duration_fit_rejects_presenter_tail_over_limit(self):
+        with self.assertRaises(ValueError):
+            compose_video.duration_fit_action(3.0, 4.0, "presenter")
+
+    def test_duration_fit_loops_loop_safe_broll(self):
+        self.assertEqual(compose_video.duration_fit_action(3.0, 6.0, "loop_safe_broll"), "loop")
+
+    def test_duration_fit_rejects_loop_unsafe_broll_over_hold_tail(self):
+        with self.assertRaises(ValueError):
+            compose_video.duration_fit_action(5.0, 5.5, "loop_unsafe_broll")
 
 
 if __name__ == "__main__":

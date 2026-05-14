@@ -351,7 +351,7 @@ The prototype TTS contract is fixed: use the same text as production, `prototype
 
 Each `prototype-manifest.json` `tts.chunks[]` entry must include `chunk_id`, `voice_text`, `audio_path`, and `sha256`. Production uses the approved chunk audio by SHA and does not regenerate narration.
 
-The prototype presenter contract is fixed: `latentsync: "skipped"` and `presenter_mode: "raw_muted_video"`. Use raw muted presenter video selected from approved presenter plates; do not use static presenter frames/assets for presenter panels in the prototype. Prototype presenter entries must set `loop_policy: "error"`. Prototype Gate fails when presenter media is shorter than its timeline segment after `clip_start`. Raw muted presenter video must use source presenter media without its original audio, must not be looped silently, and should avoid obvious mouth movement that conflicts with the approved prototype audio. Run LatentSync only after Prototype Approval.
+The prototype presenter contract is fixed: `latentsync: "skipped"` and `presenter_mode: "raw_muted_video"`. Use raw muted presenter video selected from approved presenter plates for prototype presenter panels. Prototype Gate checks presenter media against composer duration limits after `clip_start`. Raw muted presenter video uses source presenter motion with source audio stripped and works best with neutral mouth movement relative to the approved prototype audio. Run LatentSync only after Prototype Approval.
 
 For `source: "generated-image"` panels, the prototype must use text placeholders from the prompt or visual brief, not generated images. Use `scripts\build_prototype_timeline.py` to create placeholder assets and `timeline.prototype.json`. Run generated-image production only after Prototype Approval.
 
@@ -710,7 +710,7 @@ The agent may freely combine:
 - split-screen sections
 - two-stack and three-stack sections
 - four-grid comparison/collage sections
-- bounded still-image camera motion
+- still-image camera motion
 
 ### B-Roll Source Mix And Uniqueness
 
@@ -928,16 +928,6 @@ Use these composer controls consistently:
 - panel `clip_start`: per-panel source offset
 - panel `treatment`: optional render treatment such as `still_motion`
 - panel `motion_type`: optional still-motion direction
-- `loop_policy`: `loop` or `error`
-- panel `loop_policy`: per-panel loop control
-
-Default policies:
-
-- A-roll presenter: `loop_policy: "error"`
-- presenter panels: `loop_policy: "error"`
-- B-roll panels: `loop_policy: "loop"` only when repeated footage is acceptable
-
-Never allow presenter media to loop silently. If a visible presenter clip is shorter than the target segment, shorten the segment, choose another clip, regenerate the presenter media, or fail validation.
 
 Fullscreen B-roll with presenter overlay:
 

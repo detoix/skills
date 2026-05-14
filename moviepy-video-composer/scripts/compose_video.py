@@ -29,10 +29,14 @@ BROLL_LAYOUTS = {"fullscreen", "stack2", "stack3", "grid4"}
 BROLL_LAYOUT_PANEL_COUNTS = {"stack2": 2, "stack3": 3, "grid4": 4}
 PANEL_KINDS = {"broll", "presenter"}
 BROLL_SOURCE_TYPES = {"webpage", "stock", "screen-record", "generated-image", "manual", "synthetic-motion"}
-LOOP_POLICIES = {"loop", "error"}
+LOOP_UNSAFE_BROLL_SOURCES = {"webpage", "screen-record"}
 SPLIT_AXES = {"horizontal", "vertical"}
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
 STILL_MOTION_TYPES = {"push-in", "pull-back", "pan-left", "pan-right", "pan-up", "pan-down", "diagonal-drift", "swipe-in"}
+HOLD_LAST_FRAME_MAX_EXTENSION_SECONDS = 0.12
+PING_PONG_MAX_EXTENSION_SECONDS = 1.5
+PING_PONG_MAX_EXTENSION_RATIO = 0.25
+FIT_EPSILON_SECONDS = 1e-6
 DEFAULT_FPS = 30
 DEFAULT_CODEC = "libx264"
 DEFAULT_AUDIO_CODEC = "aac"
@@ -150,9 +154,6 @@ class TimelineEntry:
     clip_start_2: float | None = None
     clip_start_3: float | None = None
     clip_start_4: float | None = None
-    loop_policy: str = "loop"
-    background_loop_policy: str | None = None
-    overlay_loop_policy: str | None = None
 
     @property
     def duration(self) -> float:
@@ -161,13 +162,6 @@ class TimelineEntry:
     def clip_offset(self, field: str) -> float:
         value = getattr(self, field)
         return self.clip_start if value is None else value
-
-    def resolved_loop_policy(self, field: str | None = None) -> str:
-        if field:
-            value = getattr(self, field)
-            if value:
-                return value
-        return self.loop_policy
 
 
 def parse_args() -> argparse.Namespace:
@@ -284,9 +278,6 @@ def validate_and_expand_entry(item: dict[str, Any], index: int) -> dict[str, Any
             presenter_panels.append(panel)
     if not broll_panels:
         raise ValueError(f"Timeline entry {index} B_ROLL must include at least one broll panel.")
-    if presenter_panels and "loop_policy" not in expanded:
-        expanded["loop_policy"] = "error"
-
     if layout == "fullscreen":
         if len(broll_panels) != 1:
             raise ValueError(f"Timeline entry {index} fullscreen B_ROLL requires exactly one broll panel.")
@@ -295,7 +286,7 @@ def validate_and_expand_entry(item: dict[str, Any], index: int) -> dict[str, Any
         expanded["clip_path"] = broll_panels[0]["path"]
         if "clip_start" in broll_panels[0]:
             expanded["clip_start"] = broll_panels[0]["clip_start"]
-        for field in ("treatment", "motion_type", "loop_policy"):
+        for field in ("treatment", "motion_type"):
             if field in broll_panels[0]:
                 expanded[field] = broll_panels[0][field]
         if presenter_panels:
@@ -306,8 +297,6 @@ def validate_and_expand_entry(item: dict[str, Any], index: int) -> dict[str, Any
                 expanded["background_clip_start"] = broll_panels[0]["clip_start"]
             if "clip_start" in presenter:
                 expanded["overlay_clip_start"] = presenter["clip_start"]
-            if "loop_policy" in presenter:
-                expanded["overlay_loop_policy"] = presenter["loop_policy"]
             for field in ("overlay_scale", "overlay_position", "overlay_crop_x", "overlay_crop_y", "overlay_crop_size"):
                 if field in presenter:
                     expanded[field] = presenter[field]
@@ -373,16 +362,6 @@ def load_timeline(timeline_path: Path) -> list[TimelineEntry]:
                 raise ValueError(f"Timeline entry {index} has invalid overlay_position.")
             parsed_position = (overlay_position[0], overlay_position[1])
 
-        loop_policy = item.get("loop_policy", "loop")
-        background_loop_policy = item.get("background_loop_policy")
-        overlay_loop_policy = item.get("overlay_loop_policy")
-        for field_name, policy in (
-            ("loop_policy", loop_policy),
-            ("background_loop_policy", background_loop_policy),
-            ("overlay_loop_policy", overlay_loop_policy),
-        ):
-            if policy is not None and policy not in LOOP_POLICIES:
-                raise ValueError(f"Timeline entry {index} has invalid {field_name}: {policy!r}")
         split_axis = item.get("split_axis", "vertical")
         if split_axis not in SPLIT_AXES:
             raise ValueError(f"Timeline entry {index} has invalid split_axis: {split_axis!r}")
@@ -436,9 +415,6 @@ def load_timeline(timeline_path: Path) -> list[TimelineEntry]:
                 clip_start_2=float(item["clip_start_2"]) if "clip_start_2" in item else None,
                 clip_start_3=float(item["clip_start_3"]) if "clip_start_3" in item else None,
                 clip_start_4=float(item["clip_start_4"]) if "clip_start_4" in item else None,
-                loop_policy=loop_policy,
-                background_loop_policy=background_loop_policy,
-                overlay_loop_policy=overlay_loop_policy,
             )
         )
         previous_end = float(end_time)
@@ -671,16 +647,89 @@ def mux_with_processed_audio(
         return "fallback_quiet_mix"
 
 
-def trim_or_loop_clip(clip: VideoFileClip, target_duration: float, loop_policy: str, label: str):
+def path_looks_like_presenter(value: str | None) -> bool:
+    lowered = str(value or "").lower()
+    return any(marker in lowered for marker in ("synced", "presenter", "avatar", "profile", "a-roll", "aroll"))
+
+
+def fit_kind_for_panel(panel: dict[str, Any] | None, raw_path: str | None) -> str:
+    if isinstance(panel, dict):
+        if panel.get("kind") == "presenter":
+            return "presenter"
+        if panel.get("kind") == "broll" and panel.get("source") in LOOP_UNSAFE_BROLL_SOURCES:
+            return "loop_unsafe_broll"
+    if path_looks_like_presenter(raw_path):
+        return "presenter"
+    return "loop_safe_broll"
+
+
+def fit_kind_for_entry_clip(entry: TimelineEntry) -> str:
+    if entry.type == "A_ROLL":
+        return "presenter"
+    if entry.layout == "fullscreen" and isinstance(entry.panels, list) and entry.panels:
+        first_panel = entry.panels[0] if isinstance(entry.panels[0], dict) else None
+        return fit_kind_for_panel(first_panel, entry.clip_path)
+    if path_looks_like_presenter(entry.clip_path):
+        return "presenter"
+    return "loop_safe_broll"
+
+
+def ping_pong_extension_limit(available_duration: float) -> float:
+    return min(PING_PONG_MAX_EXTENSION_SECONDS, available_duration * PING_PONG_MAX_EXTENSION_RATIO)
+
+
+def duration_fit_action(available_duration: float, target_duration: float, fit_kind: str) -> str:
+    if available_duration <= 0:
+        raise ValueError("source clip has zero duration")
+    if available_duration + FIT_EPSILON_SECONDS >= target_duration:
+        return "trim"
+    missing = target_duration - available_duration
+    if missing <= HOLD_LAST_FRAME_MAX_EXTENSION_SECONDS + FIT_EPSILON_SECONDS:
+        return "hold_last_frame"
+    if fit_kind == "presenter":
+        if missing <= ping_pong_extension_limit(available_duration) + FIT_EPSILON_SECONDS:
+            return "ping_pong"
+        raise ValueError(
+            f"presenter clip is too short for bounded ping-pong fitting: "
+            f"{available_duration:.3f}s available, {target_duration:.3f}s required"
+        )
+    if fit_kind == "loop_unsafe_broll":
+        raise ValueError(
+            f"loop-unsafe clip is too short for technical tail fitting: "
+            f"{available_duration:.3f}s available, {target_duration:.3f}s required"
+        )
+    return "loop"
+
+
+def append_hold_last_frame(clip: VideoFileClip, missing: float):
+    frame_time = max(0.0, clip.duration - (1 / DEFAULT_FPS))
+    hold = ImageClip(clip.get_frame(frame_time)).with_duration(missing)
+    return concatenate_videoclips([clip, hold], method="compose")
+
+
+def append_ping_pong_tail(clip: VideoFileClip, missing: float):
+    tail_start = max(0.0, clip.duration - missing)
+    tail = clip.subclipped(tail_start, clip.duration)
+    tail_duration = tail.duration
+    reversed_tail = tail.time_transform(
+        lambda t: max(0.0, tail_duration - min(float(t), tail_duration) - 1e-6),
+        apply_to=["mask"],
+        keep_duration=True,
+    ).with_duration(missing)
+    return concatenate_videoclips([clip, reversed_tail], method="compose")
+
+
+def fit_clip_duration(clip: VideoFileClip, target_duration: float, fit_kind: str, label: str):
     if clip.duration <= 0:
         raise ValueError(f"{label} has zero duration.")
-    if clip.duration >= target_duration:
+    action = duration_fit_action(clip.duration, target_duration, fit_kind)
+    if action == "trim":
         return clip.subclipped(0, target_duration)
-    if loop_policy == "error":
-        raise ValueError(
-            f"{label} is too short for the requested segment: "
-            f"{clip.duration:.3f}s available, {target_duration:.3f}s required."
-        )
+    missing = target_duration - clip.duration
+    if action == "hold_last_frame":
+        return append_hold_last_frame(clip, missing)
+    if action == "ping_pong":
+        return append_ping_pong_tail(clip, missing)
 
     loops: list[VideoFileClip] = []
     remaining = target_duration
@@ -695,11 +744,9 @@ def normalize_video_clip(
     path: Path,
     target_duration: float,
     start_offset: float = 0.0,
-    loop_policy: str = "loop",
     label: str = "clip",
+    fit_kind: str = "loop_safe_broll",
 ):
-    if loop_policy not in LOOP_POLICIES:
-        raise ValueError(f"Unsupported loop policy: {loop_policy!r}")
     if path.suffix.lower() in IMAGE_EXTENSIONS:
         if start_offset:
             raise ValueError(f"{label} clip_start is not valid for still images.")
@@ -716,7 +763,7 @@ def normalize_video_clip(
         clip_end = min(source.duration, start_offset + target_duration)
         trimmed = source.subclipped(start_offset, clip_end)
 
-        working = trim_or_loop_clip(trimmed, target_duration, loop_policy, label)
+        working = fit_clip_duration(trimmed, target_duration, fit_kind, label)
         return working.with_duration(target_duration), source
     except Exception:
         source.close()
@@ -852,8 +899,8 @@ def build_text_clip(project_dir: Path, entry: TimelineEntry):
         background_path,
         entry.duration,
         entry.clip_offset("background_clip_start"),
-        entry.resolved_loop_policy("background_loop_policy"),
         "TEXT background",
+        "loop_safe_broll",
     )
     fitted_background, background_handles = scale_clip_to_canvas(
         background_clip,
@@ -941,7 +988,6 @@ def build_panel_clip(
     raw_path: str | None,
     duration: float,
     start_offset: float,
-    loop_policy: str,
     label: str,
     size: tuple[int, int],
     panel: dict[str, Any] | None = None,
@@ -958,7 +1004,7 @@ def build_panel_clip(
         motion_type = str(panel.get("motion_type") or "push-in")
         return build_still_motion_image_clip(path, duration, size, motion_type, label)
 
-    clip, source = normalize_video_clip(path, duration, start_offset, loop_policy, label)
+    clip, source = normalize_video_clip(path, duration, start_offset, label, fit_kind_for_panel(panel, raw_path))
     stack_crop, crop_box = maybe_crop_front_stack_presenter(clip, panel, raw_path, size)
     if crop_box is not None:
         clip = stack_crop
@@ -976,7 +1022,6 @@ def build_stack_2_clip(project_dir: Path, entry: TimelineEntry):
         entry.clip_path_top,
         entry.duration,
         entry.clip_offset("clip_start_top"),
-        entry.loop_policy,
         "STACK_2 top clip",
         (OUTPUT_WIDTH, panel_h),
         top_panel,
@@ -986,7 +1031,6 @@ def build_stack_2_clip(project_dir: Path, entry: TimelineEntry):
         entry.clip_path_bot,
         entry.duration,
         entry.clip_offset("clip_start_bot"),
-        entry.loop_policy,
         "STACK_2 bottom clip",
         (OUTPUT_WIDTH, OUTPUT_HEIGHT - panel_h),
         bot_panel,
@@ -1008,22 +1052,22 @@ def build_stack_3_clip(project_dir: Path, entry: TimelineEntry):
         top_path,
         entry.duration,
         entry.clip_offset("clip_start_top"),
-        entry.loop_policy,
         "STACK_3 top clip",
+        fit_kind_for_panel(entry.panels[0] if isinstance(entry.panels, list) and len(entry.panels) > 0 else None, entry.clip_path_top),
     )
     mid_clip, mid_source = normalize_video_clip(
         mid_path,
         entry.duration,
         entry.clip_offset("clip_start_mid"),
-        entry.loop_policy,
         "STACK_3 middle clip",
+        fit_kind_for_panel(entry.panels[1] if isinstance(entry.panels, list) and len(entry.panels) > 1 else None, entry.clip_path_mid),
     )
     bot_clip, bot_source = normalize_video_clip(
         bot_path,
         entry.duration,
         entry.clip_offset("clip_start_bot"),
-        entry.loop_policy,
         "STACK_3 bottom clip",
+        fit_kind_for_panel(entry.panels[2] if isinstance(entry.panels, list) and len(entry.panels) > 2 else None, entry.clip_path_bot),
     )
 
     top_resized = top_clip.resized(width=OUTPUT_WIDTH)
@@ -1077,7 +1121,6 @@ def build_split_2_clip(project_dir: Path, entry: TimelineEntry):
         entry.clip_path_a,
         entry.duration,
         entry.clip_offset("clip_start_a"),
-        entry.loop_policy,
         "SPLIT_2 panel A",
         size_a,
     )
@@ -1086,7 +1129,6 @@ def build_split_2_clip(project_dir: Path, entry: TimelineEntry):
         entry.clip_path_b,
         entry.duration,
         entry.clip_offset("clip_start_b"),
-        entry.loop_policy,
         "SPLIT_2 panel B",
         size_b,
     )
@@ -1115,9 +1157,9 @@ def build_grid_4_clip(project_dir: Path, entry: TimelineEntry):
             getattr(entry, path_field),
             entry.duration,
             entry.clip_offset(start_field),
-            entry.loop_policy,
             label,
             size,
+            entry.panels[int(path_field.rsplit("_", 1)[1]) - 1] if isinstance(entry.panels, list) and len(entry.panels) >= int(path_field.rsplit("_", 1)[1]) else None,
         )
         layers.append(panel.with_position(position))
         handles.extend(panel_handles)
@@ -1220,8 +1262,8 @@ def build_camera_motion_clip(project_dir: Path, entry: TimelineEntry):
         clip_path,
         entry.duration,
         entry.clip_start,
-        entry.loop_policy,
         f"{entry.type} clip",
+        "presenter",
     )
 
     try:
@@ -1271,8 +1313,8 @@ def build_standard_clip(project_dir: Path, entry: TimelineEntry):
         clip_path,
         entry.duration,
         entry.clip_start,
-        entry.loop_policy,
         f"{entry.type} clip",
+        fit_kind_for_entry_clip(entry),
     )
     framed, framed_handles = scale_clip_to_canvas(clip, (OUTPUT_WIDTH, OUTPUT_HEIGHT), "cover")
     return framed, [framed, clip, source, *framed_handles]
@@ -1286,15 +1328,15 @@ def build_pip_clip(project_dir: Path, entry: TimelineEntry):
         background_path,
         entry.duration,
         entry.clip_offset("background_clip_start"),
-        entry.resolved_loop_policy("background_loop_policy"),
         "PIP background",
+        fit_kind_for_panel(entry.panels[0] if isinstance(entry.panels, list) and len(entry.panels) > 0 else None, entry.background_path),
     )
     overlay_clip, overlay_source = normalize_video_clip(
         overlay_path,
         entry.duration,
         entry.clip_offset("overlay_clip_start"),
-        entry.resolved_loop_policy("overlay_loop_policy"),
         "PIP overlay",
+        fit_kind_for_panel(entry.panels[1] if isinstance(entry.panels, list) and len(entry.panels) > 1 else None, entry.overlay_path),
     )
     cropped_overlay = None
     if entry.overlay_crop_x is not None and entry.overlay_crop_y is not None:

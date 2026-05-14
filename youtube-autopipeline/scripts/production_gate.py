@@ -32,6 +32,10 @@ PANEL_KINDS = {"broll", "presenter"}
 BROLL_PRESENTER_PANEL_TARGET_RATIO = 0.5
 BROLL_PRESENTER_PANEL_MIN_RATIO = 0.4
 BROLL_PRESENTER_PANEL_MAX_RATIO = 0.7
+HOLD_LAST_FRAME_MAX_EXTENSION_SECONDS = 0.12
+PING_PONG_MAX_EXTENSION_SECONDS = 1.5
+PING_PONG_MAX_EXTENSION_RATIO = 0.25
+FIT_EPSILON_SECONDS = 1e-6
 SCRIPT_RELATIVE_PATH = Path("script.json")
 VISUAL_PLAN_RELATIVE_PATH = Path("manifests") / "visual-plan.json"
 APPROVAL_RELATIVE_PATH = Path("manifests") / "creative-approval.json"
@@ -213,6 +217,26 @@ def media_duration(path: Path, findings: list[GateFinding], *, required: bool = 
         return None
 
 
+def ping_pong_extension_limit(available_duration: float) -> float:
+    return min(PING_PONG_MAX_EXTENSION_SECONDS, available_duration * PING_PONG_MAX_EXTENSION_RATIO)
+
+
+def duration_fit_error(available: float, target: float) -> str | None:
+    if available <= 0:
+        return "source has no duration available after clip_start"
+    if available + FIT_EPSILON_SECONDS >= target:
+        return None
+    missing = target - available
+    if missing <= HOLD_LAST_FRAME_MAX_EXTENSION_SECONDS + FIT_EPSILON_SECONDS:
+        return None
+    if missing <= ping_pong_extension_limit(available) + FIT_EPSILON_SECONDS:
+        return None
+    return (
+        f"has {available:.2f}s available for {target:.2f}s segment; "
+        f"missing {missing:.2f}s exceeds bounded presenter duration fitting"
+    )
+
+
 def broll_panel_sources(item: dict[str, Any], findings: list[GateFinding], context: str) -> list[str]:
     if "primary_visual" in item:
         findings.append(GateFinding("ERROR", "legacy-visual-field", f"{context}.primary_visual is not supported; use type A_ROLL or B_ROLL"))
@@ -331,13 +355,10 @@ def validate_prototype_presenter_media(
     findings: list[GateFinding],
     *,
     path_value: Any,
-    loop_policy: Any,
     clip_start: Any,
     segment_duration: float,
     context: str,
 ) -> None:
-    if loop_policy != "error":
-        findings.append(GateFinding("ERROR", "prototype-presenter-loop-policy", f"{context}.loop_policy must be 'error'"))
     if not is_portable_relative_path(path_value):
         findings.append(GateFinding("ERROR", "prototype-presenter-path", f"{context}.path must be relative to the project and portable"))
         return
@@ -355,14 +376,10 @@ def validate_prototype_presenter_media(
     available = source_duration - start_offset
     if available <= 0:
         findings.append(GateFinding("ERROR", "prototype-presenter-clip-start", f"{context}.clip_start exceeds source duration"))
-    elif available + 0.05 < segment_duration:
-        findings.append(
-            GateFinding(
-                "ERROR",
-                "prototype-presenter-too-short",
-                f"{context} has {available:.2f}s available for {segment_duration:.2f}s segment",
-            )
-        )
+        return
+    error = duration_fit_error(available, segment_duration)
+    if error:
+        findings.append(GateFinding("ERROR", "prototype-presenter-too-short", f"{context} {error}"))
 
 
 def validate_prototype_timeline_presenter_policy(project_dir: Path, findings: list[GateFinding]) -> None:
@@ -387,7 +404,6 @@ def validate_prototype_timeline_presenter_policy(project_dir: Path, findings: li
                 project_dir,
                 findings,
                 path_value=entry.get("clip_path"),
-                loop_policy=entry.get("loop_policy"),
                 clip_start=entry_clip_start,
                 segment_duration=duration,
                 context=f"{context}.clip_path",
@@ -404,7 +420,6 @@ def validate_prototype_timeline_presenter_policy(project_dir: Path, findings: li
                 project_dir,
                 findings,
                 path_value=panel.get("path"),
-                loop_policy=panel.get("loop_policy"),
                 clip_start=panel.get("clip_start", entry_clip_start),
                 segment_duration=duration,
                 context=f"{context}.panels[{panel_index}]",

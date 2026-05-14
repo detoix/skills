@@ -26,7 +26,11 @@ PANEL_KINDS = {"broll", "presenter"}
 BROLL_PRESENTER_PANEL_TARGET_RATIO = 0.5
 BROLL_PRESENTER_PANEL_MIN_RATIO = 0.4
 BROLL_PRESENTER_PANEL_MAX_RATIO = 0.7
-LOOP_POLICIES = {"loop", "error"}
+LOOP_UNSAFE_BROLL_SOURCES = {"webpage", "screen-record"}
+HOLD_LAST_FRAME_MAX_EXTENSION_SECONDS = 0.12
+PING_PONG_MAX_EXTENSION_SECONDS = 1.5
+PING_PONG_MAX_EXTENSION_RATIO = 0.25
+FIT_EPSILON_SECONDS = 1e-6
 SPLIT_AXES = {"horizontal", "vertical"}
 STILL_MOTION_TYPES = {"push-in", "pull-back", "pan-left", "pan-right", "pan-up", "pan-down", "diagonal-drift", "swipe-in"}
 CAPTION_POSITIONS = {"top", "center", "bottom"}
@@ -467,18 +471,47 @@ def probe_audio(path: Path, report: Report) -> dict[str, Any] | None:
     }
 
 
-def validate_loop_policy(value: Any, report: Report, context: str) -> str:
-    if value is None:
-        return "loop"
-    if value not in LOOP_POLICIES:
-        report.error("loop-policy", f"{context} must be one of {sorted(LOOP_POLICIES)}")
-        return "loop"
-    return str(value)
-
-
 def path_looks_like_presenter(path: Path) -> bool:
     lowered = str(path).lower()
     return any(marker in lowered for marker in ("synced", "presenter", "avatar", "profile", "a-roll", "aroll"))
+
+
+def ping_pong_extension_limit(available_duration: float) -> float:
+    return min(PING_PONG_MAX_EXTENSION_SECONDS, available_duration * PING_PONG_MAX_EXTENSION_RATIO)
+
+
+def fit_kind_for_panel(panel: dict[str, Any] | None, path: Path) -> str:
+    if isinstance(panel, dict):
+        if panel.get("kind") == "presenter":
+            return "presenter"
+        if panel.get("kind") == "broll" and panel.get("source") in LOOP_UNSAFE_BROLL_SOURCES:
+            return "loop_unsafe_broll"
+    if path_looks_like_presenter(path):
+        return "presenter"
+    return "loop_safe_broll"
+
+
+def duration_fit_error(available: float, target: float, fit_kind: str) -> str | None:
+    if available <= 0:
+        return "source has no duration available after clip_start"
+    if available + FIT_EPSILON_SECONDS >= target:
+        return None
+    missing = target - available
+    if missing <= HOLD_LAST_FRAME_MAX_EXTENSION_SECONDS + FIT_EPSILON_SECONDS:
+        return None
+    if fit_kind == "presenter":
+        if missing <= ping_pong_extension_limit(available) + FIT_EPSILON_SECONDS:
+            return None
+        return (
+            f"presenter media has {available:.2f}s available for {target:.2f}s segment; "
+            f"missing {missing:.2f}s exceeds bounded ping-pong fitting"
+        )
+    if fit_kind == "loop_unsafe_broll":
+        return (
+            f"loop-unsafe media has {available:.2f}s available for {target:.2f}s segment; "
+            f"missing {missing:.2f}s exceeds hold-last-frame fitting"
+        )
+    return None
 
 
 def has_presenter_panel(item: dict[str, Any]) -> bool:
@@ -580,33 +613,22 @@ def validate_timeline(
             if has_presenter_panel(entry):
                 presenter_panel_broll_duration += duration
 
-        loop_policy = validate_loop_policy(entry.get("loop_policy"), report, f"{context}.loop_policy")
-        background_loop = validate_loop_policy(
-            entry.get("background_loop_policy", loop_policy), report, f"{context}.background_loop_policy"
-        )
-        overlay_loop = validate_loop_policy(
-            entry.get("overlay_loop_policy", loop_policy), report, f"{context}.overlay_loop_policy"
-        )
-
-        media_fields: list[tuple[str, str, float, str]] = []
+        media_fields: list[tuple[str, str, float, dict[str, Any] | None, str]] = []
         clip_start = as_number(entry.get("clip_start")) or 0.0
         if entry_type == "A_ROLL":
-            media_fields.append(("clip_path", "primary clip", clip_start, loop_policy))
+            media_fields.append(("clip_path", "primary clip", clip_start, None, "presenter"))
         elif entry_type == "B_ROLL":
             for panel_index, panel in enumerate(entry.get("panels", [])):
                 if not isinstance(panel, dict):
                     continue
                 start_offset = as_number(panel.get("clip_start"))
-                panel_policy = panel.get("loop_policy", "error" if panel.get("kind") == "presenter" else loop_policy)
-                if panel_policy not in LOOP_POLICIES:
-                    report.error("loop-policy", f"{context}.panels[{panel_index}].loop_policy must be one of {sorted(LOOP_POLICIES)}")
-                    panel_policy = loop_policy
                 media_fields.append(
                     (
                         f"panels[{panel_index}].path",
                         f"panel {panel_index} {panel.get('kind')}",
                         start_offset if start_offset is not None else clip_start,
-                        panel_policy,
+                        panel,
+                        "panel",
                     )
                 )
 
@@ -625,7 +647,7 @@ def validate_timeline(
             elif caption_y is not None and caption_y < 0:
                 report.error("caption-y", f"{context}.caption_y must be non-negative")
 
-        for field, label, start_offset, policy in media_fields:
+        for field, label, start_offset, panel, default_fit_kind in media_fields:
             if field.startswith("panels["):
                 panel_index = int(field.split("[", 1)[1].split("]", 1)[0])
                 path_value = entry.get("panels", [])[panel_index].get("path")
@@ -638,8 +660,6 @@ def validate_timeline(
             if not path.exists() or not path.is_file():
                 report.error("media-missing", f"{context} {label} not found: {path}")
                 continue
-            if path_looks_like_presenter(path) and policy != "error":
-                report.error("presenter-loop-policy", f"{context} {field} looks like presenter media and must use loop_policy/error")
             if start_offset < 0:
                 report.error("clip-start", f"{context} {field} start offset must be non-negative")
                 continue
@@ -653,17 +673,11 @@ def validate_timeline(
             available = source_duration - start_offset
             if available <= 0:
                 report.error("clip-start", f"{context} {field} start offset exceeds source duration")
-            elif available + 0.05 < duration:
-                if policy == "error" or (entry_type in PRESENTER_TYPES and field in {"clip_path", "overlay_path"}):
-                    report.error(
-                        "clip-too-short",
-                        f"{context} {field} has {available:.2f}s available for {duration:.2f}s segment",
-                    )
-                else:
-                    report.warn(
-                        "clip-will-loop",
-                        f"{context} {field} has {available:.2f}s available for {duration:.2f}s segment and will loop",
-                    )
+                continue
+            fit_kind = default_fit_kind if default_fit_kind != "panel" else fit_kind_for_panel(panel, path)
+            error = duration_fit_error(available, duration, fit_kind)
+            if error:
+                report.error("clip-too-short", f"{context} {field} {error}")
 
     if audio_path:
         if not audio_path.exists() or not audio_path.is_file():

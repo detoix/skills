@@ -64,6 +64,37 @@ class CaptionSyncValidationTests(unittest.TestCase):
                 pipeline_check.validate_timeline(timeline, root, report, audio, "vertical")
             self.assertIn("final-audio-timeline-start", {item.code for item in report.findings})
 
+    def test_pipeline_check_allows_presenter_duration_fit(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "synced" / "front").mkdir(parents=True)
+            (root / "synced" / "front" / "A01.mp4").write_bytes(b"placeholder")
+            timeline = [{"type": "A_ROLL", "clip_path": "synced/front/A01.mp4", "start_time": 0.0, "end_time": 3.0}]
+            report = pipeline_check.Report()
+            with patch.object(pipeline_check, "media_duration", return_value=2.4):
+                pipeline_check.validate_timeline(timeline, root, report, None, "vertical")
+            codes = {item.code for item in report.findings}
+            self.assertNotIn("clip-too-short", codes)
+
+    def test_pipeline_check_rejects_loop_unsafe_broll_past_hold_tail(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "broll").mkdir()
+            (root / "broll" / "site.webm").write_bytes(b"placeholder")
+            timeline = [
+                {
+                    "type": "B_ROLL",
+                    "layout": "fullscreen",
+                    "panels": [{"kind": "broll", "source": "webpage", "path": "broll/site.webm"}],
+                    "start_time": 0.0,
+                    "end_time": 3.0,
+                }
+            ]
+            report = pipeline_check.Report()
+            with patch.object(pipeline_check, "media_duration", return_value=2.7):
+                pipeline_check.validate_timeline(timeline, root, report, None, "vertical")
+            self.assertIn("clip-too-short", {item.code for item in report.findings})
+
     def test_visual_qa_fails_non_final_audio_alignment_source(self):
         findings = visual_qa.build_findings(
             metadata={"duration_seconds": 86.76, "width": 1080, "height": 1920},

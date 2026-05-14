@@ -90,7 +90,7 @@ class PrototypeGateTests(unittest.TestCase):
     def write_prototype_bundle(self, root: Path, *, generated_image: bool = False) -> None:
         (root / "avatar").mkdir(exist_ok=True)
         (root / "avatar" / "front.png").write_bytes(b"presenter plate")
-        write_json(root / "timeline.prototype.json", [{"type": "A_ROLL", "clip_path": "avatar/front.png", "loop_policy": "error", "start_time": 0, "end_time": 3}])
+        write_json(root / "timeline.prototype.json", [{"type": "A_ROLL", "clip_path": "avatar/front.png", "start_time": 0, "end_time": 3}])
         (root / "outputs").mkdir(exist_ok=True)
         (root / "outputs" / "prototype.mp4").write_bytes(b"prototype video")
         (root / "tts" / "clean").mkdir(parents=True, exist_ok=True)
@@ -213,6 +213,25 @@ class PrototypeGateTests(unittest.TestCase):
             self.replace_presenter_mode(root, "raw_muted_video")
             findings = production_gate.run_prototype_gate(root, write_state=False)
             self.assertNotIn("prototype-presenter-mode", {item.code for item in findings})
+
+    def test_prototype_gate_accepts_presenter_within_fit_limit(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.write_creative_project(root)
+            self.write_prototype_bundle(root)
+            self.mock_media_duration.return_value = 2.4
+            findings = production_gate.run_prototype_gate(root, write_state=False)
+            codes = {item.code for item in findings}
+            self.assertNotIn("prototype-presenter-too-short", codes)
+
+    def test_prototype_gate_rejects_presenter_shorter_than_fit_limit(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.write_creative_project(root)
+            self.write_prototype_bundle(root)
+            self.mock_media_duration.return_value = 2.0
+            findings = production_gate.run_prototype_gate(root, write_state=False)
+            self.assertIn("prototype-presenter-too-short", {item.code for item in findings})
 
     def test_prototype_gate_rejects_unknown_presenter_mode(self):
         with tempfile.TemporaryDirectory() as tmp:

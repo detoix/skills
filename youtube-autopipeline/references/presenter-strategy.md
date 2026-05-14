@@ -54,11 +54,10 @@ Audio source rule:
 ## Practical Rules
 
 - Keep clip names aligned to segment ids where possible, e.g. `A01.mp4`, `P03.mp4`
-- Trim or loop the silent motion plate before lip-sync if the toolchain requires it
+- Prepare the silent motion plate for the duration required by the lip-sync toolchain
 - Trim the narration audio from the existing chunk files before lip-sync when only a portion of a chunk is visible on screen
 - Generate lip-synced presenter media only for timeline segments or panels where the presenter is actually visible. If a `B_ROLL` segment has no presenter panel, do not generate unused presenter media for that covered duration.
 - If a segment switches from full-screen presenter to presenter-over-B-roll while narration continues, split the visible media into two synced outputs even if the spoken text is contiguous
-- In `timeline.json`, set `loop_policy: "error"` for full-screen presenter clips and presenter panels.
 - Use panel-level `clip_start` when B-roll and presenter panels need different source offsets.
 - When a presenter source `sha256` is reused, `repeat_decisions[]` must be measurable: include `reason_code`, `available_unique_sources_for_role`, and `used_unique_sources_for_role`. Count unique usable sources from `assets-manifest.json` by role. Use `limited_available_sources` only when that available count is exactly `1`; otherwise use a concrete code such as `continuity_choice`, `source_quality_rejection`, `duration_or_framing_constraint`, or `production_time_constraint`.
 
