@@ -97,7 +97,7 @@ Build a YouTube video as a project, not as a loose set of clips. Keep the whole 
 Before generating assets, the agent verifies the runtime and required inputs directly:
 
 - Complete the Creative Approval Gate before prototype work. Do not generate prototype TTS, stock clips, B-roll clips, synthetic-motion boards, prototype timelines, or prototype renders until the user has approved `script.json` and `manifests\visual-plan.json`, and `manifests\creative-approval.json` validates with `pipeline_check.py --mode creative-gate`.
-- Complete the Prototype Approval Gate before final production work. Do not generate generated images, LatentSync clips, final timelines, captions, or final renders until `manifests\prototype-approval.json` validates with `pipeline_check.py --mode prototype-gate`. The prototype uses final-quality TTS and final production reuses that approved audio.
+- Complete the Prototype Approved Gate before final production work. Do not generate generated images, LatentSync clips, final timelines, captions, or final renders until `manifests\prototype-approval.json` validates with `pipeline_check.py --mode prototype-approved`. The prototype uses final-quality TTS and final production reuses that approved audio.
 - Real production runs must use user-provided identity assets: presenter plates, voice sample, exact voice-sample transcript, and optional music.
 - If the user has not provided the required identity assets, stop and ask for the asset root, presenter plates, voice sample, and exact voice-sample transcript before promising a production reel.
 - `youtube-scriptwriter`, `tts`, `latentsync`, `animated-broll-boards`, `playwright-broll-recorder`, `moviepy-video-composer`, and `reel-captions` are available.
@@ -162,7 +162,7 @@ The pipeline has three mandatory stages. Do not collapse them into one run, and 
    ```
    Chat phrases such as "continue", "implement", or "go ahead" are not approval artifacts.
 
-### Stage 2: Prototype Stage and Prototype Gate
+### Stage 2: Prototype Stage and Prototype Review Ready Gate
 
 1. Before every prototype command, validate the Creative Gate and record production timing for the stage:
    ```powershell
@@ -181,13 +181,13 @@ The pipeline has three mandatory stages. Do not collapse them into one run, and 
      --output <project-dir>\manifests\tts-pronunciation-qa.json
    ```
    If the ASR report fails, do not overwrite it, mark it pass, or continue silently. Show the user each failed chunk with `chunk_id`, `expected`, `asr_transcript`, `missing_words`, and `extra_words`; if the mismatch looks like ASR normalization of intentional TTS-safe spelling, say that explicitly. Only after the user replies exactly `approved` may the agent convert the report to a manual pass, preserving the failed ASR details and adding `qa_method: "asr_with_user_approved_override"`, `asr_status: "fail"`, `manual_review_status: "approved"`, `accepted_by: "user"`, `accepted_at`, and `overrides[]` entries with `chunk_id`, `expected`, `asr_transcript`, and `reason`.
-4. Build prototype B-roll from the approved `visual-plan.json` panel sources. Do not invent ad hoc replacements:
+4. Build prototype B-roll from the approved `visual-plan.json` panel `source_type` values. Do not invent ad hoc replacements:
    - `synthetic-motion`: use `animated-broll-boards` and record accepted board clips in selected visuals metadata.
    - `webpage` or `screen-record`: use `playwright-broll-recorder`; reject captures with popups, missing CSS, unloaded styling, or non-functional page state.
    - `stock`: use `pexels-stock-downloader`.
    - `manual`: use the referenced project asset.
    - `generated-image`: do not run image generation; use text placeholders from the prompt or visual brief.
-5. Create prototype selected-visuals intent for real prototype B-roll assets. Keep it project-relative. Do not hand-author resolver-owned truth fields such as `source_type`, `sha256`, or `provenance`; those remain resolver output.
+5. Create prototype selected-visuals intent for real prototype B-roll assets. Keep it project-relative. Each item must include `source_type` copied from the matching `visual-plan.json` B-roll panel `source_type`. Do not hand-author resolver-owned identity fields such as `sha256`, `canonical_id`, or `provenance`; those remain resolver output.
 6. Build a prototype source timeline at `<project-dir>\timeline.prototype.source.json`. It must use approved prototype audio timing, real prototype B-roll assets, prototype presenter assets, and unresolved `generated-image` panel placeholders from the visual brief. Then replace `generated-image` panels with concrete placeholder media and create `timeline.prototype.json`:
    ```powershell
    python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\build_prototype_timeline.py `
@@ -200,10 +200,15 @@ The pipeline has three mandatory stages. Do not collapse them into one run, and 
 7. Build prototype presenter visuals without LatentSync. Use raw muted presenter video selected from approved presenter plates; do not use static presenter frames/assets for presenter panels in the prototype. Avoid visibly speaking source footage that conflicts with the approved prototype audio. Record `presenter.latentsync: "skipped"`, `presenter.presenter_mode: "raw_muted_video"`, and the presenter asset hashes in `manifests\prototype-manifest.json`.
 8. Render the uncaptioned prototype review video with `moviepy-video-composer` using `timeline.prototype.json` and `final_audio.wav`. Output must be `outputs\prototype.mp4`. Do not run `reel-captions` in Stage 2.
 9. Write `manifests\prototype-manifest.json` with project-relative paths only. It must bind `script.json`, `manifests\visual-plan.json`, `timeline.prototype.json`, `outputs\prototype.mp4`, `final_audio.wav`, `manifests\final-audio-manifest.json`, `manifests\tts-prototype-manifest.json`, `manifests\tts-pronunciation-qa.json`, presenter assets, TTS chunks, and generated-image placeholders by SHA-256.
-10. Create the prototype review request and portable handoff ZIP, then stop. Show both `outputs\prototype.mp4` and `outputs\prototype-bundle-no-mp4.zip` to the user:
+10. Create the prototype review request and portable handoff ZIP, validate the Prototype Review Ready Gate, then stop. Show both `outputs\prototype.mp4` and `outputs\prototype-bundle-no-mp4.zip` to the user:
     ```powershell
     python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\request_prototype_review.py `
       --project-dir <project-dir>
+    ```
+    ```powershell
+    python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\pipeline_check.py `
+      --project-dir <project-dir> `
+      --mode prototype-review-ready
     ```
 11. Only after the user replies exactly `approved`, create `manifests\prototype-approval.json`:
     ```powershell
@@ -214,11 +219,11 @@ The pipeline has three mandatory stages. Do not collapse them into one run, and 
 
 ### Stage 3: Final Production Stage
 
-1. Before every final production command, validate the Prototype Gate and record production timing for the stage. If the project already contains a valid `prototype-approval.json`, do not rebuild the prototype and do not return to Stage 1:
+1. Before every final production command, validate the Prototype Approved Gate and record production timing for the stage. If the project already contains a valid `prototype-approval.json`, do not rebuild the prototype and do not return to Stage 1:
    ```powershell
    python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\pipeline_check.py `
      --project-dir <project-dir> `
-     --mode prototype-gate
+     --mode prototype-approved
    ```
 2. Reuse the approved `final_audio.wav` and `manifests\final-audio-manifest.json` from Stage 2 as final narration. Do not regenerate TTS after Prototype Approval unless the user explicitly rejects the approved audio and reopens Stage 2. Final timing must come from the approved prototype audio manifest and may be adjusted only for final visual substitutions.
 3. Create or update `manifests\presenter-plan.json`. Presenter Plate Variety QA must pass before LatentSync. Hashes must come from the asset manifest or a file-hashing tool, never from hand-authored values.
@@ -238,7 +243,8 @@ The pipeline has three mandatory stages. Do not collapse them into one run, and 
      --mode assets `
      --resolve-selected-visuals
    ```
-10. Validate the final timeline and approved final audio before composition:
+10. Build `timeline.json` using only accepted non-presenter B-roll asset paths from `manifests\selected-visuals.resolved.json`. Do not add B-roll panel media directly from folders, downloads, generated outputs, or captures unless that exact asset is present in the resolved manifest with matching `source_type`.
+11. Validate the final timeline and approved final audio before composition:
     ```powershell
     python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\pipeline_check.py `
       --project-dir <project-dir> `
@@ -247,8 +253,8 @@ The pipeline has three mandatory stages. Do not collapse them into one run, and 
       --format <landscape-or-vertical> `
       --mode timeline
     ```
-11. Render the uncaptioned final base video with `moviepy-video-composer` to `final_output.mp4`. Pass project music when enabled, or `--music NONE` when disabled. The composer writes `manifests\audio-mix-manifest.json`.
-12. Burn captions with `reel-captions`. Caption text comes from `script.json` `segments[].narration`; alignment uses `final_audio.wav` and `manifests\final-audio-manifest.json`:
+12. Render the uncaptioned final base video with `moviepy-video-composer` to `final_output.mp4`. Pass project music when enabled, or `--music NONE` when disabled. The composer writes `manifests\audio-mix-manifest.json`.
+13. Burn captions with `reel-captions`. Caption text comes from `script.json` `segments[].narration`; alignment uses `final_audio.wav` and `manifests\final-audio-manifest.json`:
     ```powershell
     python C:\Users\kdeptula\skills\reel-captions\scripts\generate_reel_captions.py `
       --project-dir <project-dir> `
@@ -258,8 +264,8 @@ The pipeline has three mandatory stages. Do not collapse them into one run, and 
       --output <project-dir>\final_output_captioned.mp4 `
       --language <metadata.language>
     ```
-13. Run final visual QA on `final_output_captioned.mp4` unless captions are explicitly disabled by the user. Final pass requires concrete agent visual review notes; structural checks alone cannot mark delivery success.
-14. Summarize production timing logs from `manifests\production-timings.jsonl`, then report final outputs or blockers.
+14. Run final render QA on `final_output_captioned.mp4` unless captions are explicitly disabled by the user. Final pass requires concrete agent visual review notes; structural checks alone cannot mark delivery success.
+15. Summarize production timing logs from `manifests\production-timings.jsonl`, then report final outputs or blockers.
 
 ## Creative Approval Gate
 
@@ -285,7 +291,7 @@ Required approval fields:
 - factual-source strategy when the script contains factual claims
 - segment-by-segment outline with narration intent, on-screen text intent, visual idea, source strategy, fallback strategy, acceptance criteria, and approximate timing
 
-`manifests\visual-plan.json` is required and must include `schema_version`, `metadata`, and `scenes`. Each scene must include `scene_id`, `segment_id`, `type`, `purpose`, `visual_idea`, `fallback_strategy`, and `acceptance_criteria`. `type` must be `A_ROLL` or `B_ROLL`. `B_ROLL` scenes must also include `layout` (`fullscreen`, `stack2`, `stack3`, `grid4`) and `panels[]`. B-roll panel `source` values are `stock`, `manual`, `generated-image`, `webpage`, `screen-record`, and `synthetic-motion`.
+`manifests\visual-plan.json` is required and must include `schema_version`, `metadata`, and `scenes`. Each scene must include `scene_id`, `segment_id`, `type`, `purpose`, `visual_idea`, `fallback_strategy`, and `acceptance_criteria`. `type` must be `A_ROLL` or `B_ROLL`. `B_ROLL` scenes must also include `layout` (`fullscreen`, `stack2`, `stack3`, `grid4`) and `panels[]`. B-roll panel `source_type` values are `stock`, `manual`, `generated-image`, `webpage`, `screen-record`, and `synthetic-motion`.
 
 `manifests\creative-approval.json` is required and must be generated by `scripts\approve_creative_plan.py`. It binds approval to the current `script.json` and `manifests\visual-plan.json` by SHA-256. If either file changes, the approval is stale and production must stop until approval is regenerated after human review.
 
@@ -309,16 +315,24 @@ When the user gave enough detail to draft the plan, create or update `script.jso
 
 There is no production override. If the user requests a one-shot production run, still stop at this gate.
 
-## Prototype Approval Gate
+## Prototype Review Ready and Approved Gates
 
 After the Creative Approval Gate passes, build a portable prototype bundle before final production. The prototype can be created on this machine or another machine as long as the same skill contract is used. The bundle must not depend on absolute paths.
 
-Prototype work is allowed after the Creative Approval Gate. Final production work is blocked until the Prototype Approval Gate passes:
+Prototype work is allowed after the Creative Approval Gate. The prototype can be shown to the user only after the Prototype Review Ready Gate passes:
 
 ```powershell
 python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\pipeline_check.py `
   --project-dir <project-dir> `
-  --mode prototype-gate
+  --mode prototype-review-ready
+```
+
+Final production work is blocked until the Prototype Approved Gate passes:
+
+```powershell
+python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\pipeline_check.py `
+  --project-dir <project-dir> `
+  --mode prototype-approved
 ```
 
 Required prototype artifacts:
@@ -344,9 +358,9 @@ The prototype TTS contract is fixed: use the same text as production, `prototype
 
 Each `prototype-manifest.json` `tts.chunks[]` entry must include `chunk_id`, `voice_text`, `audio_path`, and `sha256`. Production uses the approved chunk audio by SHA and does not regenerate narration.
 
-The prototype presenter contract is fixed: `latentsync: "skipped"` and `presenter_mode: "raw_muted_video"`. Use raw muted presenter video selected from approved presenter plates for prototype presenter panels. Prototype Gate checks presenter media against composer duration limits after `clip_start`. Raw muted presenter video uses source presenter motion with source audio stripped and works best with neutral mouth movement relative to the approved prototype audio. Run LatentSync only after Prototype Approval.
+The prototype presenter contract is fixed: `latentsync: "skipped"` and `presenter_mode: "raw_muted_video"`. Use raw muted presenter video selected from approved presenter plates for prototype presenter panels. Prototype Review Ready and Approved gates check presenter media against composer duration limits after `clip_start`. Raw muted presenter video uses source presenter motion with source audio stripped and works best with neutral mouth movement relative to the approved prototype audio. Run LatentSync only after Prototype Approval.
 
-For `source: "generated-image"` panels, the prototype must use text placeholders from the prompt or visual brief, not generated images. Use `scripts\build_prototype_timeline.py` to create placeholder assets and `timeline.prototype.json`. Run generated-image production only after Prototype Approval.
+For `source_type: "generated-image"` panels, the prototype must use text placeholders from the prompt or visual brief, not generated images. Use `scripts\build_prototype_timeline.py` to create placeholder assets and `timeline.prototype.json`. Run generated-image production only after Prototype Approval.
 
 Approval flow:
 
@@ -423,7 +437,7 @@ Keep all generated artifacts inside the project directory:
 - music and audio mix manifests
 - timeline
 - final render
-- asset inventory and final visual QA manifests
+- asset inventory and final render QA manifests
 
 If the user gives absolute paths to source assets, copy or reference them into the project contract consistently before continuing.
 
@@ -711,6 +725,7 @@ Before building `timeline.json`, create or update `manifests\selected-visuals.js
 
 - `segment_id`
 - `section_pattern`
+- `source_type` copied from the matching `visual-plan.json` B-roll panel `source_type`
 - `source_url` or `local_path`
 - `duration_seconds`
 - `accepted`
@@ -718,11 +733,13 @@ Before building `timeline.json`, create or update `manifests\selected-visuals.js
 - `reason`
 - `risk`
 
-Agent-authored manifests are intent manifests, not validation truth. Do not use agent-authored `source_type`, `sha256`, `provenance`, or other identity fields as validation evidence. Validation must use resolver/indexer output only. Run `scripts\pipeline_check.py --resolve-selected-visuals` against `manifests\selected-visuals.json` to generate and validate `manifests\selected-visuals.resolved.json` in one gate; never create that file manually. If the resolver is missing, fails, or cannot resolve a referenced asset, stop the pipeline.
+Agent-authored manifests are intent manifests, not validation truth. Agent-authored `source_type` is required and must match `visual-plan.json`, but it is still only a declaration; the resolver verifies it against the plan and source proof. Do not use agent-authored `sha256`, `canonical_id`, `provenance`, or other identity fields as validation evidence. Run `scripts\pipeline_check.py --resolve-selected-visuals` against `manifests\selected-visuals.json` to generate and validate `manifests\selected-visuals.resolved.json` in one gate; never create that file manually. If the resolver is missing, fails, or cannot resolve a referenced asset, stop the pipeline.
 
-`manifests\selected-visuals.resolved.json` is the validation manifest. It must be generated by a resolver/indexer from the intent manifest and the referenced assets. For each accepted visual, it must provide the resolved `source_type`, resolved identity, and provenance. For local files it must compute `sha256` from file bytes. For remote/provider assets it must derive identity from provider id, source URL, or another resolver-owned canonical key. The agent must not fill these fields manually.
+`manifests\selected-visuals.resolved.json` is the validation manifest. It must be generated by a resolver/indexer from the intent manifest and the referenced assets. For each accepted visual, it must preserve the verified `source_type`, resolved identity, and provenance. For local files it must compute `sha256` from file bytes. For remote/provider assets it must derive identity from provider id, source URL, or another resolver-owned canonical key. The agent must not fill identity fields manually.
 
-Selected visuals must satisfy a proportional source-mix rule using only `source_type` values from `manifests\selected-visuals.resolved.json` for accepted B-roll assets referenced by `B_ROLL` panels. Presenter panels, `A_ROLL`, captions, overlays, and layout names never count toward source diversity. For every started 20 seconds of accepted B-roll asset duration, use at least one distinct resolved `source_type`. For example, 1-20 seconds requires one source type, 21-40 seconds requires two, 41-60 seconds requires three, and so on. Do not cap this requirement. Materials from `broll/boards/**`, `broll/html/**`, and `broll/motion/**` resolve to `synthetic-motion`; do not treat their production method as source diversity.
+Final `timeline.json` must consume this resolved manifest. Every non-presenter `B_ROLL` panel path must match an `accepted: true` item in `manifests\selected-visuals.resolved.json`, and the panel `source_type` must match the item's verified `source_type`. `A_ROLL` clips and presenter panels are outside selected visuals. Folder names, generated-output locations, and downloaded-file paths never authorize timeline use by themselves.
+
+Selected visuals must satisfy a proportional source-mix rule using only verified `source_type` values from `manifests\selected-visuals.resolved.json` for accepted B-roll assets referenced by `B_ROLL` panels. Presenter panels, `A_ROLL`, captions, overlays, and layout names never count toward source diversity. For every started 20 seconds of accepted B-roll asset duration, use at least one distinct verified `source_type`. For example, 1-20 seconds requires one source type, 21-40 seconds requires two, 41-60 seconds requires three, and so on. Do not cap this requirement. Production method or folder name never creates source diversity by itself.
 
 Enforce reuse on resolved identity, not filename. Same `sha256` means same asset, regardless of filename, path, slot, `source_type`, or description. Renamed downloads, copied files, or identical provider URLs are the same asset and must not be treated as unique B-roll. If a resolved asset identity is reused beyond the allowed threshold, add a top-level `reuse_decisions` entry with the resolved identity, `uses`, and a concrete `reason`.
 
@@ -737,13 +754,13 @@ If a stock provider returns the same clip across multiple queries, reject duplic
 
 ### Synthetic Motion With animated-broll-boards
 
-Use `animated-broll-boards` only when `manifests\visual-plan.json` includes a B-roll panel with `source: "synthetic-motion"` for that scene and the creative gate passes. The agent must still choose the visual source per segment based on clarity, factual fit, and pacing; resolved `source_type` is assigned by provenance rules, not by agent wording. The skill is not a generic B-roll fallback or a template library. Each board needs a segment-specific visual metaphor and custom HTML/CSS/JS motion.
+Use `animated-broll-boards` only when `manifests\visual-plan.json` includes a B-roll panel with `source_type: "synthetic-motion"` for that scene and the creative gate passes. The agent must still choose the visual source per segment based on clarity, factual fit, and pacing; selected visuals must declare `source_type: "synthetic-motion"` and the resolver must verify it against board proof. The skill is not a generic B-roll fallback or a template library. Each board needs a segment-specific visual metaphor and custom HTML/CSS/JS motion.
 
 Rules:
 
 - Save outputs under `<project-dir>\broll\boards\<segment-id>\`.
 - Render boards as `.webm` clips from project-local `HTML/CSS/JS`.
-- Record accepted board clips in `manifests\selected-visuals.json` with a full intent entry: `segment_id`, `section_pattern`, `local_path: "broll/boards/<segment-id>/<segment-id>.webm"`, `duration_seconds`, `accepted: true`, `intended_use`, `reason`, `risk: "synthetic explanatory motion graphic"`, `creative_concept`, `visual_metaphor`, and `motion_summary`. Do not write `source_type`; the resolver must assign `source_type: "synthetic-motion"` from the path/provenance.
+- Record accepted board clips in `manifests\selected-visuals.json` with a full intent entry: `segment_id`, `section_pattern`, `source_type: "synthetic-motion"`, `local_path: "broll/boards/<segment-id>/<segment-id>.webm"`, `duration_seconds`, `accepted: true`, `intended_use`, `reason`, `risk: "synthetic explanatory motion graphic"`, `creative_concept`, `visual_metaphor`, and `motion_summary`.
 - Run `qa_board.mjs` and inspect the preview before timeline use.
 - Do not create production abstract/UI/infographic B-roll as ad hoc static PNG/Pillow boards. Static PNGs are allowed only as tiny auxiliary assets or when the user explicitly requests a still.
 - Reject boards that look like old infographics, test harnesses, template placeholders, generic cards, clipart layouts, repeated component layouts, or low-effort mock UI.
@@ -759,7 +776,7 @@ Rules:
 - Generate a plan with `scripts/z_image_plan.py` from `script.json` before running image generation.
 - Save outputs under `<project-dir>\broll\generated\`.
 - Record prompt, output path, segment id, acceptance status, and rejection reason in the project manifest.
-- Pass the z-image plan into final `visual_qa.py` so timeline references to `broll/generated/` are checked against reviewed accepted outputs.
+- Pass the z-image plan into final `final_render_qa.py` so resolved selected visuals with `source_type: "generated-image"` are checked against reviewed accepted outputs.
 - Keep prompts vertical-safe: central subject, clean upper/middle negative space, no fake logos, no credentials, no private data, no implied real-brand UI unless explicitly requested.
 - Review generated images before using them. Reject generic, distorted, illegible, branded, unsafe, or visually cheap outputs.
 - Accepted generated stills can be referenced directly by the composer as `B_ROLL` panel media.
@@ -836,7 +853,7 @@ For modern reels, [references/broll-section-library.md](references/broll-section
 
 If the user supplied a soundtrack, run `scripts/music_intake.py` and pass the ingested `source-assets\soundtrack.<ext>` file to the composer. Do not normalize or mix it in the orchestrator. Audio normalization, sidechain ducking, final mix safety, and `audio-mix-manifest.json` belong to the composer step.
 
-## Final Visual QA
+## Final Render QA
 
 Final render existence, duration, and resolution are not enough. Before delivering the video, the agent must visually inspect the actual rendered result. For captioned reels, inspect `final_output_captioned.mp4`; inspect `final_output.mp4` only when captions are explicitly disabled.
 
@@ -851,7 +868,7 @@ Extract representative frames from the final output:
 Save these frames under `qa/final-frames/` and inspect them before final delivery. Prefer the reusable helper:
 
 ```powershell
-python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\visual_qa.py `
+python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\final_render_qa.py `
   --project-dir <project-dir> `
   --video <project-dir>\final_output_captioned.mp4 `
   --timeline <project-dir>\timeline.json `
@@ -889,7 +906,7 @@ Reject and rerender when any frame shows:
 - low-effort generated stills, generic stock, placeholder-looking synthetic-motion, or any frame that looks like a test harness rather than a finished reel
 - static PNG/Pillow UI boards used as production abstract/infographic B-roll without explicit user approval
 
-If a frame fails, do not explain it away. Fix the visual cause and rerender. Record visual QA results in `manifests/visual-qa.json` with inspected frame paths, pass/fail status, and any rerender actions.
+If a frame fails, do not explain it away. Fix the visual cause and rerender. Record final render QA results in `manifests/final-render-qa.json` with inspected frame paths, pass/fail status, and any rerender actions.
 
 For synthetic-motion boards and generated synthetic HTML/mock UI, inspect both the source validation screenshot and the final rendered frame where it appears. Passing the isolated source screenshot is not sufficient, because final overlays, text treatments, presenter overlays, scaling, and timeline composition can introduce new failures.
 

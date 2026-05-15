@@ -1,5 +1,6 @@
 import importlib.util
 import json
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -32,6 +33,8 @@ assert PACKAGE_PROTOTYPE_SPEC and PACKAGE_PROTOTYPE_SPEC.loader
 sys.modules["package_prototype_bundle"] = package_prototype_bundle
 PACKAGE_PROTOTYPE_SPEC.loader.exec_module(package_prototype_bundle)
 
+PIPELINE_CHECK_PATH = SCRIPTS_DIR / "pipeline_check.py"
+
 
 def write_json(path: Path, payload: object) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -49,7 +52,7 @@ class PrototypeGateTests(unittest.TestCase):
     def write_creative_project(self, root: Path, *, generated_image: bool = False) -> None:
         (root / "manifests").mkdir(parents=True, exist_ok=True)
         segment_type = "B_ROLL" if generated_image else "A_ROLL"
-        panels = [{"kind": "broll", "source": "generated-image"}] if generated_image else None
+        panels = [{"kind": "broll", "source_type": "generated-image"}] if generated_image else None
         script_segment = {
             "segment_id": "S01",
             "type": segment_type,
@@ -196,50 +199,82 @@ class PrototypeGateTests(unittest.TestCase):
         approval = production_gate.create_prototype_approval(root)
         write_json(root / production_gate.PROTOTYPE_APPROVAL_RELATIVE_PATH, approval)
 
-    def test_prototype_approval_passes_when_hashes_match(self):
+    def request_prototype_review(self, root: Path) -> None:
+        request = production_gate.create_prototype_review_request(root)
+        write_json(root / production_gate.PROTOTYPE_REVIEW_REQUEST_RELATIVE_PATH, request)
+
+    def test_prototype_approved_gate_passes_when_hashes_match(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             self.write_creative_project(root)
             self.write_prototype_bundle(root)
             self.approve_prototype(root)
-            findings = production_gate.run_prototype_gate(root, write_state=False)
+            findings = production_gate.run_prototype_approved_gate(root, write_state=False)
             self.assertFalse([item for item in findings if item.severity == "ERROR"], [f"{item.code}: {item.message}" for item in findings])
 
-    def test_prototype_gate_accepts_raw_muted_video_presenter_mode(self):
+    def test_prototype_review_ready_gate_passes_without_prototype_approval(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.write_creative_project(root)
+            self.write_prototype_bundle(root)
+            self.request_prototype_review(root)
+            findings = production_gate.run_prototype_review_ready_gate(root, write_state=False)
+            self.assertFalse([item for item in findings if item.severity == "ERROR"], [f"{item.code}: {item.message}" for item in findings])
+
+    def test_prototype_review_ready_gate_fails_without_review_request(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.write_creative_project(root)
+            self.write_prototype_bundle(root)
+            findings = production_gate.run_prototype_review_ready_gate(root, write_state=False)
+            self.assertIn("missing-file", {item.code for item in findings})
+
+    def test_prototype_approved_gate_fails_without_prototype_approval(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.write_creative_project(root)
+            self.write_prototype_bundle(root)
+            self.request_prototype_review(root)
+            findings = production_gate.run_prototype_approved_gate(root, write_state=False)
+            self.assertIn("missing-file", {item.code for item in findings})
+
+    def test_prototype_review_ready_gate_accepts_raw_muted_video_presenter_mode(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             self.write_creative_project(root)
             self.write_prototype_bundle(root)
             self.replace_presenter_mode(root, "raw_muted_video")
-            findings = production_gate.run_prototype_gate(root, write_state=False)
+            self.request_prototype_review(root)
+            findings = production_gate.run_prototype_review_ready_gate(root, write_state=False)
             self.assertNotIn("prototype-presenter-mode", {item.code for item in findings})
 
-    def test_prototype_gate_accepts_presenter_within_fit_limit(self):
+    def test_prototype_review_ready_gate_accepts_presenter_within_fit_limit(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             self.write_creative_project(root)
             self.write_prototype_bundle(root)
             self.mock_media_duration.return_value = 2.4
-            findings = production_gate.run_prototype_gate(root, write_state=False)
+            self.request_prototype_review(root)
+            findings = production_gate.run_prototype_review_ready_gate(root, write_state=False)
             codes = {item.code for item in findings}
             self.assertNotIn("prototype-presenter-too-short", codes)
 
-    def test_prototype_gate_rejects_presenter_shorter_than_fit_limit(self):
+    def test_prototype_review_ready_gate_rejects_presenter_shorter_than_fit_limit(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             self.write_creative_project(root)
             self.write_prototype_bundle(root)
             self.mock_media_duration.return_value = 2.0
-            findings = production_gate.run_prototype_gate(root, write_state=False)
+            findings = production_gate.run_prototype_review_ready_gate(root, write_state=False)
             self.assertIn("prototype-presenter-too-short", {item.code for item in findings})
 
-    def test_prototype_gate_rejects_unknown_presenter_mode(self):
+    def test_prototype_review_ready_gate_rejects_unknown_presenter_mode(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             self.write_creative_project(root)
             self.write_prototype_bundle(root)
             self.replace_presenter_mode(root, "raw_video")
-            findings = production_gate.run_prototype_gate(root, write_state=False)
+            findings = production_gate.run_prototype_review_ready_gate(root, write_state=False)
             self.assertIn("prototype-presenter-mode", {item.code for item in findings})
 
     def test_prototype_approval_fails_when_prototype_changes(self):
@@ -249,7 +284,7 @@ class PrototypeGateTests(unittest.TestCase):
             self.write_prototype_bundle(root)
             self.approve_prototype(root)
             (root / "outputs" / "prototype.mp4").write_bytes(b"changed prototype video")
-            findings = production_gate.run_prototype_gate(root, write_state=False)
+            findings = production_gate.run_prototype_approved_gate(root, write_state=False)
             self.assertIn("prototype-artifact-stale", {item.code for item in findings})
 
     def test_prototype_approval_fails_when_chunk_audio_changes(self):
@@ -259,55 +294,55 @@ class PrototypeGateTests(unittest.TestCase):
             self.write_prototype_bundle(root)
             self.approve_prototype(root)
             (root / "tts" / "clean" / "T01.wav").write_bytes(b"changed prototype tts chunk")
-            findings = production_gate.run_prototype_gate(root, write_state=False)
+            findings = production_gate.run_prototype_approved_gate(root, write_state=False)
             self.assertIn("prototype-tts-chunk-audio-stale", {item.code for item in findings})
 
-    def test_prototype_gate_rejects_empty_final_audio_manifest_chunks(self):
+    def test_prototype_review_ready_gate_rejects_empty_final_audio_manifest_chunks(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             self.write_creative_project(root)
             self.write_prototype_bundle(root)
             self.replace_final_audio_manifest(root, {"duration_seconds": 3.0, "tts_chunks": []})
-            findings = production_gate.run_prototype_gate(root, write_state=False)
+            findings = production_gate.run_prototype_review_ready_gate(root, write_state=False)
             self.assertIn("prototype-final-audio-manifest", {item.code for item in findings})
 
-    def test_prototype_gate_rejects_final_audio_chunk_without_timeline_start(self):
+    def test_prototype_review_ready_gate_rejects_final_audio_chunk_without_timeline_start(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             self.write_creative_project(root)
             self.write_prototype_bundle(root)
             self.replace_final_audio_manifest(root, {"duration_seconds": 3.0, "tts_chunks": [{"chunk": "T01", "duration_seconds": 3.0}]})
-            findings = production_gate.run_prototype_gate(root, write_state=False)
+            findings = production_gate.run_prototype_review_ready_gate(root, write_state=False)
             self.assertIn("prototype-final-audio-manifest", {item.code for item in findings})
 
-    def test_prototype_gate_requires_tts_pronunciation_qa_artifact(self):
+    def test_prototype_review_ready_gate_requires_tts_pronunciation_qa_artifact(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             self.write_creative_project(root)
             self.write_prototype_bundle(root)
             (root / production_gate.TTS_PRONUNCIATION_QA_RELATIVE_PATH).unlink()
-            findings = production_gate.run_prototype_gate(root, write_state=False)
+            findings = production_gate.run_prototype_review_ready_gate(root, write_state=False)
             self.assertIn("prototype-artifact-missing", {item.code for item in findings})
 
-    def test_prototype_gate_fails_when_tts_pronunciation_qa_status_fails(self):
+    def test_prototype_review_ready_gate_fails_when_tts_pronunciation_qa_status_fails(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             self.write_creative_project(root)
             self.write_prototype_bundle(root)
             write_json(root / production_gate.TTS_PRONUNCIATION_QA_RELATIVE_PATH, {"status": "fail", "chunks": [], "errors": ["bad TTS"]})
-            findings = production_gate.run_prototype_gate(root, write_state=False)
+            findings = production_gate.run_prototype_review_ready_gate(root, write_state=False)
             self.assertIn("prototype-tts-pronunciation-qa", {item.code for item in findings})
 
-    def test_prototype_gate_rejects_empty_tts_pronunciation_pass(self):
+    def test_prototype_review_ready_gate_rejects_empty_tts_pronunciation_pass(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             self.write_creative_project(root)
             self.write_prototype_bundle(root)
             self.replace_tts_qa_report(root, {"status": "pass"})
-            findings = production_gate.run_prototype_gate(root, write_state=False)
+            findings = production_gate.run_prototype_review_ready_gate(root, write_state=False)
             self.assertIn("prototype-tts-pronunciation-qa", {item.code for item in findings})
 
-    def test_prototype_gate_rejects_automatic_tts_pronunciation_pass_without_backend(self):
+    def test_prototype_review_ready_gate_rejects_automatic_tts_pronunciation_pass_without_backend(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             self.write_creative_project(root)
@@ -321,10 +356,10 @@ class PrototypeGateTests(unittest.TestCase):
                     "errors": [],
                 },
             )
-            findings = production_gate.run_prototype_gate(root, write_state=False)
+            findings = production_gate.run_prototype_review_ready_gate(root, write_state=False)
             self.assertIn("prototype-tts-pronunciation-qa", {item.code for item in findings})
 
-    def test_prototype_gate_accepts_user_approved_tts_pronunciation_override(self):
+    def test_prototype_review_ready_gate_accepts_user_approved_tts_pronunciation_override(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             self.write_creative_project(root)
@@ -357,10 +392,11 @@ class PrototypeGateTests(unittest.TestCase):
                     "errors": [],
                 },
             )
-            findings = production_gate.run_prototype_gate(root, write_state=False)
+            self.request_prototype_review(root)
+            findings = production_gate.run_prototype_review_ready_gate(root, write_state=False)
             self.assertNotIn("prototype-tts-pronunciation-qa", {item.code for item in findings})
 
-    def test_prototype_gate_rejects_tts_pronunciation_override_without_reason(self):
+    def test_prototype_review_ready_gate_rejects_tts_pronunciation_override_without_reason(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             self.write_creative_project(root)
@@ -379,10 +415,10 @@ class PrototypeGateTests(unittest.TestCase):
                     "errors": [],
                 },
             )
-            findings = production_gate.run_prototype_gate(root, write_state=False)
+            findings = production_gate.run_prototype_review_ready_gate(root, write_state=False)
             self.assertIn("prototype-tts-pronunciation-qa", {item.code for item in findings})
 
-    def test_prototype_gate_rejects_tts_pronunciation_override_without_accepted_at(self):
+    def test_prototype_review_ready_gate_rejects_tts_pronunciation_override_without_accepted_at(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             self.write_creative_project(root)
@@ -400,7 +436,7 @@ class PrototypeGateTests(unittest.TestCase):
                     "errors": [],
                 },
             )
-            findings = production_gate.run_prototype_gate(root, write_state=False)
+            findings = production_gate.run_prototype_review_ready_gate(root, write_state=False)
             self.assertIn("prototype-tts-pronunciation-qa", {item.code for item in findings})
 
     def test_prototype_approval_fails_when_tts_pronunciation_qa_changes(self):
@@ -410,7 +446,7 @@ class PrototypeGateTests(unittest.TestCase):
             self.write_prototype_bundle(root)
             self.approve_prototype(root)
             write_json(root / production_gate.TTS_PRONUNCIATION_QA_RELATIVE_PATH, {"status": "pass", "chunks": [], "errors": [], "changed": True})
-            findings = production_gate.run_prototype_gate(root, write_state=False)
+            findings = production_gate.run_prototype_approved_gate(root, write_state=False)
             self.assertIn("prototype-artifact-stale", {item.code for item in findings})
 
     def test_prototype_bundle_zip_excludes_review_mp4(self):
@@ -460,7 +496,7 @@ class PrototypeGateTests(unittest.TestCase):
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             manifest["artifacts"]["prototype_video"]["path"] = str(root / "outputs" / "prototype.mp4")
             write_json(manifest_path, manifest)
-            findings = production_gate.run_prototype_gate(root, write_state=False)
+            findings = production_gate.run_prototype_review_ready_gate(root, write_state=False)
             self.assertIn("prototype-portable-path", {item.code for item in findings})
 
     def test_final_production_gate_blocks_without_prototype_approval(self):
@@ -468,8 +504,38 @@ class PrototypeGateTests(unittest.TestCase):
             root = Path(tmp)
             self.write_creative_project(root)
             self.write_prototype_bundle(root)
-            findings = production_gate.run_prototype_gate(root, write_state=False)
+            findings = production_gate.run_prototype_approved_gate(root, write_state=False)
             self.assertIn("missing-file", {item.code for item in findings})
+
+    def test_pipeline_check_accepts_new_prototype_modes_and_rejects_old_mode(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.write_creative_project(root)
+            self.write_prototype_bundle(root)
+            self.request_prototype_review(root)
+            review_ready = subprocess.run(
+                [sys.executable, str(PIPELINE_CHECK_PATH), "--project-dir", str(root), "--mode", "prototype-review-ready"],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            self.assertNotIn("invalid choice", review_ready.stderr)
+            self.approve_prototype(root)
+            approved = subprocess.run(
+                [sys.executable, str(PIPELINE_CHECK_PATH), "--project-dir", str(root), "--mode", "prototype-approved"],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            self.assertNotIn("invalid choice", approved.stderr)
+            old_mode = subprocess.run(
+                [sys.executable, str(PIPELINE_CHECK_PATH), "--project-dir", str(root), "--mode", "prototype" + "-gate"],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            self.assertNotEqual(old_mode.returncode, 0)
+            self.assertIn("invalid choice", old_mode.stderr)
 
     def test_generated_image_panels_become_text_placeholders(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -490,7 +556,7 @@ class PrototypeGateTests(unittest.TestCase):
                             "fallback_strategy": "Use a text placeholder",
                             "acceptance_criteria": "Readable and timed",
                             "layout": "fullscreen",
-                            "panels": [{"kind": "broll", "source": "generated-image"}],
+                            "panels": [{"kind": "broll", "source_type": "generated-image"}],
                         }
                     ],
                 },
@@ -502,7 +568,7 @@ class PrototypeGateTests(unittest.TestCase):
                     "layout": "fullscreen",
                     "start_time": 0,
                     "end_time": 3,
-                    "panels": [{"kind": "broll", "source": "generated-image", "path": "pending.png"}],
+                    "panels": [{"kind": "broll", "source_type": "generated-image", "path": "pending.png"}],
                 }
             ]
             visual_plan = json.loads((root / "manifests" / "visual-plan.json").read_text(encoding="utf-8"))
@@ -520,7 +586,7 @@ class PrototypeGateTests(unittest.TestCase):
                 )
 
             panel = prototype[0]["panels"][0]
-            self.assertEqual(panel["source"], "generated-image")
+            self.assertEqual(panel["source_type"], "generated-image")
             self.assertTrue(panel["path"].startswith("prototype/placeholders/"))
             self.assertEqual(placeholders[0]["placeholder_text"], "A simple generated illustration prompt")
             self.assertTrue((root / panel["path"]).exists())

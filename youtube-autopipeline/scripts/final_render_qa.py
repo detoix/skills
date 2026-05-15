@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Extract representative frames and write a visual QA manifest for rendered reels."""
+"""Extract representative frames and write a final-render QA manifest for rendered reels."""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from pipeline_check import timeline_selected_visual_findings
 from production_metrics import end_stage, start_stage
 
 
@@ -173,17 +174,23 @@ def relative_media_ref(project_dir: Path, value: str) -> str:
         return str(resolved.resolve())
 
 
-def z_image_audit(project_dir: Path, timeline: list[dict[str, Any]], z_image_plan: dict[str, Any] | None) -> dict[str, Any]:
+def z_image_audit(project_dir: Path, selected_visuals: dict[str, Any] | None, z_image_plan: dict[str, Any] | None) -> dict[str, Any]:
     generated_refs: set[str] = set()
-    for entry in timeline:
-        if not isinstance(entry, dict):
-            continue
-        for field in ("clip_path", "background_path", "clip_path_top", "clip_path_mid", "clip_path_bot"):
-            value = entry.get(field)
+    if selected_visuals and isinstance(selected_visuals.get("resolver"), dict) and isinstance(selected_visuals.get("items"), list):
+        for item in selected_visuals["items"]:
+            if not isinstance(item, dict) or item.get("source_type") != "generated-image":
+                continue
+            value = item.get("local_path")
             if isinstance(value, str) and Path(value).suffix.lower() in IMAGE_EXTENSIONS:
-                ref = relative_media_ref(project_dir, value)
-                if "\\generated\\" in f"\\{ref}" or "z-image" in ref.lower():
-                    generated_refs.add(ref)
+                generated_refs.add(relative_media_ref(project_dir, value))
+                continue
+            provenance = item.get("provenance") if isinstance(item.get("provenance"), dict) else {}
+            project_relative_path = provenance.get("project_relative_path")
+            resolved_path = provenance.get("resolved_path")
+            if isinstance(project_relative_path, str) and Path(project_relative_path).suffix.lower() in IMAGE_EXTENSIONS:
+                generated_refs.add(relative_media_ref(project_dir, project_relative_path))
+            elif isinstance(resolved_path, str) and Path(resolved_path).suffix.lower() in IMAGE_EXTENSIONS:
+                generated_refs.add(relative_media_ref(project_dir, resolved_path))
 
     plan_items = {}
     if z_image_plan and isinstance(z_image_plan.get("items"), list):
@@ -344,10 +351,12 @@ def tts_prefix_audit(tts_manifest: dict[str, Any] | None) -> dict[str, Any]:
     warnings = []
     chunks = tts_manifest.get("chunks")
     if not isinstance(chunks, list):
+        chunks = tts_manifest.get("tts_chunks")
+    if not isinstance(chunks, list):
         return {
             "manifest_present": True,
             "prompt_prefix_absent": False,
-            "warnings": ["tts manifest has no chunks array"],
+            "warnings": ["tts manifest has no chunks or tts_chunks array"],
             "chunks_checked": 0,
         }
 
@@ -361,10 +370,13 @@ def tts_prefix_audit(tts_manifest: dict[str, Any] | None) -> dict[str, Any]:
             prefix_absent = False
             warnings.append(f"{chunk.get('chunk_id', 'unknown')} reports prompt prefix contamination")
         trim_mode = chunk.get("trim_mode")
+        if trim_mode is None:
+            prefix_absent = False
+            warnings.append(f"{chunk.get('chunk_id', 'unknown')} has no trim_mode")
         if trim_mode == "manual_review":
             prefix_absent = False
             warnings.append(f"{chunk.get('chunk_id', 'unknown')} requires manual prefix review")
-        if trim_mode not in {None, "target_only", "trimmed_prefix", "not_applicable"}:
+        if trim_mode not in {"target_only", "target_only_no_trim", "trimmed_prefix", "not_applicable", "manual_review"}:
             warnings.append(f"{chunk.get('chunk_id', 'unknown')} has unrecognized trim_mode {trim_mode!r}")
 
     return {
@@ -397,6 +409,7 @@ def build_findings(
     prefix_audit: dict[str, Any],
     caption_audit: dict[str, Any],
     generated_audit: dict[str, Any],
+    timeline_selected_visuals: list[dict[str, str]],
     selected_visuals: dict[str, Any],
     format_name: str | None,
     min_duration: float | None,
@@ -432,7 +445,7 @@ def build_findings(
     if selected_visuals.get("duplicate_canonical_ids"):
         add("ERROR", "duplicate-canonical-id", f"selected visuals reuse canonical ids: {selected_visuals['duplicate_canonical_ids']}")
     if not selected_visuals.get("manifest_is_resolved"):
-        add("ERROR", "selected-visuals-unresolved", "production visual QA requires manifests/selected-visuals.resolved.json from the resolver")
+        add("ERROR", "selected-visuals-unresolved", "production final render QA requires manifests/selected-visuals.resolved.json from the resolver")
     selected_duration = selected_visuals.get("target_duration_seconds")
     if selected_duration is None:
         selected_duration = duration
@@ -491,6 +504,8 @@ def build_findings(
         add("ERROR", "generated-image-unreviewed", f"generated timeline image has not been reviewed: {ref}")
     for ref in generated_audit.get("rejected_refs", []):
         add("ERROR", "generated-image-rejected", f"timeline uses rejected generated image: {ref}")
+
+    findings.extend(timeline_selected_visuals)
 
     return findings
 
@@ -587,17 +602,17 @@ def make_contact_sheet(frame_paths: list[Path], output: Path) -> str | None:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Create final-render visual QA frames and manifest.")
+    parser = argparse.ArgumentParser(description="Create final-render QA frames and manifest.")
     parser.add_argument("--project-dir", required=True, help="Project directory.")
     parser.add_argument("--video", help="Rendered MP4. Defaults to <project-dir>/final_output.mp4")
     parser.add_argument("--timeline", help="Timeline JSON. Defaults to <project-dir>/timeline.json when present")
-    parser.add_argument("--output", help="QA manifest path. Defaults to <project-dir>/manifests/visual-qa.json")
+    parser.add_argument("--output", help="QA manifest path. Defaults to <project-dir>/manifests/final-render-qa.json")
     parser.add_argument("--status", choices=("pass", "fail", "needs_review"), default="needs_review")
     parser.add_argument("--notes", default="", help="General QA notes to record.")
     parser.add_argument("--format", choices=("vertical", "landscape"), help="Expected render format for resolution checks.")
     parser.add_argument("--min-duration", type=float, help="Minimum acceptable duration in seconds.")
     parser.add_argument("--max-duration", type=float, help="Maximum acceptable duration in seconds.")
-    parser.add_argument("--tts-manifest", help="Optional TTS manifest path. Defaults to <project-dir>/manifests/tts-manifest.json")
+    parser.add_argument("--tts-manifest", help="Optional TTS manifest path. Defaults to final-audio-manifest.json, then tts-prototype-manifest.json")
     parser.add_argument("--z-image-plan", help="Optional z-image plan path. Defaults to <project-dir>/manifests/z-image-plan.json when present")
     parser.add_argument("--selected-visuals", help="Optional selected visuals manifest path. Defaults to selected-visuals.resolved.json when present, otherwise selected-visuals.json as a blocker")
     parser.add_argument("--report-md", help="Optional Markdown QA report path.")
@@ -615,13 +630,13 @@ def main() -> int:
     project_dir = Path(args.project_dir).resolve()
     qa_record = start_stage(
         project_dir,
-        "final_visual_qa",
-        command=["visual_qa.py"],
+        "final_render_qa",
+        command=["final_render_qa.py"],
         metadata={"format": args.format, "status": args.status},
     )
     video = Path(args.video).resolve() if args.video else project_dir / "final_output.mp4"
     timeline_path = Path(args.timeline).resolve() if args.timeline else project_dir / "timeline.json"
-    output = Path(args.output).resolve() if args.output else project_dir / "manifests" / "visual-qa.json"
+    output = Path(args.output).resolve() if args.output else project_dir / "manifests" / "final-render-qa.json"
     qa_stem = video.stem
     frames_dir = project_dir / "qa" / "final-frames" / qa_stem
     contact_sheet = project_dir / "qa" / f"contact-sheet-{qa_stem}.jpg"
@@ -632,7 +647,21 @@ def main() -> int:
     metadata = video_metadata(video)
     duration = float(metadata.get("duration_seconds") or 0.0)
     timeline = load_timeline(timeline_path)
-    tts_manifest_path = Path(args.tts_manifest).resolve() if args.tts_manifest else project_dir / "manifests" / "tts-manifest.json"
+    if args.tts_manifest:
+        tts_manifest_path = Path(args.tts_manifest).resolve()
+    else:
+        manifest_dir = project_dir / "manifests"
+        tts_manifest_path = next(
+            (
+                candidate
+                for candidate in (
+                    manifest_dir / "final-audio-manifest.json",
+                    manifest_dir / "tts-prototype-manifest.json",
+                )
+                if candidate.exists()
+            ),
+            manifest_dir / "final-audio-manifest.json",
+        )
     tts_manifest = load_json_object(tts_manifest_path)
     captions_manifest_path = project_dir / "manifests" / "captions-manifest.json"
     captions_manifest = load_json_object(captions_manifest_path)
@@ -667,8 +696,12 @@ def main() -> int:
     timeline_summary = timeline_asset_categories(timeline)
     prefix_audit = tts_prefix_audit(tts_manifest)
     caption_audit = caption_alignment_audit(captions_manifest)
-    generated_audit = z_image_audit(project_dir, timeline, z_image_plan)
+    generated_audit = z_image_audit(project_dir, selected_visuals_manifest, z_image_plan)
     selected_summary = selected_visuals_summary(selected_visuals_manifest)
+    timeline_selected_visuals = [
+        {"severity": finding.severity, "code": finding.code, "message": finding.message}
+        for finding in timeline_selected_visual_findings(timeline, selected_visuals_manifest, project_dir)
+    ]
     findings = build_findings(
         metadata,
         frame_entries,
@@ -676,6 +709,7 @@ def main() -> int:
         prefix_audit,
         caption_audit,
         generated_audit,
+        timeline_selected_visuals,
         selected_summary,
         args.format,
         args.min_duration,
@@ -716,8 +750,8 @@ def main() -> int:
     output.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     report_md = Path(args.report_md).resolve() if args.report_md else output.with_suffix(".md")
     write_markdown_report(report_md, manifest, timeline_summary, prefix_audit, caption_audit, generated_audit, selected_summary, findings)
-    print(f"Wrote visual QA manifest: {output}")
-    print(f"Wrote visual QA report: {report_md}")
+    print(f"Wrote final render QA manifest: {output}")
+    print(f"Wrote final render QA report: {report_md}")
     print(f"Extracted frames: {len(frame_entries)}")
     if sheet_path:
         print(f"Contact sheet: {sheet_path}")

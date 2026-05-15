@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from production_gate import run_creative_gate, run_prototype_gate, validate_visual_plan
+from production_gate import run_creative_gate, run_prototype_approved_gate, run_prototype_review_ready_gate, validate_visual_plan
 
 
 SEGMENT_TYPES = {"A_ROLL", "B_ROLL"}
@@ -157,7 +157,7 @@ def validate_segment_contract(
         return None
 
     if segment_type == "A_ROLL":
-        for field in ("layout", "panels", "source", "source_strategy"):
+        for field in ("layout", "panels", "source", "source_type", "source_strategy"):
             if field in item:
                 report.error("aroll-broll-field", f"{context}.{field} is only valid for B_ROLL")
         return "A_ROLL"
@@ -188,12 +188,14 @@ def validate_segment_contract(
                 report.error("broll-panel-path", f"{panel_context}.path must be a non-empty media path")
         if kind == "broll":
             broll_count += 1
-            source = panel.get("source")
-            if source not in BROLL_SOURCE_TYPES:
-                report.error("broll-panel-source", f"{panel_context}.source must be one of {sorted(BROLL_SOURCE_TYPES)}")
+            if "source" in panel:
+                report.error("broll-panel-source-legacy", f"{panel_context}.source is not supported; use source_type")
+            source_type = panel.get("source_type")
+            if source_type not in BROLL_SOURCE_TYPES:
+                report.error("broll-panel-source-type", f"{panel_context}.source_type must be one of {sorted(BROLL_SOURCE_TYPES)}")
         else:
             presenter_count += 1
-            if "source" in panel or "source_strategy" in panel:
+            if "source" in panel or "source_type" in panel or "source_strategy" in panel:
                 report.error("presenter-source", f"{panel_context} is presenter media and must not define source fields")
             if format_mode == "vertical" and layout == "fullscreen":
                 overlay_position = panel.get("overlay_position")
@@ -484,7 +486,7 @@ def fit_kind_for_panel(panel: dict[str, Any] | None, path: Path) -> str:
     if isinstance(panel, dict):
         if panel.get("kind") == "presenter":
             return "presenter"
-        if panel.get("kind") == "broll" and panel.get("source") in LOOP_UNSAFE_BROLL_SOURCES:
+        if panel.get("kind") == "broll" and panel.get("source_type") in LOOP_UNSAFE_BROLL_SOURCES:
             return "loop_unsafe_broll"
     if path_looks_like_presenter(path):
         return "presenter"
@@ -704,6 +706,121 @@ def validate_timeline(
                 f"(accepted range {BROLL_PRESENTER_PANEL_MIN_RATIO * 100:.1f}%"
                 f"-{BROLL_PRESENTER_PANEL_MAX_RATIO * 100:.1f}%)",
             )
+
+
+def normalize_project_media_ref(project_dir: Path, value: Any) -> str | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    normalized = value.strip().replace("\\", "/")
+    parts = [part for part in normalized.split("/") if part and part != "."]
+    path = Path(normalized) if Path(normalized).is_absolute() else project_dir.joinpath(*parts)
+    try:
+        resolved = path.resolve()
+    except OSError:
+        resolved = path.absolute()
+    try:
+        return resolved.relative_to(project_dir.resolve()).as_posix().casefold()
+    except ValueError:
+        return str(resolved).replace("\\", "/").casefold()
+
+
+def collect_timeline_broll_refs(timeline: Any) -> list[dict[str, Any]]:
+    refs: list[dict[str, Any]] = []
+    if not isinstance(timeline, list):
+        return refs
+    for entry_index, entry in enumerate(timeline):
+        if not isinstance(entry, dict) or entry.get("type") != "B_ROLL":
+            continue
+        panels = entry.get("panels")
+        if not isinstance(panels, list):
+            continue
+        for panel_index, panel in enumerate(panels):
+            if not isinstance(panel, dict) or panel.get("kind") != "broll":
+                continue
+            refs.append(
+                {
+                    "timeline_index": entry_index,
+                    "panel_index": panel_index,
+                    "source_type": panel.get("source_type"),
+                    "path": panel.get("path"),
+                    "segment_id": panel.get("segment_id") or entry.get("segment_id"),
+                    "scene_id": panel.get("scene_id") or entry.get("scene_id"),
+                }
+            )
+    return refs
+
+
+def selected_visual_path_keys(project_dir: Path, item: dict[str, Any]) -> set[str]:
+    keys: set[str] = set()
+    for value in (item.get("local_path"),):
+        key = normalize_project_media_ref(project_dir, value)
+        if key:
+            keys.add(key)
+    provenance = item.get("provenance")
+    if isinstance(provenance, dict):
+        for value in (provenance.get("project_relative_path"), provenance.get("resolved_path")):
+            key = normalize_project_media_ref(project_dir, value)
+            if key:
+                keys.add(key)
+    return keys
+
+
+def timeline_selected_visual_findings(timeline: Any, selected_visuals: Any, project_dir: Path) -> list[Finding]:
+    findings: list[Finding] = []
+    if not isinstance(selected_visuals, dict) or not isinstance(selected_visuals.get("resolver"), dict):
+        return findings
+    if selected_visuals["resolver"].get("name") != "youtube-autopipeline-selected-visuals-resolver":
+        return findings
+    items = selected_visuals.get("items")
+    if not isinstance(items, list):
+        return findings
+
+    selected_by_path: dict[str, list[dict[str, Any]]] = {}
+    for item in items:
+        if not isinstance(item, dict) or item.get("accepted") is not True:
+            continue
+        for key in selected_visual_path_keys(project_dir, item):
+            selected_by_path.setdefault(key, []).append(item)
+
+    for ref in collect_timeline_broll_refs(timeline):
+        context = f"timeline[{ref['timeline_index']}].panels[{ref['panel_index']}]"
+        path_key = normalize_project_media_ref(project_dir, ref.get("path"))
+        if not path_key:
+            continue
+        matches = selected_by_path.get(path_key, [])
+        if not matches:
+            findings.append(
+                Finding(
+                    "ERROR",
+                    "timeline-selected-visual-mismatch",
+                    f"{context}.path {ref.get('path')!r} is not an accepted asset in manifests/selected-visuals.resolved.json",
+                )
+            )
+            continue
+        source_type = ref.get("source_type")
+        source_matches = [item for item in matches if item.get("source_type") == source_type]
+        if not source_matches:
+            findings.append(
+                Finding(
+                    "ERROR",
+                    "timeline-selected-visual-source-mismatch",
+                    f"{context}.source_type {source_type!r} does not match selected visual source_type values {sorted({str(item.get('source_type')) for item in matches})}",
+                )
+            )
+            continue
+        segment_id = ref.get("segment_id")
+        if isinstance(segment_id, str) and segment_id.strip():
+            normalized_segment = segment_id.strip()
+            if not any(str(item.get("segment_id", "")).strip() == normalized_segment for item in source_matches):
+                findings.append(
+                    Finding(
+                        "ERROR",
+                        "timeline-selected-visual-mismatch",
+                        f"{context}.segment_id {normalized_segment!r} does not match selected visual segment_id values {sorted({str(item.get('segment_id', '')).strip() for item in source_matches})}",
+                    )
+                )
+
+    return findings
 
 
 def env_file_has_key(path: Path, key: str) -> bool:
@@ -1117,8 +1234,6 @@ def validate_selected_visuals_manifest(manifest: Any, project_dir: Path, report:
         local_path = item.get("local_path")
         normalized_local_path = str(local_path).replace("\\", "/").lstrip("./") if isinstance(local_path, str) else ""
         is_board_asset = normalized_local_path.startswith("broll/boards/")
-        if is_board_asset and source_type != "synthetic-motion":
-            report.error("board-source-type", f"{context}.source_type must be 'synthetic-motion' for broll/boards assets")
         if isinstance(local_path, str) or provenance.get("kind") == "local_file":
             sha = normalize_sha(item.get("sha256"))
             provenance_sha = normalize_sha(provenance.get("sha256"))
@@ -1180,14 +1295,14 @@ def validate_selected_visuals_manifest(manifest: Any, project_dir: Path, report:
                 planned_segment = segment_by_id.get(plan_segment_id.strip()) if isinstance(plan_segment_id, str) else None
                 is_broll_asset = isinstance(planned_segment, dict) and planned_segment.get("type") == "B_ROLL"
                 planned_sources = {
-                    panel.get("source")
+                    panel.get("source_type")
                     for panel in visual_plan_scene.get("panels", [])
                     if isinstance(panel, dict) and panel.get("kind") == "broll"
                 }
                 if is_broll_asset and isinstance(source_type, str) and source_type in BROLL_SOURCE_TYPES and source_type not in planned_sources:
                     report.error(
                         "selected-visuals-source-strategy-mismatch",
-                        f"{context} uses source_type {source_type!r} but visual-plan scene uses broll panel sources {sorted(planned_sources)}",
+                        f"{context} uses source_type {source_type!r} but visual-plan scene uses broll panel source_type values {sorted(planned_sources)}",
                     )
             accepted_patterns.add(str(pattern))
             if is_broll_asset and isinstance(source_type, str) and source_type in BROLL_SOURCE_TYPES:
@@ -1333,7 +1448,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--format", choices=("landscape", "vertical"), help="Expected output format.")
     parser.add_argument(
         "--mode",
-        choices=("all", "preflight", "script", "timeline", "assets", "creative-gate", "prototype-gate"),
+        choices=("all", "preflight", "script", "timeline", "assets", "creative-gate", "prototype-review-ready", "prototype-approved"),
         default="all",
         help="Validation scope.",
     )
@@ -1367,8 +1482,17 @@ def main() -> int:
             if script is not None:
                 validate_script(script, report, args.format)
 
-    if args.mode == "prototype-gate":
-        for finding in run_prototype_gate(project_dir):
+    if args.mode == "prototype-review-ready":
+        for finding in run_prototype_review_ready_gate(project_dir):
+            if finding.severity == "ERROR":
+                report.error(finding.code, finding.message)
+            elif finding.severity == "WARN":
+                report.warn(finding.code, finding.message)
+            else:
+                report.info(finding.code, finding.message)
+
+    if args.mode == "prototype-approved":
+        for finding in run_prototype_approved_gate(project_dir):
             if finding.severity == "ERROR":
                 report.error(finding.code, finding.message)
             elif finding.severity == "WARN":
@@ -1391,6 +1515,12 @@ def main() -> int:
         audio_path = Path(args.audio).resolve() if args.audio else None
         if timeline is not None:
             validate_timeline(timeline, project_dir, report, audio_path, args.format)
+            selected_resolved_path = project_dir / "manifests" / "selected-visuals.resolved.json"
+            if selected_resolved_path.exists():
+                selected_resolved = load_json(selected_resolved_path, report, "selected visuals resolved manifest")
+                if selected_resolved is not None:
+                    for finding in timeline_selected_visual_findings(timeline, selected_resolved, project_dir):
+                        report.error(finding.code, finding.message)
 
     asset_manifest_path = Path(args.asset_manifest).resolve() if args.asset_manifest else None
     if asset_manifest_path and args.mode in {"all", "preflight", "assets"}:

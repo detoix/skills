@@ -10,14 +10,15 @@ project-root/
   script.json
   validation-report.json
   manifests/
-    tts-manifest.json
+    tts-prototype-manifest.json
+    final-audio-manifest.json
     assets-manifest.json
     music-manifest.json
     audio-mix-manifest.json
     selected-visuals.json
     z-image-plan.json
-    visual-qa.json
-    visual-qa.md
+    final-render-qa.json
+    final-render-qa.md
   source-assets/
     presenter-front.mp4
     presenter-profile.mp4
@@ -64,12 +65,13 @@ project-root/
   script.json
   validation-report.json
   manifests/
-    tts-manifest.json
+    tts-prototype-manifest.json
+    final-audio-manifest.json
     assets-manifest.json
     music-manifest.json
     audio-mix-manifest.json
     selected-visuals.json
-    visual-qa.json
+    final-render-qa.json
   source-assets/
     presenter-front.mp4
     presenter-profile.mp4        (optional - omit if no presenter overlay needed)
@@ -123,7 +125,7 @@ project-root/
 - Save selected B-roll and non-presenter visual choices as `manifests/selected-visuals.json`.
 - Validate z-image plans with `pipeline_check.py --z-image-plan --require-z-image-review` before timeline use.
 - Validate selected visuals with `pipeline_check.py --selected-visuals` before timeline use.
-- Save final-render frame QA output from `visual_qa.py` as `manifests/visual-qa.json`; the helper writes extracted frames under `qa/final-frames/<video-stem>/` and a matching `qa/contact-sheet-<video-stem>.jpg`.
+- Save final-render QA output from `final_render_qa.py` as `manifests/final-render-qa.json`; the helper writes extracted frames under `qa/final-frames/<video-stem>/` and a matching `qa/contact-sheet-<video-stem>.jpg`.
 - Save the Markdown QA report beside the JSON report. Final pass status requires agent visual review notes, not only structural checks.
 - If the user provides soundtrack music, run `music_intake.py`; it copies the local file under `source-assets/` with a deterministic name such as `soundtrack.mp3` or `soundtrack.wav`.
 - For vertical mode, presenter source videos should be portrait (9:16) when available. Landscape plates are accepted but will be center-cropped.

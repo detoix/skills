@@ -119,7 +119,7 @@ def replace_generated_image_panels(
             copied_panels = []
             for panel_index, panel in enumerate(panels):
                 copied_panel = dict(panel) if isinstance(panel, dict) else panel
-                if isinstance(copied_panel, dict) and copied_panel.get("kind") == "broll" and copied_panel.get("source") == "generated-image":
+                if isinstance(copied_panel, dict) and copied_panel.get("kind") == "broll" and copied_panel.get("source_type") == "generated-image":
                     segment_id = str(copied_entry.get("segment_id") or f"entry-{entry_index + 1}")
                     scene = scenes.get(segment_id)
                     text = placeholder_text(copied_entry, copied_panel, scene)

@@ -8,9 +8,9 @@ Use this as a non-preferential menu of B-roll layout patterns. It does not defin
 
 - `layout`: `fullscreen`, `stack2`, `stack3`, or `grid4`
 - `panels[]`: each panel is either `kind: "broll"` or `kind: "presenter"`
-- `source`: required only on `kind: "broll"` panels
+- `source_type`: required only on `kind: "broll"` panels
 
-Allowed B-roll panel sources:
+Allowed B-roll panel source_type values:
 
 - `synthetic-motion`
 - `stock`
@@ -31,7 +31,7 @@ Presenter panels and overlays never count toward source diversity.
 | Stack of 3 | `layout: stack3` with three panels | rapid examples, multi-source proof, contrast montage | captions and faces compete for vertical space |
 | Grid of 4 | `layout: grid4` with four panels | categories, alternatives, evidence board, examples at scale | dense UI/text becomes unreadable |
 | Still motion | `kind: broll` panel with `treatment: still_motion` | generated/manual stills needing motion | source must be high-resolution enough |
-| Synthetic motion | `kind: broll`, `source: synthetic-motion` | custom boards, diagrams, kinetic typography, local synthetic UI | must not look like a template/test harness |
+| Synthetic motion | `kind: broll`, `source_type: synthetic-motion` | custom boards, diagrams, kinetic typography, local synthetic UI | must not look like a template/test harness |
 
 ## Selected Visuals
 
@@ -44,6 +44,7 @@ Every accepted non-presenter visual should be recorded in `manifests/selected-vi
     {
       "segment_id": "S03",
       "section_pattern": "fullscreen-webpage",
+      "source_type": "webpage",
       "source_url": "https://example.com/page",
       "local_path": "broll/S03_demo.mp4",
       "accepted": true,
@@ -61,6 +62,7 @@ For board-created synthetic-motion clips, include the board creative metadata:
 {
   "segment_id": "S03",
   "section_pattern": "synthetic-motion-capture",
+  "source_type": "synthetic-motion",
   "local_path": "broll/boards/S03_process/S03_process.webm",
   "duration_seconds": 6,
   "creative_concept": "Blueprint transforms into modular assembly",

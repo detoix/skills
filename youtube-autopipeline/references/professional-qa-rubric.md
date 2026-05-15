@@ -1,6 +1,6 @@
 # Professional Reel QA Rubric
 
-Use this rubric before setting `--agent-visual-review-pass` in `visual_qa.py`. Structural QA is necessary but not sufficient.
+Use this rubric before setting `--agent-visual-review-pass` in `final_render_qa.py`. Structural QA is necessary but not sufficient.
 
 ## Required Pass Conditions
 
@@ -11,7 +11,7 @@ Use this rubric before setting `--agent-visual-review-pass` in `visual_qa.py`. S
 - Visual variety: the reel may change treatment through A-roll, B-roll layouts, presenter panels, generated visuals, synthetic-motion, screen capture, stacked clips, or text overlays. This is a local pipeline rule derived from platform hook/transition guidance and OSS pipeline inspection, not a formal platform standard.
 - Audio: narration is intelligible, not prompt-prefixed, and not buried under music. YouTube filming guidance emphasizes low echo/background noise for useful sound. URL: https://support.google.com/youtube/answer/12948118?co=YOUTUBE._YTVideoType%3Dshorts&hl=en
 - Generated visuals: z-image outputs must look intentional, vertically composed, and segment-relevant. Reject generic filler, malformed images, fake logos, unreadable text, private data, or placeholder-looking art.
-- Generated visual provenance: every `broll/generated/` timeline reference must map to a reviewed accepted item in `manifests/z-image-plan.json`.
+- Generated visual provenance: every timeline B-roll asset whose resolved selected visual has `source_type: "generated-image"` must map to a reviewed accepted item in `manifests/z-image-plan.json`.
 - Synthetic-motion boards: `broll/boards/` outputs must be custom art-directed motion-design clips with readable text, visible animation, creative metadata, and a passing `board-qa.json`. Static PNG/Pillow UI boards and template-like checklist/timeline/card-stack boards fail production QA unless the user explicitly requested a still.
 - Asset truthfulness: real production runs use user-provided assets when the brief depends on a real person, product, brand, app, location, or voice. Disposable test inputs are test-only and must not become skill assumptions.
 

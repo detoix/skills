@@ -15,7 +15,8 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 RESOLVER_NAME = "youtube-autopipeline-selected-visuals-resolver"
 RESOLVER_VERSION = "1.0.0"
-IDENTITY_FIELDS = {"source_type", "canonical_id", "sha256", "provenance"}
+BROLL_SOURCE_TYPES = {"webpage", "stock", "screen-record", "generated-image", "manual", "synthetic-motion"}
+IDENTITY_FIELDS = {"canonical_id", "sha256", "provenance"}
 
 
 def load_json(path: Path) -> Any:
@@ -63,24 +64,112 @@ def provider_from_url(url: str) -> str | None:
     return None
 
 
-def source_type_for_item(item: dict[str, Any], rel_path: str | None, source_url: str | None) -> str:
-    rel = normalize_rel_path(rel_path or "").lower()
-    if rel.startswith("broll/boards/"):
-        return "synthetic-motion"
-    if rel.startswith("broll/generated/"):
-        return "generated-image"
-    if rel.startswith("broll/html/") or rel.endswith(".html"):
-        return "synthetic-motion"
-    if rel.startswith("broll/screen/") or "screen" in rel:
-        return "screen-record"
-    if rel.startswith("broll/stock/"):
-        return "stock"
-    if rel.startswith("broll/motion/") or item.get("motion_graphic") is True:
-        return "synthetic-motion"
-    if source_url:
-        provider = provider_from_url(source_url)
-        return "stock" if provider else "webpage"
-    return "manual"
+def visual_plan_sources(visual_plan: Any) -> dict[tuple[str | None, str | None], set[str]]:
+    sources: dict[tuple[str | None, str | None], set[str]] = {}
+    if not isinstance(visual_plan, dict) or not isinstance(visual_plan.get("scenes"), list):
+        return sources
+    for scene in visual_plan["scenes"]:
+        if not isinstance(scene, dict):
+            continue
+        scene_id = scene.get("scene_id") if isinstance(scene.get("scene_id"), str) else None
+        segment_id = scene.get("segment_id") if isinstance(scene.get("segment_id"), str) else None
+        scene_sources: set[str] = set()
+        strategy = scene.get("source_strategy")
+        if isinstance(strategy, str) and strategy in BROLL_SOURCE_TYPES:
+            scene_sources.add(strategy)
+        panels = scene.get("panels")
+        if isinstance(panels, list):
+            for panel in panels:
+                if isinstance(panel, dict) and panel.get("kind") == "broll" and panel.get("source_type") in BROLL_SOURCE_TYPES:
+                    scene_sources.add(str(panel["source_type"]))
+        if scene_sources:
+            sources[(segment_id, scene_id)] = scene_sources
+    return sources
+
+
+def planned_sources_for_item(item: dict[str, Any], planned_sources: dict[tuple[str | None, str | None], set[str]]) -> set[str]:
+    segment_id = item.get("segment_id") if isinstance(item.get("segment_id"), str) else None
+    scene_id = item.get("scene_id") if isinstance(item.get("scene_id"), str) else None
+    for key in ((segment_id, scene_id), (segment_id, None), (None, scene_id)):
+        if key in planned_sources:
+            return planned_sources[key]
+    matches = [sources for (plan_segment, plan_scene), sources in planned_sources.items() if plan_segment == segment_id or plan_scene == scene_id]
+    if len(matches) == 1:
+        return matches[0]
+    return set()
+
+
+def relative_media_ref(project_dir: Path, value: str) -> str:
+    path = Path(value)
+    resolved = path if path.is_absolute() else project_dir / path
+    try:
+        return str(resolved.resolve().relative_to(project_dir.resolve())).replace("/", "\\")
+    except ValueError:
+        return str(resolved.resolve())
+
+
+def accepted_z_image_outputs(project_dir: Path) -> set[str]:
+    plan_path = project_dir / "manifests" / "z-image-plan.json"
+    if not plan_path.exists():
+        return set()
+    plan = load_json(plan_path)
+    accepted: set[str] = set()
+    if isinstance(plan, dict) and isinstance(plan.get("items"), list):
+        for item in plan["items"]:
+            if not isinstance(item, dict) or not isinstance(item.get("output"), str):
+                continue
+            review = item.get("review") if isinstance(item.get("review"), dict) else {}
+            if review.get("accepted") is True:
+                accepted.add(relative_media_ref(project_dir, item["output"]))
+    return accepted
+
+
+def has_board_proof(local_file: Path) -> bool:
+    directory = local_file.parent
+    manifest_path = directory / "board-manifest.json"
+    qa_path = directory / "board-qa.json"
+    if manifest_path.exists() and manifest_path.is_file():
+        return True
+    if not qa_path.exists() or not qa_path.is_file():
+        return False
+    try:
+        qa = load_json(qa_path)
+    except Exception:
+        return False
+    if not isinstance(qa, dict):
+        return False
+    return qa.get("status") == "pass" or qa.get("passed") is True
+
+
+def validate_source_type_proof(
+    project_dir: Path,
+    item: dict[str, Any],
+    source_type: str,
+    file_path: Path | None,
+    source_url: str | None,
+    accepted_z_outputs: set[str],
+    index: int,
+    errors: list[str],
+) -> None:
+    context = f"items[{index}]"
+    if source_type == "generated-image":
+        if file_path is None:
+            errors.append(f"{context}.local_path is required for generated-image")
+            return
+        if relative_media_ref(project_dir, str(file_path)) not in accepted_z_outputs:
+            errors.append(f"{context}.local_path is not an accepted output in manifests/z-image-plan.json")
+    elif source_type == "synthetic-motion":
+        if file_path is None:
+            errors.append(f"{context}.local_path is required for synthetic-motion")
+        elif not has_board_proof(file_path):
+            errors.append(f"{context}.local_path has no board-manifest.json or passing board-qa.json proof")
+    elif source_type == "webpage":
+        if not (isinstance(source_url, str) and source_url.strip()) and not isinstance(item.get("capture_source_url"), str):
+            errors.append(f"{context}.source_url or capture_source_url is required for webpage")
+    elif source_type == "stock":
+        provider = item.get("provider")
+        if provider != "pexels" and not (isinstance(source_url, str) and provider_from_url(source_url) == "pexels"):
+            errors.append(f"{context}.provider='pexels' or a Pexels source_url is required for stock")
 
 
 def validate_intent_item(item: dict[str, Any], index: int, errors: list[str]) -> None:
@@ -89,12 +178,23 @@ def validate_intent_item(item: dict[str, Any], index: int, errors: list[str]) ->
         errors.append(f"items[{index}] contains resolver-owned fields: {', '.join(forbidden)}")
     if "local_path" not in item and "source_url" not in item:
         errors.append(f"items[{index}] must include local_path or source_url")
+    source_type = item.get("source_type")
+    if source_type not in BROLL_SOURCE_TYPES:
+        errors.append(f"items[{index}].source_type must be one of {sorted(BROLL_SOURCE_TYPES)}")
 
 
-def resolve_item(project_dir: Path, item: dict[str, Any], index: int, errors: list[str]) -> dict[str, Any] | None:
+def resolve_item(
+    project_dir: Path,
+    item: dict[str, Any],
+    index: int,
+    planned_sources: dict[tuple[str | None, str | None], set[str]],
+    accepted_z_outputs: set[str],
+    errors: list[str],
+) -> dict[str, Any] | None:
     validate_intent_item(item, index, errors)
     local_path = item.get("local_path")
     source_url = item.get("source_url")
+    source_type = item.get("source_type")
     if local_path is not None and not isinstance(local_path, str):
         errors.append(f"items[{index}].local_path must be a string")
         return None
@@ -102,9 +202,16 @@ def resolve_item(project_dir: Path, item: dict[str, Any], index: int, errors: li
         errors.append(f"items[{index}].source_url must be a string")
         return None
 
+    if source_type not in BROLL_SOURCE_TYPES:
+        return None
+    planned = planned_sources_for_item(item, planned_sources)
+    if not planned:
+        errors.append(f"items[{index}] does not match any B-roll source_type in manifests/visual-plan.json")
+    elif source_type not in planned:
+        errors.append(f"items[{index}].source_type {source_type!r} does not match visual-plan sources {sorted(planned)}")
+
     resolved = dict(item)
-    source_type = source_type_for_item(item, local_path, source_url)
-    resolved["source_type"] = source_type
+    file_path: Path | None = None
 
     if local_path:
         file_path = resolve_local_path(project_dir, local_path)
@@ -135,6 +242,8 @@ def resolve_item(project_dir: Path, item: dict[str, Any], index: int, errors: li
             provenance["provider"] = provider
         resolved["provenance"] = provenance
 
+    validate_source_type_proof(project_dir, item, source_type, file_path, source_url, accepted_z_outputs, index, errors)
+
     return resolved
 
 
@@ -144,6 +253,11 @@ def resolve_manifest(project_dir: Path, input_path: Path, manifest: Any) -> tupl
         return {}, ["selected visuals intent manifest must be an object"]
     if "resolver" in manifest:
         errors.append("input already contains resolver metadata; pass the intent manifest, not a resolved manifest")
+    visual_plan = load_json(project_dir / "manifests" / "visual-plan.json")
+    planned_sources = visual_plan_sources(visual_plan)
+    if not planned_sources:
+        errors.append("manifests/visual-plan.json contains no B-roll source_type declarations")
+    accepted_z_outputs = accepted_z_image_outputs(project_dir)
     items = manifest.get("items")
     if not isinstance(items, list):
         return {}, ["selected visuals intent manifest must include an items array"]
@@ -153,7 +267,7 @@ def resolve_manifest(project_dir: Path, input_path: Path, manifest: Any) -> tupl
         if not isinstance(item, dict):
             errors.append(f"items[{index}] must be an object")
             continue
-        resolved = resolve_item(project_dir, item, index, errors)
+        resolved = resolve_item(project_dir, item, index, planned_sources, accepted_z_outputs, errors)
         if resolved is not None:
             resolved_items.append(resolved)
 

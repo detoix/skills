@@ -23,7 +23,7 @@ Presenter-only segment:
 }
 ```
 
-`A_ROLL` must not include `layout`, `panels`, or `source`.
+`A_ROLL` must not include `layout`, `panels`, `source`, or `source_type`.
 
 ## B_ROLL
 
@@ -34,7 +34,7 @@ B-roll segment with required layout and panels:
   "type": "B_ROLL",
   "layout": "fullscreen",
   "panels": [
-    { "kind": "broll", "source": "stock", "path": "broll/B02.mp4" }
+    { "kind": "broll", "source_type": "stock", "path": "broll/B02.mp4" }
   ],
   "start_time": 6.5,
   "end_time": 12.0
@@ -48,7 +48,7 @@ Allowed layouts:
 - `stack3`
 - `grid4`
 
-Allowed B-roll panel sources:
+Allowed B-roll panel source_type values:
 
 - `synthetic-motion`
 - `stock`
@@ -66,7 +66,7 @@ Presenter over fullscreen B-roll:
   "type": "B_ROLL",
   "layout": "fullscreen",
   "panels": [
-    { "kind": "broll", "source": "webpage", "path": "broll/S03_demo.mp4", "role": "background" },
+    { "kind": "broll", "source_type": "webpage", "path": "broll/S03_demo.mp4", "role": "background" },
     { "kind": "presenter", "path": "synced/profile/P03.mp4", "role": "overlay", "overlay_scale": 0.34 }
   ],
   "start_time": 12.0,
@@ -82,7 +82,7 @@ Presenter as one stacked panel:
   "layout": "stack2",
   "panels": [
     { "kind": "presenter", "path": "synced/front/A02.mp4" },
-    { "kind": "broll", "source": "generated-image", "path": "broll/generated/S04.png", "treatment": "still_motion" }
+    { "kind": "broll", "source_type": "generated-image", "path": "broll/generated/S04.png", "treatment": "still_motion" }
   ],
   "start_time": 18.0,
   "end_time": 23.0
@@ -98,7 +98,7 @@ Still motion is a panel treatment, not a segment type:
 ```json
 {
   "kind": "broll",
-  "source": "generated-image",
+  "source_type": "generated-image",
   "path": "broll/generated/S04.png",
   "treatment": "still_motion",
   "motion_type": "push-in"
