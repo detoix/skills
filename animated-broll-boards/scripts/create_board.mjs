@@ -246,7 +246,7 @@ function runProductionGate(projectDir, brief) {
     PRODUCTION_GATE,
     "--project-dir",
     path.resolve(projectDir),
-    "--require-broll-source",
+    "--require-broll-source-type",
     "synthetic-motion",
   ];
   if (typeof brief.segment_id === "string" && brief.segment_id.trim()) {

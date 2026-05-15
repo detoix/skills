@@ -110,9 +110,9 @@ If paths are omitted, the script defaults to the project directory and common so
 - Render standard output with `fps=30`, `codec=libx264`, `audio_codec=aac`.
 - When rendering text overlays on Linux, use an installed `.ttf` font path instead of Windows-only defaults such as `C:\Windows\Fonts\arialbd.ttf`. A verified fallback is `/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf`.
 
-## Visual QA
+## Final Render QA
 
-The composer workflow requires visual inspection of the rendered MP4, not just schema validation. Extract frames from the final output at regular intervals and around presenter-overlay/static-label segments. Prefer `youtube-autopipeline\scripts\visual_qa.py` for extraction and manifest output. Reject the render if the final composed image has overlapping text, clipped elements, incorrect presenter overlay shape, awkward subject crops, blank frames, or obviously unfinished mock visuals. For spoken reel captions, run visual QA again after the `reel-captions` burn-in stage.
+The composer workflow requires visual inspection of the rendered MP4, not just schema validation. Extract frames from the final output at regular intervals and around presenter-overlay/static-label segments. Prefer `youtube-autopipeline\scripts\final_render_qa.py` for extraction and manifest output. Reject the render if the final composed image has overlapping text, clipped elements, incorrect presenter overlay shape, awkward subject crops, blank frames, or obviously unfinished mock visuals. For spoken reel captions, run final render QA again after the `reel-captions` burn-in stage.
 
 ## Resources
 

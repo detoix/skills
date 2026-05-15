@@ -126,7 +126,7 @@ Do not trim by default. After generation, verify the raw output before using it:
 - If the raw output is shorter than the prompt sample, or otherwise clearly target-only, copy it directly to the clean output path.
 - If the raw output audibly or durationally contains the prompt/sample prefix, trim only the prefix and save a clean target-only file.
 - Never pass a WAV containing prompt/sample speech to lip-sync, concatenation, or final narration.
-- Use `ffprobe` duration checks for the raw, clean, and prompt sample files, and record the check in the project `tts-manifest.json`.
+- Use `ffprobe` duration checks for the raw, clean, and prompt sample files, and record the check in the caller's active TTS manifest. In `youtube-autopipeline`, the current manifests are `manifests\tts-prototype-manifest.json` and `manifests\final-audio-manifest.json`; do not create `manifests\tts-manifest.json` for that pipeline.
 
 Keep a manifest field such as `trim_mode`:
 

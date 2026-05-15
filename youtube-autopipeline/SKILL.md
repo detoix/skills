@@ -666,7 +666,7 @@ The composer accepts `overlay_crop_x`, `overlay_crop_y`, and `overlay_crop_size`
   "type": "B_ROLL",
   "layout": "fullscreen",
   "panels": [
-    { "kind": "broll", "source": "webpage", "path": "broll/B03.webm", "role": "background" },
+    { "kind": "broll", "source_type": "webpage", "path": "broll/B03.webm", "role": "background" },
     {
       "kind": "presenter",
       "path": "synced/profile/P03.mp4",
@@ -944,7 +944,7 @@ Fullscreen B-roll with presenter overlay:
   "type": "B_ROLL",
   "layout": "fullscreen",
   "panels": [
-    { "kind": "broll", "source": "webpage", "path": "broll/B01.webm", "role": "background" },
+    { "kind": "broll", "source_type": "webpage", "path": "broll/B01.webm", "role": "background" },
     { "kind": "presenter", "path": "synced/profile/P01.mp4", "role": "overlay", "overlay_position": ["right", "top"] }
   ],
   "start_time": 0.0,
@@ -962,7 +962,7 @@ Stacked B-roll with presenter as one panel:
   "layout": "stack2",
   "panels": [
     { "kind": "presenter", "path": "synced/front/A02.mp4" },
-    { "kind": "broll", "source": "generated-image", "path": "broll/generated/S03.png", "treatment": "still_motion" }
+    { "kind": "broll", "source_type": "generated-image", "path": "broll/generated/S03.png", "treatment": "still_motion" }
   ],
   "start_time": 5.0,
   "end_time": 10.0

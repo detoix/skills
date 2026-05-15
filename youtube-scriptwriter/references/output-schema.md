@@ -50,7 +50,7 @@ Each item must contain:
 - `duration_seconds`
 - `type`: `A_ROLL` or `B_ROLL`
 - `layout`: required only for `B_ROLL`; one of `fullscreen`, `stack2`, `stack3`, `grid4`
-- `panels`: required only for `B_ROLL`; each panel is `{ "kind": "broll", "source": "<source>" }` or `{ "kind": "presenter" }`
+- `panels`: required only for `B_ROLL`; each panel is `{ "kind": "broll", "source_type": "<source_type>" }` or `{ "kind": "presenter" }`
 - `pattern_interrupt`: `true` or `false`
 - `pattern_interrupt_type`: short label such as `hook`, `zoom`, `stat-overlay`, `cutaway`, `screen-demo`
 - `narration`: natural, correctly written line for that segment
@@ -65,7 +65,7 @@ Allowed segment `type` values:
 - `A_ROLL`: presenter.
 - `B_ROLL`: non-presenter visual segment.
 
-Allowed `B_ROLL` panel sources:
+Allowed `B_ROLL` panel source_type values:
 
 - `synthetic-motion`
 - `stock`
@@ -79,8 +79,8 @@ Do not use layout or treatment names as segment `type` values. Presenter overlay
 Rules:
 
 - `A_ROLL` can never exceed 20 seconds.
-- `A_ROLL` must not include `layout`, `panels`, or `source`.
-- `B_ROLL` must include at least one panel with `kind: "broll"` and a valid `source`.
+- `A_ROLL` must not include `layout`, `panels`, `source`, or `source_type`.
+- `B_ROLL` must include at least one panel with `kind: "broll"` and a valid `source_type`.
 - A pattern interrupt must occur every 5-15 seconds.
 - Visual changes should be intentional and tied to clarity, pacing, or retention.
 - Keep `narration` conversational.

@@ -259,11 +259,13 @@ def validate_and_expand_entry(item: dict[str, Any], index: int) -> dict[str, Any
         if not isinstance(panel.get("path"), str) or not panel.get("path", "").strip():
             raise ValueError(f"Timeline entry {index} panels[{panel_index}].path must be a non-empty media path.")
         if kind == "broll":
-            if panel.get("source") not in BROLL_SOURCE_TYPES:
-                raise ValueError(f"Timeline entry {index} panels[{panel_index}].source must be one of {sorted(BROLL_SOURCE_TYPES)}.")
+            if "source" in panel:
+                raise ValueError(f"Timeline entry {index} panels[{panel_index}].source is not supported; use source_type.")
+            if panel.get("source_type") not in BROLL_SOURCE_TYPES:
+                raise ValueError(f"Timeline entry {index} panels[{panel_index}].source_type must be one of {sorted(BROLL_SOURCE_TYPES)}.")
             broll_panels.append(panel)
         else:
-            if "source" in panel or "source_strategy" in panel:
+            if "source" in panel or "source_type" in panel or "source_strategy" in panel:
                 raise ValueError(f"Timeline entry {index} panels[{panel_index}] is presenter media and cannot define source fields.")
             if layout == "fullscreen" and DEFAULT_OVERLAY_POSITION is None:
                 overlay_position = panel.get("overlay_position")
@@ -656,7 +658,7 @@ def fit_kind_for_panel(panel: dict[str, Any] | None, raw_path: str | None) -> st
     if isinstance(panel, dict):
         if panel.get("kind") == "presenter":
             return "presenter"
-        if panel.get("kind") == "broll" and panel.get("source") in LOOP_UNSAFE_BROLL_SOURCES:
+        if panel.get("kind") == "broll" and panel.get("source_type") in LOOP_UNSAFE_BROLL_SOURCES:
             return "loop_unsafe_broll"
     if path_looks_like_presenter(raw_path):
         return "presenter"

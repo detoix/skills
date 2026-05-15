@@ -105,7 +105,7 @@ def build_plan(script: dict[str, Any], output_dir: Path, style: str, limit: int 
                 "timeline_candidate": {
                     "type": "B_ROLL",
                     "layout": segment.get("layout", "fullscreen"),
-                    "panels": [{"kind": "broll", "source": BROLL_SOURCE, "path": str(output), "treatment": "still_motion"}],
+                    "panels": [{"kind": "broll", "source_type": BROLL_SOURCE, "path": str(output), "treatment": "still_motion"}],
                     "source": "z-image-turbo",
                     "review_required": True,
                 },

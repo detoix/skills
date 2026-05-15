@@ -61,7 +61,7 @@ class FrontStackCropTests(unittest.TestCase):
         self.assertIsNone(crop_box)
 
     def test_broll_panel_is_not_front_stack_crop_even_under_front_path(self):
-        panel = {"kind": "broll", "source": "manual", "path": "broll/front/demo.mp4"}
+        panel = {"kind": "broll", "source_type": "manual", "path": "broll/front/demo.mp4"}
         clip = DummyClip(1080, 1920)
 
         cropped, crop_box = compose_video.maybe_crop_front_stack_presenter(

@@ -701,7 +701,7 @@ def visual_plan_requires_generated_images(visual_plan: Any) -> bool:
         if not isinstance(panels, list):
             continue
         for panel in panels:
-            if isinstance(panel, dict) and panel.get("kind") == "broll" and panel.get("source") == "generated-image":
+            if isinstance(panel, dict) and panel.get("kind") == "broll" and panel.get("source_type") == "generated-image":
                 return True
     return False
 

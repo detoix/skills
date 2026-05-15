@@ -93,7 +93,7 @@ function runProductionGate(projectDir, args) {
     PRODUCTION_GATE,
     "--project-dir",
     path.resolve(projectDir),
-    "--require-broll-source",
+    "--require-broll-source-type",
     "synthetic-motion",
   ];
   if (args.segmentId) gateArgs.push("--segment-id", args.segmentId);

@@ -2,7 +2,7 @@
 name: animated-broll-boards
 description: >-
   Create custom animated HTML/CSS/JS motion-board clips only for reel segments
-  that already have a B-roll panel source of "synthetic-motion" in an approved
+  that already have a B-roll panel source_type of "synthetic-motion" in an approved
   parent visual plan. Use for diagrams, synthetic UI, process maps, comparisons, or
   abstract synthetic-motion B-roll only when the parent plan explicitly selected
   synthetic motion and non-synthetic sources were considered less effective. Do
@@ -23,7 +23,7 @@ Use it to create a custom animated scene for a specific reel segment. The agent 
 - No static PNG UI boards.
 - No Pillow-generated production boards.
 - Do not use fixed component/layout generators as the creative output.
-- Do not use this skill unless the parent autopipeline `manifests\visual-plan.json` explicitly selected a B-roll panel with `source: "synthetic-motion"` or `source_strategy: "synthetic-motion"` for the target segment.
+- Do not use this skill unless the parent autopipeline `manifests\visual-plan.json` explicitly selected a B-roll panel with `source_type: "synthetic-motion"` or `source_strategy: "synthetic-motion"` for the target segment.
 - `create_board.mjs` and `render_board.mjs` enforce the parent Creative Approval Gate before writing or rendering production board artifacts.
 - Narrative labels like `checklist`, `timeline`, `process-flow`, or `comparison` are intent hints only; they are not layout instructions.
 - Every accepted board must have a real visual metaphor and custom motion beats.
@@ -57,6 +57,7 @@ Use it to create a custom animated scene for a specific reel segment. The agent 
 6. Record the accepted board in `manifests\selected-visuals.json` with:
    - `segment_id`
    - `section_pattern`
+   - `source_type: "synthetic-motion"`
    - `local_path: "broll/boards/<segment-id>/<segment-id>.webm"`
    - `duration_seconds`
    - `accepted: true`
@@ -66,7 +67,7 @@ Use it to create a custom animated scene for a specific reel segment. The agent 
    - `creative_concept`
    - `visual_metaphor`
    - `motion_summary`
-   Do not hand-author `source_type`; the pipeline resolver/indexer must derive `source_type: "synthetic-motion"` from the board path/provenance.
+   Do not hand-author resolver-owned identity fields such as `sha256`, `canonical_id`, or `provenance`; the pipeline resolver/indexer must compute those fields.
    Board-local metadata produced by this skill is not a selected-visuals resolver output. If a board-local manifest contains `source_type`, treat it as local descriptive metadata only, not validation truth for `youtube-autopipeline`.
 
 ## Output Contract

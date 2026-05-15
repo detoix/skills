@@ -16,6 +16,7 @@ project-root/
     music-manifest.json
     audio-mix-manifest.json
     selected-visuals.json
+    selected-visuals.resolved.json
     z-image-plan.json
     final-render-qa.json
     final-render-qa.md
@@ -71,6 +72,7 @@ project-root/
     music-manifest.json
     audio-mix-manifest.json
     selected-visuals.json
+    selected-visuals.resolved.json
     final-render-qa.json
   source-assets/
     presenter-front.mp4
@@ -122,9 +124,9 @@ project-root/
 - Validate production asset manifests with `pipeline_check.py --asset-manifest`; only test runs may pass `--allow-test-input`.
 - Save z-image planning output from `z_image_plan.py` as `manifests/z-image-plan.json`; generated stills belong under `broll/generated/`.
 - Save synthetic-motion outputs from `animated-broll-boards` under `broll/boards/<segment-id>/`; production abstract/UI/infographic boards should include `board-creative-brief.json`, custom `index.html`, passing `board-qa.json`, and a `.webm` clip. Do not use ad hoc static PNG/Pillow boards or template-like board layouts.
-- Save selected B-roll and non-presenter visual choices as `manifests/selected-visuals.json`.
+- Save selected B-roll and non-presenter visual choices as intent in `manifests/selected-visuals.json`; resolver output belongs in `manifests/selected-visuals.resolved.json`.
 - Validate z-image plans with `pipeline_check.py --z-image-plan --require-z-image-review` before timeline use.
-- Validate selected visuals with `pipeline_check.py --selected-visuals` before timeline use.
+- Validate selected visuals with `pipeline_check.py --selected-visuals manifests/selected-visuals.json --resolve-selected-visuals` before timeline use; final `timeline.json` must use only accepted non-presenter B-roll paths from `manifests/selected-visuals.resolved.json`.
 - Save final-render QA output from `final_render_qa.py` as `manifests/final-render-qa.json`; the helper writes extracted frames under `qa/final-frames/<video-stem>/` and a matching `qa/contact-sheet-<video-stem>.jpg`.
 - Save the Markdown QA report beside the JSON report. Final pass status requires agent visual review notes, not only structural checks.
 - If the user provides soundtrack music, run `music_intake.py`; it copies the local file under `source-assets/` with a deterministic name such as `soundtrack.mp3` or `soundtrack.wav`.
