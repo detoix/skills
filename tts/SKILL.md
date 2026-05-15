@@ -19,15 +19,6 @@ Prefer that interpreter explicitly for local runs:
 %USERPROFILE%\Downloads\speech-gen\venv\Scripts\python.exe -m voxcpm.cli ...
 ```
 
-For YouTube autopipeline projects, run TTS production commands only through the guarded production wrapper so the Creative
-Approval Gate is checked immediately before audio generation:
-
-```powershell
-python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\guarded_production_command.py `
-  --project-dir <project-dir> `
-  -- <tts command...>
-```
-
 The wrapper script `generate_voxcpm.py` lives in:
 
 `%USERPROFILE%\Downloads\speech-gen`
@@ -62,11 +53,6 @@ The script writes a JSON manifest next to each WAV containing steps, hashes, Vox
 Plain TTS:
 ```bash
 .\venv\Scripts\python.exe generate_voxcpm.py --text "Your text" --output "out.wav"
-```
-
-Basic cloning:
-```bash
-.\venv\Scripts\python.exe generate_voxcpm.py --text "Your text" --reference "ref.wav" --output "out.wav"
 ```
 
 Single-output cloning path when one-off regeneration is needed:
@@ -109,13 +95,11 @@ Exact transcript of the sample audio
 ```
 
 ### 2. VoxCPM2 Practical Guidance
-- The local wrapper `generate_voxcpm.py` only exposes plain TTS and basic `--reference` cloning.
 - For cloning, prefer the upstream CLI entrypoint:
   `.\venv\Scripts\python.exe -m voxcpm.cli ...`
 - Treat `prompt-audio + prompt-text + reference-audio` as the default clone path when the user can provide a transcript of the sample; use it through `voxcpm.cli batch` for chunk generation with shared settings, or `voxcpm.cli clone` for one-off regeneration.
 - `prompt-text` should be the exact spoken words from the sample audio, not a paraphrase.
 - If the user wants cloning and does not provide a transcript, ask for it explicitly before continuing.
-- Only fall back to basic `--reference` cloning if the user explicitly approves that downgrade.
 - Avoid adding style instructions if the goal is to preserve the sample's original speaking style as closely as possible.
 - When reproducing a known-good clone command, do not add extra tuning flags unless the user explicitly asks for them. 
 - For the default VoxCPM prompt/reference path, do not add `--normalize`, `--control`, `--no-optimize`, custom `--cfg-value`, or custom `--inference-timesteps` unless the user explicitly requests experimentation.
@@ -154,9 +138,7 @@ Use prefix trimming only as a corrective step for observed prefix contamination,
 
 ### 4. Notes
 - VoxCPM2 uses the installed `voxcpm` package and the local wrapper `generate_voxcpm.py`.
-- The wrapper is convenient, but it does not expose the stronger `clone` workflow that uses prompt audio and a transcript.
-- When the user wants a cloned voice, use `python -m voxcpm.cli batch` for chunk generation with shared settings, or `python -m voxcpm.cli clone` for one-off regeneration, instead of the wrapper unless they explicitly ask for a fallback.
-- VoxCPM2 basic clone mode uses `--reference` and maps to the upstream `reference_wav_path` API.
+- For prompt/reference cloning, use `python -m voxcpm.cli batch` for chunk generation with shared settings, or `python -m voxcpm.cli clone` for one-off regeneration.
 - `generate_voxcpm_samples.py` prepares the numbered sample set `voxcpm_1.wav`, `voxcpm_2.wav`, `voxcpm_3.wav`, and `voxcpm_clone_test.wav`.
 - The clone sample expects a placeholder reference file at `temp\voxcpm_clone_reference.wav`.
 

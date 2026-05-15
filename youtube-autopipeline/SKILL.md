@@ -164,7 +164,7 @@ The pipeline has three mandatory stages. Do not collapse them into one run, and 
 
 ### Stage 2: Prototype Stage and Prototype Gate
 
-1. Before every prototype command, validate the Creative Gate. Prototype commands run through `guarded_production_command.py --gate-profile prototype` when a command wrapper is used:
+1. Before every prototype command, validate the Creative Gate and record production timing for the stage:
    ```powershell
    python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\pipeline_check.py `
      --project-dir <project-dir> `
@@ -214,14 +214,12 @@ The pipeline has three mandatory stages. Do not collapse them into one run, and 
 
 ### Stage 3: Final Production Stage
 
-1. Before every final production command, validate the Prototype Gate. If the project already contains a valid `prototype-approval.json`, do not rebuild the prototype and do not return to Stage 1:
+1. Before every final production command, validate the Prototype Gate and record production timing for the stage. If the project already contains a valid `prototype-approval.json`, do not rebuild the prototype and do not return to Stage 1:
    ```powershell
    python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\pipeline_check.py `
      --project-dir <project-dir> `
      --mode prototype-gate
    ```
-   Final production commands run through `guarded_production_command.py --gate-profile production`.
-   TODO: Move gate and production timing ownership into this orchestrator for child tools that still import `production_gate` or `production_metrics` directly.
 2. Reuse the approved `final_audio.wav` and `manifests\final-audio-manifest.json` from Stage 2 as final narration. Do not regenerate TTS after Prototype Approval unless the user explicitly rejects the approved audio and reopens Stage 2. Final timing must come from the approved prototype audio manifest and may be adjusted only for final visual substitutions.
 3. Create or update `manifests\presenter-plan.json`. Presenter Plate Variety QA must pass before LatentSync. Hashes must come from the asset manifest or a file-hashing tool, never from hand-authored values.
 4. Run `latentsync` with the approved audio and selected silent motion plates. Write `manifests\latentsync-jobs.json` when multiple presenter clips are needed. Verify every output is non-empty and duration-matches its clean audio before timeline assembly.
@@ -252,18 +250,13 @@ The pipeline has three mandatory stages. Do not collapse them into one run, and 
 11. Render the uncaptioned final base video with `moviepy-video-composer` to `final_output.mp4`. Pass project music when enabled, or `--music NONE` when disabled. The composer writes `manifests\audio-mix-manifest.json`.
 12. Burn captions with `reel-captions`. Caption text comes from `script.json` `segments[].narration`; alignment uses `final_audio.wav` and `manifests\final-audio-manifest.json`:
     ```powershell
-    python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\guarded_production_command.py `
+    python C:\Users\kdeptula\skills\reel-captions\scripts\generate_reel_captions.py `
       --project-dir <project-dir> `
-      --gate-profile production `
-      --stage captions `
-      -- `
-      "<caption-python>" C:\Users\kdeptula\skills\reel-captions\scripts\generate_reel_captions.py `
-        --project-dir <project-dir> `
-        --audio <project-dir>\final_audio.wav `
-        --video <project-dir>\final_output.mp4 `
-        --script <project-dir>\script.json `
-        --output <project-dir>\final_output_captioned.mp4 `
-        --language <metadata.language>
+      --audio <project-dir>\final_audio.wav `
+      --video <project-dir>\final_output.mp4 `
+      --script <project-dir>\script.json `
+      --output <project-dir>\final_output_captioned.mp4 `
+      --language <metadata.language>
     ```
 13. Run final visual QA on `final_output_captioned.mp4` unless captions are explicitly disabled by the user. Final pass requires concrete agent visual review notes; structural checks alone cannot mark delivery success.
 14. Summarize production timing logs from `manifests\production-timings.jsonl`, then report final outputs or blockers.
@@ -457,7 +450,7 @@ Operating rules:
 
 - do not start TTS until language QA has passed for `script.json`; regenerate or manually fix script text first if narration is transliterated, ASCII-stripped, mojibake-corrupted, accidentally mixed-language, or unnatural for `metadata.language`
 - clone from the provided speech sample
-- use the `VoxCPM` prompt-audio + prompt-text + reference-audio path, preferably through `voxcpm.cli batch` for chunk generation with shared settings
+- use the `VoxCPM` prompt-audio + prompt-text + reference-audio path through `voxcpm.cli batch` for all `tts_chunks[]` generation
 - treat the exact speech-sample transcription as required input for the default cloning path
 - preserve the scriptwriter chunk boundaries
 - save raw clone outputs deterministically, e.g. `tts/raw/T01.wav` or `tts/raw_with_prompt/T01.wav`
@@ -473,8 +466,6 @@ Operating rules:
 Do not ask the user to pick a generic voice style such as male or female when a cloned presenter voice is expected.
 
 If the speech sample or its exact transcription is missing, stop and ask for both explicitly before proceeding with TTS.
-
-Do not silently fall back to plain TTS or simpler reference-only cloning. Only use a fallback path if the user explicitly approves that downgrade.
 
 ### Per-Chunk Normalization Decision
 
