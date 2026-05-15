@@ -78,7 +78,7 @@ The helper copies the file to `<project-dir>\source-assets\soundtrack.<ext>` and
 
 Use these skills as the default sub-workflow:
 
-- `youtube-scriptwriter` for the structured script
+- `youtube-scriptwriter` for the structured script contract and baseline writing checks
 - `tts` for chunked voice generation and cloning
 - `latentsync` for presenter lip-sync
 - `codeformer-postprocess` for optional presenter face restoration after lip-sync
@@ -129,7 +129,7 @@ The pipeline has three mandatory stages. Do not collapse them into one run, and 
    ```
    For test-only runs, add `--test-input-label <test-run-label>`.
 3. Ingest music with `music_intake.py`, or explicitly disable music with `--music NONE`. Validate `manifests\music-manifest.json` when music is part of the project contract.
-4. Call `youtube-scriptwriter`. Produce `script.json` and `manifests\visual-plan.json`. Present those artifacts to the user and stop for creative review. The visual plan must use `A_ROLL` and `B_ROLL`; B-roll source diversity comes only from `B_ROLL` panels with `kind: "broll"`. The creative plan targets roughly 50% of planned `B_ROLL` duration with a `presenter` panel, but this is not a reason to put presenter overlays on every B-roll.
+4. Start from a valid `script.json` and `manifests\visual-plan.json`. These may be authored by any upstream persona, agent, or user workflow; if no upstream authoring artifacts exist, use `youtube-scriptwriter` for the structured script contract and baseline writing checks. Present those artifacts to the user and stop for creative review. The visual plan must use `A_ROLL` and `B_ROLL`; B-roll source diversity comes only from `B_ROLL` panels with `kind: "broll"`. The creative plan targets roughly 50% of planned `B_ROLL` duration with a `presenter` panel, but this is not a reason to put presenter overlays on every B-roll.
 5. Validate `script.json`, language quality, asset intake, and music intake before creating the review request:
    ```powershell
    python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\pipeline_check.py `
@@ -443,9 +443,9 @@ If the user gives absolute paths to source assets, copy or reference them into t
 
 ## Script Generation
 
-Call `youtube-scriptwriter` first. Its strict JSON output is the planning source of truth.
+Start from a valid `script.json`. The strict script JSON contract is the planning source of truth.
 
-Require the scriptwriter output to contain:
+Require the script payload to contain:
 
 - segment timing
 - visual mode per segment
@@ -454,11 +454,11 @@ Require the scriptwriter output to contain:
 - B-roll queries
 - production payload blocks
 
-Do not write a fresh freeform script if the scriptwriter skill is available. Do not use Markdown parsing as the automation interface. Use its JSON segment timing and payload arrays as the basis for downstream steps.
+If a persona skill is active, let that persona author or revise the script while following the `youtube-scriptwriter` contract. Do not use Markdown parsing as the automation interface. Use `script.json` segment timing and payload arrays as the basis for downstream steps.
 
 ## TTS Rules
 
-Call `tts` and use its local VoxCPM path. Generate audio in chunks from the scriptwriter `tts_chunks` payload, not as a single monolithic file.
+Call `tts` and use its local VoxCPM path. Generate audio in chunks from the script `tts_chunks` payload, not as a single monolithic file.
 
 Operating rules:
 
@@ -466,7 +466,7 @@ Operating rules:
 - clone from the provided speech sample
 - use the `VoxCPM` prompt-audio + prompt-text + reference-audio path through `voxcpm.cli batch` for all `tts_chunks[]` generation
 - treat the exact speech-sample transcription as required input for the default cloning path
-- preserve the scriptwriter chunk boundaries
+- preserve the script chunk boundaries
 - save raw clone outputs deterministically, e.g. `tts/raw/T01.wav` or `tts/raw_with_prompt/T01.wav`
 - write a clean chunk for every generated file, e.g. `tts/clean/T01.wav`
 - do not trim by default; current local `voxcpm.cli batch`/`clone` normally writes target-only speech even when `--prompt-audio`, `--prompt-text`, and `--reference-audio` are provided
@@ -516,7 +516,7 @@ Use this only when chunk boundaries or discourse transitions justify it. The orc
 - the current `tts_chunk`
 - the previous chunk
 - the next chunk
-- the scriptwriter `delivery_style`
+- the script `tts_chunks[].delivery_style`
 
 Allowed use cases:
 
@@ -847,7 +847,7 @@ Do not substitute vague B-roll. If a query cannot be satisfied from the availabl
 
 ## Timeline Assembly
 
-Translate the scriptwriter output into `timeline.json` using the schema that matches the format mode, then call `moviepy-video-composer` with the matching `--format` value.
+Translate `script.json` into `timeline.json` using the schema that matches the format mode, then call `moviepy-video-composer` with the matching `--format` value.
 
 For modern reels, [references/broll-section-library.md](references/broll-section-library.md) is available as a section-pattern library for non-presenter visuals. Do not make any pattern or resolved `source_type` globally preferred. Record selected patterns in `manifests\selected-visuals.json`.
 

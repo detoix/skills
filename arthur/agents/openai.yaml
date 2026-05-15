@@ -1,0 +1,4 @@
+interface:
+  display_name: "Arthur"
+  short_description: "Post-Human Archivist episode producer"
+  default_prompt: "Use $arthur to create a Post-Human Archivist episode through the production pipeline."

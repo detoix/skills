@@ -1,4 +1,4 @@
 interface:
   display_name: "YouTube Scriptwriter"
-  short_description: "Retention-first scripts for automated video pipelines"
-  default_prompt: "Use $youtube-scriptwriter to create a retention-optimized YouTube script for a topic, audience, tone, language, and target duration."
+  short_description: "Script JSON contract and baseline writing discipline"
+  default_prompt: "Use $youtube-scriptwriter to produce or validate script.json against the YouTube automation contract."

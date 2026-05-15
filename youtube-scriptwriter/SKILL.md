@@ -1,170 +1,113 @@
 ---
 name: youtube-scriptwriter
-description: Generate retention-optimized YouTube scripts only. Use when the user explicitly asks for a script, rundown, narration, or A-roll/B-roll edit script. Do not use this skill for end-to-end video creation, new video production, or full YouTube pipeline requests; use `youtube-autopipeline` for those.
+description: Script contract and baseline spoken-writing discipline for YouTube automation. Use when a persona skill, production pipeline, or agent needs the required script.json schema, pacing rules, B-roll query fields, TTS-safe voice_text guidance, or baseline anti-AI narration checks. Do not use this skill to invent persona, worldview, recurring format, humor, or character voice when a persona skill is active.
 ---
 
 # YouTube Scriptwriter
 
-Generate scripts as production-ready assets, not as plain prose. Always optimize for retention, visual motion, and downstream automation.
+This skill defines the script contract and baseline writing rules for automated YouTube production. It is not the creative authority when a persona skill is active.
 
-## Workflow
+## Role
 
-1. Collect the required inputs:
-   - Topic
-   - Format mode: landscape or vertical
-   - Target audience
-   - Tone
-   - Language
-   - Target duration
-2. Return the strict JSON object defined in [references/output-schema.md](references/output-schema.md).
-3. Enforce pacing rules before finalizing:
-   - No static `A_ROLL` shot longer than 20 seconds
-   - Insert a pattern interrupt every 5-15 seconds
-4. Write for spoken delivery, not essay reading:
-   - Use short spoken sentences
-   - Open with a fast hook
-   - Keep transitions tight
-   - Avoid long setup before payoff
-5. End short-form scripts with a concrete close-CTA by default unless the user explicitly disables CTA.
-6. Produce one JSON object every time:
-   - `metadata`
-   - `segments`
-   - `tts_chunks`
-   - `broll_queries`
+Use this skill for:
 
-   - `assembly_notes`
+- `script.json` structure
+- segment timing rules
+- A-roll and B-roll contract
+- B-roll query payloads
+- `tts_chunks[]` mapping
+- TTS-safe `voice_text`
+- baseline anti-AI narration checks
 
-## Operating Rules
+Do not use this skill for:
 
-- Treat retention as a hard requirement, not a nice-to-have.
-- Break long explanations into clear beats.
-- Mark each segment with `type: A_ROLL` or `type: B_ROLL` and a pattern interrupt flag.
-- If `B_ROLL` is used, make its `layout` and `panels[]` concrete enough for production.
-- Use `generated-image` in `broll_queries.source_type` when a controlled synthetic still is stronger than stock, webpage capture, or manual assets for an abstract or privacy-safe segment.
-- Do not use generated-image plans to hide missing user assets when the topic depends on the user's real product, presenter, brand, location, or app.
+- persona invention
+- character worldview
+- recurring story frame
+- humor style
+- visual taste
+- episode identity
 
-- Keep the spoken narration aligned with the claimed duration.
-- If the requested duration is too short for the topic, compress tightly instead of relaxing the pacing constraints.
-- If the topic is abstract, use concrete examples or metaphors when helpful.
-- Write `segments[].narration` as natural, correctly written text.
-- If a line contains literals such as digits, shorthand, passwords, or mixed-language tokens, it is acceptable to keep the authored wording when that is important for the script, as long as the line is still understandable to a human reader.
-- Treat `tts_chunks[].voice_text` as the TTS-safe spoken version of the script.
-- In `voice_text`, write phonetic brand pronunciation, numbers, units, symbols, abbreviations, and mixed technical shorthand the way they should be spoken.
-- Avoid dense clusters of acronyms or product terms in a single `voice_text` sentence. Split them with punctuation or connective words so TTS has natural pauses.
-- Preserve the target language's normal writing system, accents, punctuation, and diacritics in both `narration` and `voice_text`.
-- By default, make the final segment a concrete `close-cta` segment unless the user explicitly disables CTA or the format makes CTA inappropriate.
+If a persona skill is active, preserve that persona's voice and constraints. Apply only the contract and baseline quality checks here.
 
-- Select CTAs by purpose: tutorials/checklists should ask viewers to save or use the checklist; comparisons should ask viewers to compare before deciding; diagnostics should ask viewers to check their own case; lead comments should ask for a specific keyword; education series may ask viewers to follow only when no more specific CTA fits.
-- Avoid generic "subscribe" or "follow for more" CTAs when a topic-specific action is possible.
-- Keep CTA segments short, usually 3-7 seconds, and do not introduce a new factual claim, offer, link, or promise that was not present in the brief.
+## Required Inputs
 
-## Anti-AI Voice Rules
+The authoring agent or persona must know:
 
-Scripts must sound like a real person talking, not like AI-generated text. Consult [references/humanize-guidelines.md](references/humanize-guidelines.md) for full vocabulary tables and rewrite examples in English and Polish.
+- topic or artifact
+- format mode: `landscape` or `vertical`
+- target audience
+- tone or persona style
+- language
+- target duration
 
-The lists below are **soft avoids**, not hard bans. A flagged word is acceptable when it is genuinely the best fit, but defaulting to these words signals the script sounds artificial.
+## Output
 
-### Vocabulary
+Return exactly the strict JSON object defined in `references/output-schema.md`.
 
-Strongly avoid these categories in `narration` and `voice_text`:
+Top-level keys:
 
-- **Inflated verbs:** delve, leverage, utilize, harness, streamline, underscore, embark, facilitate, optimize, foster, elevate, navigate (metaphorical). Prefer: use, help, improve, simplify, highlight, start.
-- **Buzzword adjectives:** pivotal, robust, innovative, seamless, cutting-edge, intricate, comprehensive, vibrant, unparalleled, groundbreaking, game-changing. Prefer: key, solid, new, smooth, latest, detailed, big.
-- **Abstract nouns:** landscape (metaphorical), realm, tapestry, synergy, testament, underpinnings, paradigm, ecosystem, framework, treasure trove, journey (metaphorical). Prefer: space, area, mix, proof, basics, system, setup.
-- **Academic transitions:** Furthermore, Moreover, Consequently, Notably, Importantly, Thus, Accordingly, Nonetheless, Subsequently, In conclusion. Prefer: Plus, Also, So, On top of that, That said, Still, Then, Bottom line.
-- **Cliché openers:** "In today's [adj] world/landscape," "Let's dive in," "Without further ado," "In this video we will." Prefer: just start the content.
+- `metadata`
+- `segments`
+- `tts_chunks`
+- `broll_queries`
+- `assembly_notes`
 
-The same principles apply in Polish — see the reference doc for Polish-specific avoid lists and rewrite examples.
+Do not use Markdown as the automation interface unless the caller explicitly asks for a human-readable companion after the JSON exists.
 
-### Sentence Rhythm and Burstiness
+## Baseline Rules
 
-- Vary sentence length deliberately. Mix short punchy lines (≤8 words) with medium (12–18) and occasional long (25+).
-- Never stack 3 or more sentences of similar length in a row.
-- The script should look "jagged" on the page — if every line ends in roughly the same column, the rhythm is too uniform.
+- Keep segment timing explicit and sequential.
+- Keep `A_ROLL` segments at or below 20 seconds.
+- Insert a pattern interrupt every 5-15 seconds.
+- Use only `A_ROLL` and `B_ROLL` as segment types.
+- For B-roll panels, use `source_type`, not `source`.
+- Do not use `broll_search_query`.
+- Keep `segments[].narration` natural and correctly written; captions use this text.
+- Use `tts_chunks[].voice_text` only for TTS-safe spoken wording.
+- Keep `tts_chunks[].segment_ids` mapped to existing segment ids.
+- Keep `broll_queries[]` concrete when B-roll is present.
 
-### Conversational Voice
+## Baseline Humanization
 
-- Write as if explaining to one friend, not presenting to an auditorium.
-- Use contractions: "don't" not "do not," "it's" not "it is," "you'll" not "you will."
-- Use casual connectors: "But here's the thing," "So," "Plus," "Anyway," "The catch is," "Look," "Thing is."
-- Allow sentence fragments when they improve spoken rhythm.
-- Prefer active voice. Passive voice is permitted only when the object genuinely matters more than the actor.
+Scripts must sound like a real person talking, not AI filler. Use the full reference only when needed: `references/humanize-guidelines.md`.
 
-### Human Color
+Avoid defaulting to:
 
-- Include at least one rhetorical question per script.
-- Use concrete, specific examples over abstract generalizations.
-- Prefer opinionated phrasing ("This is overrated," "Most people get this wrong") over neutral summaries.
-- Avoid triple-balanced lists — it is a pattern AI defaults to and viewers recognize as robotic.
+- inflated verbs such as delve, leverage, utilize, harness, facilitate
+- buzzword adjectives such as pivotal, robust, seamless, cutting-edge
+- abstract filler such as landscape, realm, tapestry, journey
+- academic transitions such as Furthermore, Moreover, Consequently
+- cliché openers such as "In today's world", "Let's dive in", or "In this video we will"
+
+These are soft avoids. A persona can intentionally violate them when the character voice requires it.
 
 ## TTS-Safe Voice Text
 
-Use `segments[].narration` for the written script. Use `tts_chunks[].voice_text` for TTS-friendly wording when pronunciation needs adjustment.
+Use `segments[].narration` for reviewed/captioned script text. Use `tts_chunks[].voice_text` for pronunciation-safe TTS input when needed.
 
-Examples for Polish TTS:
+Examples:
 
-- `4K120` -> `cztery K sto dwadzieścia`
-- `120Hz` -> `sto dwadzieścia herców`
-- `10 ms` -> `dziesięć milisekund`
-- `55"` -> `pięćdziesiąt pięć cali`
-- `20%` -> `dwadzieścia procent`
-- `kWh` -> `kilowatogodzin`
-- `m²` -> `metrów kwadratowych`
-- `OLED/QLED/Mini LED` -> `OLED, QLED albo Mini LED`
+- `4K120` -> `four K, one twenty`
+- `120Hz` -> `one hundred twenty hertz`
+- `20%` -> `twenty percent`
+- `10 ms` -> `ten milliseconds`
 
-For brands and acronyms, keep common letter-by-letter forms as written when the TTS voice is likely to handle them; use pronunciation-safe rewrites when the literal is likely to produce awkward or incorrect speech.
+For Polish examples and language-specific guidance, read `references/humanize-guidelines.md` and `references/output-schema.md`.
 
-## Direct Agent Use
+## Validation
 
-This skill is instruction-first. Do not rely on external scripts or external API wrappers. Use the skill directly inside the agent turn and produce the script in the required structure.
+When the output feeds `youtube-autopipeline`, validate the saved script:
 
-Always follow this contract:
-
-- return exactly the JSON structure described in [references/output-schema.md](references/output-schema.md)
-- keep segment timing explicit
-- never output a single uninterrupted block of talking-head narration
-- reject your own draft mentally if it violates the A-roll or interrupt rules
-- ask for or infer only these inputs:
-  - Topic
-  - Format mode
-  - Target audience
-  - Tone
-  - Language
-  - Target duration
-
-## Generation Procedure
-
-1. Restate the five inputs internally and convert target duration into approximate seconds.
-2. Outline the hook, core beats, and close-CTA.
-3. Break the video into short segments.
-4. Ensure no `A_ROLL` segment exceeds 20 seconds.
-5. Insert a pattern interrupt every 5-15 seconds.
-6. Use visual changes only when they improve clarity, pacing, or retention.
-7. Fill the production payload arrays so the output can drive TTS, B-roll fetch, and assembly.
-8. Before finalizing, check:
-   - no timing gaps
-   - no overlong `A_ROLL`
-   - no long interrupt gaps
-   - B-roll queries are concrete when present
-
-   - generated-image B-roll panels are explicitly justified in `broll_queries` or `assembly_notes`
-   - narration is natural for spoken delivery in the target language
-   - `tts_chunks[].voice_text` is TTS-safe: no avoidable raw symbols, digit-heavy shorthand, or hard-to-say acronym clusters
-   - all numbers, measurements, percentages, screen sizes, refresh rates, and technical shorthand in `voice_text` are written as they should be spoken
-   - the final segment contains a concrete CTA unless CTA was explicitly disabled
-   - the final CTA appears in `narration`
-   - the CTA is topic-specific when a topic-specific action is possible
-   - the CTA does not promise anything unsupported by the brief
-   - no soft-avoid AI vocabulary or academic transitions remain in `narration` or `voice_text` without clear justification
-   - sentence lengths vary across the script — no 3+ consecutive sentences of similar word count
-   - at least one rhetorical question exists somewhere in the script
-   - contractions are used consistently; stiff "do not" / "it is" / "you will" phrasing appears only when emphasis is intentional
-
-## Output Template
-
-Return only valid JSON in the top-level shape from [references/output-schema.md](references/output-schema.md). Add Markdown only if the caller explicitly asks for an additional human-readable rendering.
+```powershell
+python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\pipeline_check.py `
+  --project-dir <project-dir> `
+  --script <project-dir>\script.json `
+  --format <vertical-or-landscape> `
+  --mode script
+```
 
 ## Resources
 
-- Schema and field contract: [references/output-schema.md](references/output-schema.md)
-- Anti-AI voice rules and rewrite examples: [references/humanize-guidelines.md](references/humanize-guidelines.md)
+- Schema and field contract: `references/output-schema.md`
+- Anti-AI voice rules and rewrite examples: `references/humanize-guidelines.md`

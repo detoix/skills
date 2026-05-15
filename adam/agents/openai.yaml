@@ -1,0 +1,4 @@
+interface:
+  display_name: "Adam"
+  short_description: "Default retention-first episode producer"
+  default_prompt: "Use $adam to create a retention-first episode through the production pipeline."
