@@ -182,7 +182,13 @@ class CaptionSyncValidationTests(unittest.TestCase):
                 "layout": "fullscreen",
                 "panels": [
                     {"kind": "broll", "source_type": "manual", "path": "broll/manual/asset.png"},
-                    {"kind": "presenter", "source_type": "manual", "path": "synced/profile/P01.mp4", "treatment": "overlay"},
+                    {
+                        "kind": "presenter",
+                        "source_type": "manual",
+                        "path": "synced/profile/P01.mp4",
+                        "treatment": "overlay",
+                        "crop": {"x": 0, "y": 420, "width": 1080, "height": 1080},
+                    },
                 ],
                 "start_time": 0.0,
                 "end_time": 2.0,
@@ -225,7 +231,12 @@ class CaptionSyncValidationTests(unittest.TestCase):
                     "treatment": "still_motion",
                     "motion_type": "pan-left",
                 },
-                {"kind": "presenter", "path": "synced/profile/P01.mp4", "treatment": "overlay"},
+                {
+                    "kind": "presenter",
+                    "path": "synced/profile/P01.mp4",
+                    "treatment": "overlay",
+                    "crop": {"x": 0, "y": 420, "width": 1080, "height": 1080},
+                },
             ],
             "start_time": 0.0,
             "end_time": 2.0,
@@ -235,6 +246,155 @@ class CaptionSyncValidationTests(unittest.TestCase):
         pipeline_check.validate_segment_contract(segment, report, "timeline[0]")
 
         self.assertNotIn("pip-broll-treatment", {item.code for item in report.findings})
+
+    def test_pipeline_check_rejects_presenter_overlay_without_crop(self):
+        segment = {
+            "type": "B_ROLL",
+            "layout": "fullscreen",
+            "panels": [
+                {"kind": "broll", "source_type": "manual", "path": "broll/manual/asset.png"},
+                {"kind": "presenter", "path": "synced/profile/P01.mp4", "treatment": "overlay"},
+            ],
+            "start_time": 0.0,
+            "end_time": 2.0,
+        }
+        report = pipeline_check.Report()
+
+        pipeline_check.validate_segment_contract(segment, report, "timeline[0]")
+
+        self.assertIn("presenter-crop-required", {item.code for item in report.findings})
+
+    def test_pipeline_check_rejects_stack_presenter_without_crop(self):
+        segment = {
+            "type": "B_ROLL",
+            "layout": "stack2",
+            "panels": [
+                {"kind": "presenter", "path": "synced/front/P01.mp4"},
+                {"kind": "broll", "source_type": "manual", "path": "broll/manual/asset.png"},
+            ],
+            "start_time": 0.0,
+            "end_time": 2.0,
+        }
+        report = pipeline_check.Report()
+
+        pipeline_check.validate_segment_contract(segment, report, "timeline[0]")
+
+        self.assertIn("presenter-crop-required", {item.code for item in report.findings})
+
+    def test_pipeline_check_rejects_legacy_presenter_crop_fields(self):
+        segment = {
+            "type": "B_ROLL",
+            "layout": "fullscreen",
+            "panels": [
+                {"kind": "broll", "source_type": "manual", "path": "broll/manual/asset.png"},
+                {
+                    "kind": "presenter",
+                    "path": "synced/profile/P01.mp4",
+                    "treatment": "overlay",
+                    "overlay_crop_x": 0,
+                    "overlay_crop_y": 420,
+                    "overlay_crop_size": 1080,
+                },
+            ],
+            "start_time": 0.0,
+            "end_time": 2.0,
+        }
+        report = pipeline_check.Report()
+
+        pipeline_check.validate_segment_contract(segment, report, "timeline[0]")
+
+        self.assertIn("presenter-crop-legacy", {item.code for item in report.findings})
+
+    def test_pipeline_check_rejects_presenter_crop_out_of_bounds(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "synced" / "profile").mkdir(parents=True)
+            (root / "broll" / "manual").mkdir(parents=True)
+            (root / "synced" / "profile" / "P01.mp4").write_bytes(b"placeholder")
+            (root / "broll" / "manual" / "asset.mp4").write_bytes(b"placeholder")
+            timeline = [
+                {
+                    "type": "B_ROLL",
+                    "layout": "fullscreen",
+                    "panels": [
+                        {"kind": "broll", "source_type": "manual", "path": "broll/manual/asset.mp4"},
+                        {
+                            "kind": "presenter",
+                            "path": "synced/profile/P01.mp4",
+                            "treatment": "overlay",
+                            "crop": {"x": 0, "y": 900, "width": 1080, "height": 1080},
+                        },
+                    ],
+                    "start_time": 0.0,
+                    "end_time": 2.0,
+                }
+            ]
+            report = pipeline_check.Report()
+            with (
+                patch.object(pipeline_check, "media_duration", return_value=3.0),
+                patch.object(pipeline_check, "media_video_size", return_value=(1080, 1920)),
+            ):
+                pipeline_check.validate_timeline(timeline, root, report, None, "vertical")
+
+            self.assertIn("presenter-crop-bounds", {item.code for item in report.findings})
+
+    def test_pipeline_check_rejects_unverified_presenter_crop_bounds(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "synced" / "profile").mkdir(parents=True)
+            (root / "broll" / "manual").mkdir(parents=True)
+            (root / "synced" / "profile" / "P01.mp4").write_bytes(b"placeholder")
+            (root / "broll" / "manual" / "asset.mp4").write_bytes(b"placeholder")
+            timeline = [
+                {
+                    "type": "B_ROLL",
+                    "layout": "fullscreen",
+                    "panels": [
+                        {"kind": "broll", "source_type": "manual", "path": "broll/manual/asset.mp4"},
+                        {
+                            "kind": "presenter",
+                            "path": "synced/profile/P01.mp4",
+                            "treatment": "overlay",
+                            "crop": {"x": 0, "y": 420, "width": 1080, "height": 1080},
+                        },
+                    ],
+                    "start_time": 0.0,
+                    "end_time": 2.0,
+                }
+            ]
+            report = pipeline_check.Report()
+            with (
+                patch.object(pipeline_check, "media_duration", return_value=3.0),
+                patch.object(pipeline_check, "media_video_size", return_value=None),
+            ):
+                pipeline_check.validate_timeline(timeline, root, report, None, "vertical")
+
+            self.assertIn("presenter-crop-bounds", {item.code for item in report.findings})
+
+    def test_pipeline_check_allows_web_evidence_blur_presenter_without_crop(self):
+        segment = {
+            "type": "B_ROLL",
+            "layout": "fullscreen",
+            "panels": [
+                {"kind": "presenter", "path": "source-assets/presenter-front.mp4", "treatment": "blur"},
+                {"kind": "broll", "source_type": "web-evidence", "path": "broll/evidence/S01.png", "treatment": "overlay"},
+            ],
+            "start_time": 0.0,
+            "end_time": 2.0,
+        }
+        report = pipeline_check.Report()
+
+        pipeline_check.validate_segment_contract(segment, report, "timeline[0]")
+
+        self.assertNotIn("presenter-crop-required", {item.code for item in report.findings})
+
+    def test_pipeline_check_allows_aroll_without_crop(self):
+        segment = {"type": "A_ROLL", "clip_path": "synced/front/A01.mp4", "start_time": 0.0, "end_time": 2.0}
+        report = pipeline_check.Report()
+
+        pipeline_check.validate_segment_contract(segment, report, "timeline[0]")
+
+        self.assertNotIn("presenter-crop-required", {item.code for item in report.findings})
 
     def test_pipeline_check_rejects_top_level_broll_treatment(self):
         timeline = [
@@ -274,7 +434,6 @@ class CaptionSyncValidationTests(unittest.TestCase):
             metadata={"duration_seconds": 86.76, "width": 1080, "height": 1920},
             frame_entries=[],
             timeline_summary={"asset_categories_used": ["a", "b", "c", "d"], "distinct_media_reference_count": 4},
-            prefix_audit={"prompt_prefix_absent": True},
             caption_audit={"alignment_source": "script-scaled"},
             generated_audit={"missing_plan_refs": [], "unreviewed_refs": [], "rejected_refs": []},
             timeline_selected_visuals=[],
@@ -347,7 +506,12 @@ class CaptionSyncValidationTests(unittest.TestCase):
                     "layout": "fullscreen",
                     "panels": [
                         {"kind": "broll", "source_type": "manual", "path": "broll/manual/asset.png"},
-                        {"kind": "presenter", "path": "synced/profile/P01.mp4", "treatment": "overlay"},
+                        {
+                            "kind": "presenter",
+                            "path": "synced/profile/P01.mp4",
+                            "treatment": "overlay",
+                            "crop": {"x": 0, "y": 420, "width": 1080, "height": 1080},
+                        },
                     ],
                     "start_time": 2.0,
                     "end_time": 4.0,

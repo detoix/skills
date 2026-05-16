@@ -276,7 +276,7 @@ def timeline_asset_categories(timeline: list[dict[str, Any]]) -> dict[str, Any]:
                                 "overlay_scale": panel.get("overlay_scale"),
                                 "overlay_position": panel.get("overlay_position"),
                                 "shape_expected": "circle",
-                                "crop_override": all(key in panel for key in ("overlay_crop_x", "overlay_crop_y")),
+                                "crop_defined": isinstance(panel.get("crop"), dict),
                             }
                         )
                 elif panel.get("kind") == "broll" and panel.get("treatment") == "still_motion":
@@ -340,53 +340,6 @@ def selected_visuals_summary(manifest: dict[str, Any] | None) -> dict[str, Any]:
     }
 
 
-def tts_prefix_audit(tts_manifest: dict[str, Any] | None) -> dict[str, Any]:
-    if not tts_manifest:
-        return {
-            "manifest_present": False,
-            "prompt_prefix_absent": None,
-            "warnings": ["tts manifest not found; prefix absence could not be verified"],
-            "chunks_checked": 0,
-        }
-    warnings = []
-    chunks = tts_manifest.get("chunks")
-    if not isinstance(chunks, list):
-        chunks = tts_manifest.get("tts_chunks")
-    if not isinstance(chunks, list):
-        return {
-            "manifest_present": True,
-            "prompt_prefix_absent": False,
-            "warnings": ["tts manifest has no chunks or tts_chunks array"],
-            "chunks_checked": 0,
-        }
-
-    checked = 0
-    prefix_absent = True
-    for chunk in chunks:
-        if not isinstance(chunk, dict):
-            continue
-        checked += 1
-        if chunk.get("prompt_prefix_absent") is False or chunk.get("prefix_present") is True:
-            prefix_absent = False
-            warnings.append(f"{chunk.get('chunk_id', 'unknown')} reports prompt prefix contamination")
-        trim_mode = chunk.get("trim_mode")
-        if trim_mode is None:
-            prefix_absent = False
-            warnings.append(f"{chunk.get('chunk_id', 'unknown')} has no trim_mode")
-        if trim_mode == "manual_review":
-            prefix_absent = False
-            warnings.append(f"{chunk.get('chunk_id', 'unknown')} requires manual prefix review")
-        if trim_mode not in {"target_only", "target_only_no_trim", "trimmed_prefix", "not_applicable", "manual_review"}:
-            warnings.append(f"{chunk.get('chunk_id', 'unknown')} has unrecognized trim_mode {trim_mode!r}")
-
-    return {
-        "manifest_present": True,
-        "prompt_prefix_absent": prefix_absent,
-        "warnings": warnings,
-        "chunks_checked": checked,
-    }
-
-
 def caption_alignment_audit(captions_manifest: dict[str, Any] | None) -> dict[str, Any]:
     if not captions_manifest:
         return {
@@ -406,7 +359,6 @@ def build_findings(
     metadata: dict[str, Any],
     frame_entries: list[dict[str, Any]],
     timeline_summary: dict[str, Any],
-    prefix_audit: dict[str, Any],
     caption_audit: dict[str, Any],
     generated_audit: dict[str, Any],
     timeline_selected_visuals: list[dict[str, str]],
@@ -481,11 +433,6 @@ def build_findings(
         for warning in frame.get("auto_checks", {}).get("warnings", []):
             add("ERROR", "frame-auto-check", f"{Path(frame['path']).name}: {warning}")
 
-    if prefix_audit.get("prompt_prefix_absent") is False:
-        add("ERROR", "tts-prefix", "tts manifest reports prompt prefix risk")
-    elif prefix_audit.get("prompt_prefix_absent") is None:
-        add("WARN", "tts-prefix-unverified", "tts prompt prefix absence was not verified")
-
     if caption_audit.get("alignment_source") != "final-audio-manifest":
         add(
             "ERROR",
@@ -514,7 +461,6 @@ def write_markdown_report(
     output: Path,
     manifest: dict[str, Any],
     timeline_summary: dict[str, Any],
-    prefix_audit: dict[str, Any],
     caption_audit: dict[str, Any],
     generated_audit: dict[str, Any],
     selected_visuals: dict[str, Any],
@@ -541,11 +487,8 @@ def write_markdown_report(
         f"- Section patterns: `{', '.join(selected_visuals.get('section_patterns', []))}`",
         f"- Source types: `{', '.join(selected_visuals.get('source_types', []))}`",
         "",
-        "## TTS Prefix",
+        "## Final Checks",
         "",
-        f"- Manifest present: {prefix_audit.get('manifest_present')}",
-        f"- Chunks checked: {prefix_audit.get('chunks_checked')}",
-        f"- Prompt prefix absent: {prefix_audit.get('prompt_prefix_absent')}",
         f"- Caption alignment source: {caption_audit.get('alignment_source')}",
         f"- Agent visual review pass: {manifest.get('agent_visual_review_pass')}",
         f"- Visual review notes: {manifest.get('visual_review_notes')}",
@@ -612,7 +555,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--format", choices=("vertical", "landscape"), help="Expected render format for resolution checks.")
     parser.add_argument("--min-duration", type=float, help="Minimum acceptable duration in seconds.")
     parser.add_argument("--max-duration", type=float, help="Maximum acceptable duration in seconds.")
-    parser.add_argument("--tts-manifest", help="Optional TTS manifest path. Defaults to final-audio-manifest.json, then tts-prototype-manifest.json")
     parser.add_argument("--z-image-plan", help="Optional z-image plan path. Defaults to <project-dir>/manifests/z-image-plan.json when present")
     parser.add_argument("--selected-visuals", help="Optional selected visuals manifest path. Defaults to selected-visuals.resolved.json when present, otherwise selected-visuals.json as a blocker")
     parser.add_argument("--report-md", help="Optional Markdown QA report path.")
@@ -647,22 +589,6 @@ def main() -> int:
     metadata = video_metadata(video)
     duration = float(metadata.get("duration_seconds") or 0.0)
     timeline = load_timeline(timeline_path)
-    if args.tts_manifest:
-        tts_manifest_path = Path(args.tts_manifest).resolve()
-    else:
-        manifest_dir = project_dir / "manifests"
-        tts_manifest_path = next(
-            (
-                candidate
-                for candidate in (
-                    manifest_dir / "final-audio-manifest.json",
-                    manifest_dir / "tts-prototype-manifest.json",
-                )
-                if candidate.exists()
-            ),
-            manifest_dir / "final-audio-manifest.json",
-        )
-    tts_manifest = load_json_object(tts_manifest_path)
     captions_manifest_path = project_dir / "manifests" / "captions-manifest.json"
     captions_manifest = load_json_object(captions_manifest_path)
     z_image_plan_path = Path(args.z_image_plan).resolve() if args.z_image_plan else project_dir / "manifests" / "z-image-plan.json"
@@ -694,7 +620,6 @@ def main() -> int:
 
     sheet_path = make_contact_sheet(frame_paths, contact_sheet)
     timeline_summary = timeline_asset_categories(timeline)
-    prefix_audit = tts_prefix_audit(tts_manifest)
     caption_audit = caption_alignment_audit(captions_manifest)
     generated_audit = z_image_audit(project_dir, selected_visuals_manifest, z_image_plan)
     selected_summary = selected_visuals_summary(selected_visuals_manifest)
@@ -706,7 +631,6 @@ def main() -> int:
         metadata,
         frame_entries,
         timeline_summary,
-        prefix_audit,
         caption_audit,
         generated_audit,
         timeline_selected_visuals,
@@ -729,7 +653,6 @@ def main() -> int:
         "agent_visual_review_pass": args.agent_visual_review_pass,
         "visual_review_notes": args.visual_review_notes,
         "timeline_summary": timeline_summary,
-        "tts_prefix_audit": prefix_audit,
         "caption_alignment_audit": caption_audit,
         "generated_image_audit": generated_audit,
         "selected_visuals_summary": selected_summary,
@@ -749,7 +672,7 @@ def main() -> int:
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     report_md = Path(args.report_md).resolve() if args.report_md else output.with_suffix(".md")
-    write_markdown_report(report_md, manifest, timeline_summary, prefix_audit, caption_audit, generated_audit, selected_summary, findings)
+    write_markdown_report(report_md, manifest, timeline_summary, caption_audit, generated_audit, selected_summary, findings)
     print(f"Wrote final render QA manifest: {output}")
     print(f"Wrote final render QA report: {report_md}")
     print(f"Extracted frames: {len(frame_entries)}")

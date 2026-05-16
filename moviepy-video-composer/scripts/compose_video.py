@@ -69,9 +69,9 @@ DEFAULT_MUSIC_CANDIDATES = (
     "soundtrack.flac",
     "soundtrack.ogg",
 )
-FRONT_STACK_CROP_Y_FRACTION = 1 / 8
-FRONT_STACK_CROP_HEIGHT_FRACTION = 1 / 2
-VOICE_LOUDNORM = "loudnorm=I=-16:LRA=11:TP=-1.5"
+PRESENTER_CROP_FIELDS = ("x", "y", "width", "height")
+LEGACY_PRESENTER_CROP_FIELDS = ("overlay_crop_x", "overlay_crop_y", "overlay_crop_size")
+VOICE_LOUDNORM = "loudnorm=I=-14:LRA=11:TP=-1.5"
 MUSIC_BASE_GAIN = 0.30
 DUCK_THRESHOLD = 0.015
 DUCK_RATIO = 5
@@ -137,9 +137,7 @@ class TimelineEntry:
     motion_type: str = "push-in"
     overlay_scale: float | None = None
     overlay_position: tuple[str | int, str | int] | None = None
-    overlay_crop_x: int | None = None
-    overlay_crop_y: int | None = None
-    overlay_crop_size: int | None = None
+    overlay_crop: dict[str, int] | None = None
     text: str | None = None
     text_color: str | None = None
     font: str | None = None
@@ -225,9 +223,44 @@ def ensure_file(path: Path, label: str) -> None:
         raise FileNotFoundError(f"{label} is not a file: {path}")
 
 
+def parse_presenter_crop(value: Any, context: str) -> dict[str, int]:
+    if not isinstance(value, dict):
+        raise ValueError(f"{context}.crop must be an object with x, y, width, height.")
+    crop: dict[str, int] = {}
+    for field in PRESENTER_CROP_FIELDS:
+        raw = value.get(field)
+        if not isinstance(raw, (int, float)) or isinstance(raw, bool):
+            raise ValueError(f"{context}.crop.{field} must be numeric.")
+        if int(raw) != raw:
+            raise ValueError(f"{context}.crop.{field} must be an integer pixel value.")
+        crop[field] = int(raw)
+    if crop["x"] < 0 or crop["y"] < 0:
+        raise ValueError(f"{context}.crop x/y must be non-negative.")
+    if crop["width"] <= 0 or crop["height"] <= 0:
+        raise ValueError(f"{context}.crop width/height must be positive.")
+    if crop["width"] != crop["height"]:
+        raise ValueError(f"{context}.crop must be square for presenter panels.")
+    return crop
+
+
+def require_presenter_crop(panel: dict[str, Any], context: str) -> dict[str, int]:
+    if "crop" not in panel:
+        raise ValueError(f"{context}.crop is required for presenter panel crops.")
+    crop = parse_presenter_crop(panel["crop"], context)
+    panel["crop"] = crop
+    return crop
+
+
+def reject_legacy_presenter_crop_fields(item: dict[str, Any], context: str) -> None:
+    for field in LEGACY_PRESENTER_CROP_FIELDS:
+        if field in item:
+            raise ValueError(f"{context}.{field} is not supported; use crop {{x,y,width,height}}.")
+
+
 def validate_and_expand_entry(item: dict[str, Any], index: int) -> dict[str, Any]:
     expanded = dict(item)
     entry_type = item.get("type")
+    reject_legacy_presenter_crop_fields(item, f"Timeline entry {index}")
     if "primary_visual" in item:
         raise ValueError(f"Timeline entry {index} uses unsupported primary_visual; use type A_ROLL or B_ROLL.")
     if entry_type in LEGACY_TOP_LEVEL_TYPES - SUPPORTED_TYPES:
@@ -263,6 +296,8 @@ def validate_and_expand_entry(item: dict[str, Any], index: int) -> dict[str, Any
     for panel_index, panel in enumerate(panels):
         if not isinstance(panel, dict):
             raise ValueError(f"Timeline entry {index} panels[{panel_index}] must be an object.")
+        panel_context = f"Timeline entry {index} panels[{panel_index}]"
+        reject_legacy_presenter_crop_fields(panel, panel_context)
         if "role" in panel:
             raise ValueError(f"Timeline entry {index} panels[{panel_index}].role is not supported; use layout/treatment/panel kind.")
         kind = panel.get("kind")
@@ -292,6 +327,12 @@ def validate_and_expand_entry(item: dict[str, Any], index: int) -> dict[str, Any
                 raise ValueError(f"Timeline entry {index} panels[{panel_index}].treatment requires fullscreen layout.")
             if "source" in panel or "source_type" in panel or "source_strategy" in panel:
                 raise ValueError(f"Timeline entry {index} panels[{panel_index}] is presenter media and cannot define source fields.")
+            if layout in {"stack2", "stack3", "grid4"}:
+                require_presenter_crop(panel, panel_context)
+            elif layout == "fullscreen" and panel_treatment == "overlay":
+                require_presenter_crop(panel, panel_context)
+            elif "crop" in panel:
+                parse_presenter_crop(panel["crop"], panel_context)
             if layout == "fullscreen" and panel_treatment == "overlay" and DEFAULT_OVERLAY_POSITION is None:
                 overlay_position = panel.get("overlay_position")
                 if (
@@ -344,7 +385,8 @@ def validate_and_expand_entry(item: dict[str, Any], index: int) -> dict[str, Any
                 expanded["background_clip_start"] = broll_panels[0]["clip_start"]
             if "clip_start" in presenter:
                 expanded["overlay_clip_start"] = presenter["clip_start"]
-            for field in ("overlay_scale", "overlay_position", "overlay_crop_x", "overlay_crop_y", "overlay_crop_size"):
+            expanded["overlay_crop"] = presenter["crop"]
+            for field in ("overlay_scale", "overlay_position"):
                 if field in presenter:
                     expanded[field] = presenter[field]
         else:
@@ -444,9 +486,7 @@ def load_timeline(timeline_path: Path) -> list[TimelineEntry]:
                 motion_type=motion_type,
                 overlay_scale=float(item["overlay_scale"]) if "overlay_scale" in item else None,
                 overlay_position=parsed_position,
-                overlay_crop_x=int(item["overlay_crop_x"]) if "overlay_crop_x" in item else None,
-                overlay_crop_y=int(item["overlay_crop_y"]) if "overlay_crop_y" in item else None,
-                overlay_crop_size=int(item["overlay_crop_size"]) if "overlay_crop_size" in item else None,
+                overlay_crop=item.get("overlay_crop"),
                 text=item.get("text"),
                 text_color=item.get("text_color"),
                 font=item.get("font"),
@@ -852,46 +892,18 @@ def scale_clip_to_canvas(clip, canvas_size: tuple[int, int], policy: str):
     return composed, [resized, composed]
 
 
-def path_has_segment(raw_path: str | None, segment: str) -> bool:
-    if not raw_path:
-        return False
-    normalized = raw_path.replace("\\", "/")
-    return segment.lower() in {part.lower() for part in normalized.split("/") if part}
-
-
-def is_front_presenter_panel(panel: dict[str, Any] | None, raw_path: str | None) -> bool:
-    if not isinstance(panel, dict):
-        return False
-    if panel.get("kind") != "presenter":
-        return False
-    return path_has_segment(str(panel.get("path") or raw_path or ""), "front")
-
-
-def front_stack_presenter_crop_box(source_size: tuple[int, int], panel_size: tuple[int, int]) -> tuple[int, int, int, int]:
-    source_w, source_h = source_size
-    panel_w, panel_h = panel_size
-    if source_w <= 0 or source_h <= 0:
-        raise ValueError("source_size must be positive.")
-    if panel_w <= 0 or panel_h <= 0:
-        raise ValueError("panel_size must be positive.")
-
-    crop_x = 0
-    crop_y = int(round(source_h * FRONT_STACK_CROP_Y_FRACTION))
-    crop_w = source_w
-    crop_h = min(source_h, max(1, int(round(source_h * FRONT_STACK_CROP_HEIGHT_FRACTION))))
-
-    crop_x = max(0, min(crop_x, source_w - crop_w))
-    crop_y = max(0, min(crop_y, source_h - crop_h))
-    return crop_x, crop_y, crop_w, crop_h
-
-
-def maybe_crop_front_stack_presenter(clip, panel: dict[str, Any] | None, raw_path: str | None, panel_size: tuple[int, int]):
-    if not is_front_presenter_panel(panel, raw_path):
-        return clip, None
-    if clip.h <= clip.w:
-        return clip, None
-    crop_x, crop_y, crop_w, crop_h = front_stack_presenter_crop_box((clip.w, clip.h), panel_size)
-    return clip.cropped(x1=crop_x, y1=crop_y, width=crop_w, height=crop_h), (crop_x, crop_y, crop_w, crop_h)
+def crop_clip_to_rect(clip, crop: dict[str, int], context: str):
+    x = crop["x"]
+    y = crop["y"]
+    width = crop["width"]
+    height = crop["height"]
+    if x < 0 or y < 0 or width <= 0 or height <= 0:
+        raise ValueError(f"{context} crop has invalid non-positive dimensions.")
+    if x + width > clip.w or y + height > clip.h:
+        raise ValueError(
+            f"{context} crop {x},{y},{width},{height} exceeds source bounds {clip.w}x{clip.h}."
+        )
+    return clip.cropped(x1=x, y1=y, width=width, height=height)
 
 
 def compute_overlay_position(
@@ -1056,11 +1068,15 @@ def build_panel_clip(
         return build_still_motion_image_clip(path, duration, size, motion_type, label)
 
     clip, source = normalize_video_clip(path, duration, start_offset, label, fit_kind_for_panel(panel, raw_path))
-    stack_crop, crop_box = maybe_crop_front_stack_presenter(clip, panel, raw_path, size)
-    if crop_box is not None:
-        clip = stack_crop
+    cropped = None
+    if isinstance(panel, dict) and panel.get("kind") == "presenter":
+        crop = panel.get("crop")
+        if not isinstance(crop, dict):
+            raise ValueError(f"{label} presenter panel requires crop.")
+        cropped = crop_clip_to_rect(clip, crop, label)
+        clip = cropped
     fitted, handles = scale_clip_to_canvas(clip, size, "cover")
-    return fitted, [clip, source, stack_crop, fitted, *handles]
+    return fitted, [clip, source, cropped, fitted, *handles]
 
 
 def build_stack_2_clip(project_dir: Path, entry: TimelineEntry):
@@ -1095,31 +1111,30 @@ def build_stack_2_clip(project_dir: Path, entry: TimelineEntry):
 
 
 def build_stack_3_clip(project_dir: Path, entry: TimelineEntry):
-    top_path = resolve_media_path(project_dir, entry.clip_path_top, "clip_path_top")
-    mid_path = resolve_media_path(project_dir, entry.clip_path_mid, "clip_path_mid")
-    bot_path = resolve_media_path(project_dir, entry.clip_path_bot, "clip_path_bot")
+    panels = entry.panels if isinstance(entry.panels, list) else []
 
-    top_clip, top_source = normalize_video_clip(
-        top_path,
-        entry.duration,
-        entry.clip_offset("clip_start_top"),
-        "STACK_3 top clip",
-        fit_kind_for_panel(entry.panels[0] if isinstance(entry.panels, list) and len(entry.panels) > 0 else None, entry.clip_path_top),
-    )
-    mid_clip, mid_source = normalize_video_clip(
-        mid_path,
-        entry.duration,
-        entry.clip_offset("clip_start_mid"),
-        "STACK_3 middle clip",
-        fit_kind_for_panel(entry.panels[1] if isinstance(entry.panels, list) and len(entry.panels) > 1 else None, entry.clip_path_mid),
-    )
-    bot_clip, bot_source = normalize_video_clip(
-        bot_path,
-        entry.duration,
-        entry.clip_offset("clip_start_bot"),
-        "STACK_3 bottom clip",
-        fit_kind_for_panel(entry.panels[2] if isinstance(entry.panels, list) and len(entry.panels) > 2 else None, entry.clip_path_bot),
-    )
+    def prepare_stack3_panel(path_value: str | None, start_field: str, label: str, panel_index: int):
+        panel = panels[panel_index] if len(panels) > panel_index and isinstance(panels[panel_index], dict) else None
+        path = resolve_media_path(project_dir, path_value, label)
+        clip, source = normalize_video_clip(
+            path,
+            entry.duration,
+            entry.clip_offset(start_field),
+            label,
+            fit_kind_for_panel(panel, path_value),
+        )
+        cropped = None
+        if isinstance(panel, dict) and panel.get("kind") == "presenter":
+            crop = panel.get("crop")
+            if not isinstance(crop, dict):
+                raise ValueError(f"{label} presenter panel requires crop.")
+            cropped = crop_clip_to_rect(clip, crop, label)
+            clip = cropped
+        return clip, source, cropped
+
+    top_clip, top_source, top_cropped = prepare_stack3_panel(entry.clip_path_top, "clip_start_top", "STACK_3 top clip", 0)
+    mid_clip, mid_source, mid_cropped = prepare_stack3_panel(entry.clip_path_mid, "clip_start_mid", "STACK_3 middle clip", 1)
+    bot_clip, bot_source, bot_cropped = prepare_stack3_panel(entry.clip_path_bot, "clip_start_bot", "STACK_3 bottom clip", 2)
 
     top_resized = top_clip.resized(width=OUTPUT_WIDTH)
     mid_resized = mid_clip.resized(width=OUTPUT_WIDTH)
@@ -1143,12 +1158,15 @@ def build_stack_3_clip(project_dir: Path, entry: TimelineEntry):
         background,
         top_clip,
         top_source,
+        top_cropped,
         top_resized,
         mid_clip,
         mid_source,
+        mid_cropped,
         mid_resized,
         bot_clip,
         bot_source,
+        bot_cropped,
         bot_resized,
     ]
 
@@ -1340,24 +1358,6 @@ def build_camera_motion_clip(project_dir: Path, entry: TimelineEntry):
     return motion_clip, [motion_clip, clip, source]
 
 
-def crop_to_square(clip, crop_x: int, crop_y: int, crop_size: int | None = None):
-    width, height = clip.size
-    if crop_size is None:
-        crop_size = min(width, height)
-    crop_size = max(1, min(crop_size, width, height))
-    x1 = max(0, min(crop_x, width - crop_size))
-    y1 = max(0, min(crop_y, height - crop_size))
-    return clip.cropped(x1=x1, y1=y1, width=crop_size, height=crop_size)
-
-
-def center_crop_to_square(clip):
-    width, height = clip.size
-    crop_size = min(width, height)
-    x1 = max(0, int((width - crop_size) / 2))
-    y1 = max(0, int((height - crop_size) / 2))
-    return clip.cropped(x1=x1, y1=y1, width=crop_size, height=crop_size)
-
-
 def build_standard_clip(project_dir: Path, entry: TimelineEntry):
     clip_path = resolve_media_path(project_dir, entry.clip_path, "clip_path")
     clip, source = normalize_video_clip(
@@ -1479,18 +1479,10 @@ def build_pip_clip(project_dir: Path, entry: TimelineEntry):
         "PIP overlay",
         fit_kind_for_panel(overlay_panel, entry.overlay_path),
     )
-    cropped_overlay = None
-    if entry.overlay_crop_x is not None and entry.overlay_crop_y is not None:
-        cropped_overlay = crop_to_square(
-            overlay_clip,
-            entry.overlay_crop_x,
-            entry.overlay_crop_y,
-            entry.overlay_crop_size,
-        )
-        overlay_clip = cropped_overlay
-    elif PIP_OVERLAY_SHAPE == "circle":
-        cropped_overlay = center_crop_to_square(overlay_clip)
-        overlay_clip = cropped_overlay
+    if entry.overlay_crop is None:
+        raise ValueError("PIP overlay presenter requires overlay_crop from panel.crop.")
+    cropped_overlay = crop_clip_to_rect(overlay_clip, entry.overlay_crop, "PIP overlay")
+    overlay_clip = cropped_overlay
     overlay_scale = entry.overlay_scale if entry.overlay_scale is not None else DEFAULT_OVERLAY_SCALE
     if overlay_scale <= 0:
         raise ValueError("overlay_scale must be positive.")

@@ -25,73 +25,75 @@ class DummyClip:
         return kwargs
 
 
-class FrontStackCropTests(unittest.TestCase):
-    def test_front_stack_crop_box_for_vertical_half_panel(self):
-        self.assertEqual(
-            compose_video.front_stack_presenter_crop_box((1080, 1920), (1080, 960)),
-            (0, 240, 1080, 960),
-        )
-        self.assertEqual(
-            compose_video.front_stack_presenter_crop_box((720, 1280), (1080, 960)),
-            (0, 160, 720, 640),
-        )
+class PresenterCropTests(unittest.TestCase):
+    def test_presenter_crop_uses_explicit_panel_crop_only(self):
+        panel = {"kind": "presenter", "path": "synced/front/A04.mp4", "crop": {"x": 0, "y": 120, "width": 1080, "height": 1080}}
+        clip = DummyClip(1080, 1920)
 
-    def test_front_presenter_panel_matches_front_path_segment(self):
-        panel = {"kind": "presenter", "path": "synced/front/A04.mp4"}
-        self.assertTrue(compose_video.is_front_presenter_panel(panel, panel["path"]))
-        self.assertTrue(
-            compose_video.is_front_presenter_panel(
-                {"kind": "presenter"},
-                "synced\\front\\A04.mp4",
+        cropped = compose_video.crop_clip_to_rect(clip, panel["crop"], "test")
+
+        self.assertEqual(cropped, {"x1": 0, "y1": 120, "width": 1080, "height": 1080})
+
+    def test_presenter_crop_bounds_are_validated(self):
+        clip = DummyClip(1080, 1920)
+
+        with self.assertRaises(ValueError):
+            compose_video.crop_clip_to_rect(clip, {"x": 0, "y": 1000, "width": 1080, "height": 1080}, "test")
+
+    def test_presenter_overlay_without_crop_fails(self):
+        with self.assertRaises(ValueError):
+            compose_video.validate_and_expand_entry(
+                {
+                    "type": "B_ROLL",
+                    "layout": "fullscreen",
+                    "panels": [
+                        {"kind": "broll", "source_type": "webpage", "path": "broll/site.mp4"},
+                        {"kind": "presenter", "path": "synced/profile/P01.mp4", "treatment": "overlay", "overlay_scale": 0.34},
+                    ],
+                    "start_time": 0.0,
+                    "end_time": 2.0,
+                },
+                0,
             )
-        )
 
-    def test_profile_presenter_panel_is_not_front_stack_crop(self):
-        panel = {"kind": "presenter", "path": "synced/profile/P04.mp4"}
-        clip = DummyClip(1080, 1920)
+    def test_stack2_presenter_without_crop_fails(self):
+        with self.assertRaises(ValueError):
+            compose_video.validate_and_expand_entry(
+                {
+                    "type": "B_ROLL",
+                    "layout": "stack2",
+                    "panels": [
+                        {"kind": "presenter", "path": "synced/front/A04.mp4"},
+                        {"kind": "broll", "source_type": "manual", "path": "broll/front/demo.mp4"},
+                    ],
+                    "start_time": 0.0,
+                    "end_time": 2.0,
+                },
+                0,
+            )
 
-        cropped, crop_box = compose_video.maybe_crop_front_stack_presenter(
-            clip,
-            panel,
-            panel["path"],
-            (1080, 960),
-        )
-
-        self.assertIs(cropped, clip)
-        self.assertIsNone(crop_box)
-
-    def test_broll_panel_is_not_front_stack_crop_even_under_front_path(self):
-        panel = {"kind": "broll", "source_type": "manual", "path": "broll/front/demo.mp4"}
-        clip = DummyClip(1080, 1920)
-
-        cropped, crop_box = compose_video.maybe_crop_front_stack_presenter(
-            clip,
-            panel,
-            panel["path"],
-            (1080, 960),
-        )
-
-        self.assertIs(cropped, clip)
-        self.assertIsNone(crop_box)
-
-    def test_landscape_front_presenter_panel_is_not_cropped(self):
-        panel = {"kind": "presenter", "path": "synced/front/A04.mp4"}
-        clip = DummyClip(1920, 1080)
-
-        cropped, crop_box = compose_video.maybe_crop_front_stack_presenter(
-            clip,
-            panel,
-            panel["path"],
-            (1080, 960),
-        )
-
-        self.assertIs(cropped, clip)
-        self.assertIsNone(crop_box)
-
-    def test_pip_center_square_crop_remains_centered(self):
-        crop = compose_video.center_crop_to_square(DummyClip(1080, 1920))
-
-        self.assertEqual(crop, {"x1": 0, "y1": 420, "width": 1080, "height": 1080})
+    def test_legacy_overlay_crop_fields_fail(self):
+        with self.assertRaises(ValueError):
+            compose_video.validate_and_expand_entry(
+                {
+                    "type": "B_ROLL",
+                    "layout": "fullscreen",
+                    "panels": [
+                        {"kind": "broll", "source_type": "webpage", "path": "broll/site.mp4"},
+                        {
+                            "kind": "presenter",
+                            "path": "synced/profile/P01.mp4",
+                            "treatment": "overlay",
+                            "overlay_crop_x": 0,
+                            "overlay_crop_y": 420,
+                            "overlay_crop_size": 1080,
+                        },
+                    ],
+                    "start_time": 0.0,
+                    "end_time": 2.0,
+                },
+                0,
+            )
 
     def test_broll_still_motion_panel_uses_motion_helper(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -141,10 +143,37 @@ class FrontStackCropTests(unittest.TestCase):
                 )
 
             self.assertEqual(clip, "fitted")
-            self.assertEqual(handles, [source_clip, None, source_clip, "fitted", "scale_handle"])
+            self.assertEqual(handles, [source_clip, None, None, "fitted", "scale_handle"])
             motion.assert_not_called()
             normalize.assert_called_once_with(image_path.resolve(), 2.0, 0.0, "STACK_2 bottom clip", "loop_safe_broll")
             scale.assert_called_once_with(source_clip, (1080, 960), "cover")
+
+    def test_stack2_presenter_with_crop_uses_crop_before_cover(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            video_path = root / "S03.mp4"
+            video_path.write_bytes(b"placeholder")
+            source_clip = DummyClip(1080, 1920)
+
+            with (
+                patch.object(compose_video, "normalize_video_clip", return_value=(source_clip, "source")) as normalize,
+                patch.object(compose_video, "scale_clip_to_canvas", return_value=("fitted", ["scale_handle"])) as scale,
+            ):
+                clip, handles = compose_video.build_panel_clip(
+                    root,
+                    "S03.mp4",
+                    2.0,
+                    0.0,
+                    "STACK_2 top clip",
+                    (1080, 960),
+                    {"kind": "presenter", "path": "S03.mp4", "crop": {"x": 0, "y": 120, "width": 1080, "height": 1080}},
+                )
+
+            self.assertEqual(clip, "fitted")
+            cropped = {"x1": 0, "y1": 120, "width": 1080, "height": 1080}
+            self.assertEqual(handles, [cropped, "source", cropped, "fitted", "scale_handle"])
+            normalize.assert_called_once_with(video_path.resolve(), 2.0, 0.0, "STACK_2 top clip", "presenter")
+            scale.assert_called_once_with(cropped, (1080, 960), "cover")
 
     def test_top_level_broll_treatment_is_rejected(self):
         with self.assertRaises(ValueError):
@@ -185,7 +214,13 @@ class FrontStackCropTests(unittest.TestCase):
                 "layout": "fullscreen",
                 "panels": [
                     {"kind": "broll", "source_type": "webpage", "path": "broll/site.mp4"},
-                    {"kind": "presenter", "path": "synced/profile/P01.mp4", "treatment": "overlay", "overlay_scale": 0.34},
+                    {
+                        "kind": "presenter",
+                        "path": "synced/profile/P01.mp4",
+                        "treatment": "overlay",
+                        "overlay_scale": 0.34,
+                        "crop": {"x": 0, "y": 420, "width": 1080, "height": 1080},
+                    },
                 ],
                 "start_time": 0.0,
                 "end_time": 2.0,
@@ -196,6 +231,7 @@ class FrontStackCropTests(unittest.TestCase):
         self.assertEqual(expanded["background_path"], "broll/site.mp4")
         self.assertEqual(expanded["overlay_path"], "synced/profile/P01.mp4")
         self.assertEqual(expanded["overlay_scale"], 0.34)
+        self.assertEqual(expanded["overlay_crop"], {"x": 0, "y": 420, "width": 1080, "height": 1080})
 
     def test_pip_allows_still_motion_background_treatment(self):
         expanded = compose_video.validate_and_expand_entry(
@@ -210,7 +246,13 @@ class FrontStackCropTests(unittest.TestCase):
                         "treatment": "still_motion",
                         "motion_type": "pan-left",
                     },
-                    {"kind": "presenter", "path": "synced/profile/P01.mp4", "treatment": "overlay", "overlay_scale": 0.34},
+                    {
+                        "kind": "presenter",
+                        "path": "synced/profile/P01.mp4",
+                        "treatment": "overlay",
+                        "overlay_scale": 0.34,
+                        "crop": {"x": 0, "y": 420, "width": 1080, "height": 1080},
+                    },
                 ],
                 "start_time": 0.0,
                 "end_time": 2.0,

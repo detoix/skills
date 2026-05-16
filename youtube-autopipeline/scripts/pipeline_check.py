@@ -40,6 +40,8 @@ BROLL_SOURCE_TYPES = {"webpage", "stock", "screen-record", "generated-image", "m
 BROLL_PANEL_TREATMENTS = {"overlay", "still_motion"}
 PRESENTER_PANEL_TREATMENTS = {"overlay", "blur"}
 AROLL_TREATMENTS = {"camera_motion"}
+PRESENTER_CROP_FIELDS = ("x", "y", "width", "height")
+LEGACY_PRESENTER_CROP_FIELDS = ("overlay_crop_x", "overlay_crop_y", "overlay_crop_size")
 GRAPHIC_TARGETS = {"B_ROLL", "manual"}
 PRESENTER_REPEAT_REASON_CODES = {
     "limited_available_sources",
@@ -140,6 +142,59 @@ def require_keys(item: dict[str, Any], keys: tuple[str, ...], report: Report, co
             report.error("missing-key", f"{context} is missing required key {key!r}")
 
 
+def validate_presenter_crop(crop: Any, report: Report, context: str) -> dict[str, int] | None:
+    if not isinstance(crop, dict):
+        report.error("presenter-crop", f"{context}.crop must be an object with x, y, width, height")
+        return None
+    parsed: dict[str, int] = {}
+    for field in PRESENTER_CROP_FIELDS:
+        value = crop.get(field)
+        if not isinstance(value, (int, float)) or isinstance(value, bool):
+            report.error("presenter-crop", f"{context}.crop.{field} must be numeric")
+            return None
+        if int(value) != value:
+            report.error("presenter-crop", f"{context}.crop.{field} must be an integer pixel value")
+            return None
+        parsed[field] = int(value)
+    if parsed["x"] < 0 or parsed["y"] < 0:
+        report.error("presenter-crop", f"{context}.crop x/y must be non-negative")
+        return None
+    if parsed["width"] <= 0 or parsed["height"] <= 0:
+        report.error("presenter-crop", f"{context}.crop width/height must be positive")
+        return None
+    if parsed["width"] != parsed["height"]:
+        report.error("presenter-crop", f"{context}.crop must be square")
+        return None
+    return parsed
+
+
+def validate_presenter_crop_bounds(
+    crop: Any,
+    source_size: tuple[int, int] | None,
+    report: Report,
+    context: str,
+    path: Path,
+) -> None:
+    parsed = validate_presenter_crop(crop, report, context)
+    if parsed is None:
+        return
+    if source_size is None:
+        report.error("presenter-crop-bounds", f"{context}.crop bounds could not be verified for {path}")
+        return
+    source_w, source_h = source_size
+    if parsed["x"] + parsed["width"] > source_w or parsed["y"] + parsed["height"] > source_h:
+        report.error(
+            "presenter-crop-bounds",
+            f"{context}.crop {parsed['x']},{parsed['y']},{parsed['width']},{parsed['height']} exceeds {path} bounds {source_w}x{source_h}",
+        )
+
+
+def reject_legacy_presenter_crop_fields(item: dict[str, Any], report: Report, context: str) -> None:
+    for field in LEGACY_PRESENTER_CROP_FIELDS:
+        if field in item:
+            report.error("presenter-crop-legacy", f"{context}.{field} is not supported; use crop {{x,y,width,height}}")
+
+
 def validate_segment_contract(
     item: dict[str, Any],
     report: Report,
@@ -150,6 +205,7 @@ def validate_segment_contract(
 ) -> str | None:
     if "primary_visual" in item:
         report.error("legacy-visual-field", f"{context}.primary_visual is not supported; use type A_ROLL or B_ROLL")
+    reject_legacy_presenter_crop_fields(item, report, context)
     segment_type = item.get("type")
     if segment_type in LEGACY_TOP_LEVEL_TYPES - SEGMENT_TYPES:
         report.error("legacy-segment-type", f"{context}.type {segment_type!r} is a layout/treatment, not a segment type")
@@ -187,6 +243,7 @@ def validate_segment_contract(
         if not isinstance(panel, dict):
             report.error("broll-panel-shape", f"{panel_context} must be an object")
             continue
+        reject_legacy_presenter_crop_fields(panel, report, panel_context)
         if "role" in panel:
             report.error("broll-panel-role", f"{panel_context}.role is not supported; use layout/treatment/panel kind")
         kind = panel.get("kind")
@@ -220,6 +277,18 @@ def validate_segment_contract(
                 report.error("presenter-treatment-layout", f"{panel_context}.treatment requires fullscreen layout")
             if "source" in panel or "source_type" in panel or "source_strategy" in panel:
                 report.error("presenter-source", f"{panel_context} is presenter media and must not define source fields")
+            if layout in {"stack2", "stack3", "grid4"}:
+                if "crop" not in panel:
+                    report.error("presenter-crop-required", f"{panel_context}.crop is required for presenter panels in {layout}")
+                else:
+                    validate_presenter_crop(panel.get("crop"), report, panel_context)
+            elif layout == "fullscreen" and panel_treatment == "overlay":
+                if "crop" not in panel:
+                    report.error("presenter-crop-required", f"{panel_context}.crop is required for fullscreen presenter overlay")
+                else:
+                    validate_presenter_crop(panel.get("crop"), report, panel_context)
+            elif "crop" in panel:
+                validate_presenter_crop(panel.get("crop"), report, panel_context)
             if format_mode == "vertical" and layout == "fullscreen" and panel_treatment == "overlay":
                 overlay_position = panel.get("overlay_position")
                 if (
@@ -452,6 +521,36 @@ def media_duration(path: Path, report: Report) -> float | None:
         return float(completed.stdout.strip())
     except (subprocess.CalledProcessError, ValueError) as exc:
         report.warn("duration-unavailable", f"could not read duration for {path}: {exc}")
+        return None
+
+
+def media_video_size(path: Path, report: Report) -> tuple[int, int] | None:
+    ffprobe = find_ffprobe()
+    if not ffprobe:
+        report.warn("ffprobe-missing", "ffprobe not found; media dimensions could not be checked")
+        return None
+    command = [
+        ffprobe,
+        "-v",
+        "error",
+        "-select_streams",
+        "v:0",
+        "-show_entries",
+        "stream=width,height",
+        "-of",
+        "json",
+        str(path),
+    ]
+    try:
+        completed = subprocess.run(command, check=True, capture_output=True, text=True)
+        data = json.loads(completed.stdout)
+        stream = next((stream for stream in data.get("streams", []) if stream.get("width") and stream.get("height")), None)
+        if not stream:
+            report.warn("video-size-unavailable", f"could not read video dimensions for {path}")
+            return None
+        return int(stream["width"]), int(stream["height"])
+    except (subprocess.CalledProcessError, json.JSONDecodeError, TypeError, ValueError) as exc:
+        report.warn("video-size-unavailable", f"could not read video dimensions for {path}: {exc}")
         return None
 
 
@@ -694,6 +793,14 @@ def validate_timeline(
                 if start_offset:
                     report.error("clip-start", f"{context} {field} is a still image and cannot use clip_start")
                 continue
+            if isinstance(panel, dict) and panel.get("kind") == "presenter" and "crop" in panel:
+                validate_presenter_crop_bounds(
+                    panel.get("crop"),
+                    media_video_size(path, report),
+                    report,
+                    f"{context}.{field}",
+                    path,
+                )
             source_duration = media_duration(path, report)
             if source_duration is None:
                 continue
