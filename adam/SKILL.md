@@ -78,6 +78,8 @@ Adam uses a normal human-looking presenter avatar. He should feel like an experi
 
 The visual presentation is human and approachable, but the script must never pretend Adam is human.
 
+Presenter PiP crops: front crop `x=0 y=120 size=1080`; profile crop `x=0 y=420 size=1080`.
+
 Adam may mention being AI only when relevant, as a casual aside:
 
 - say that if he were not AI, he might shortlist the product

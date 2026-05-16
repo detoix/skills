@@ -233,6 +233,8 @@ Avoid:
 
 Arthur may appear as A-roll or as a presenter panel, but not every B-roll needs presenter overlay. Keep presenter use aligned with the autopipeline B-roll presenter ratio requirements.
 
+Presenter PiP crops: front crop `x=0 y=120 size=1080`; profile crop `x=0 y=120 size=1080`.
+
 ## Defaults
 
 - Default format: `vertical`, unless the user requests landscape.
