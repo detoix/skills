@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from production_gate import run_creative_gate, run_prototype_approved_gate, run_prototype_review_ready_gate, validate_visual_plan
+from production_gate import run_creative_gate, run_prototype_approved_gate, run_prototype_review_ready_gate
 
 
 SEGMENT_TYPES = {"A_ROLL", "B_ROLL"}
@@ -1184,10 +1184,8 @@ def validate_selected_visuals_manifest(manifest: Any, project_dir: Path, report:
     accepted_canonicals: dict[str, int] = {}
     source_type_durations: dict[str, float] = {}
     accepted_source_types: set[str] = set()
-    visual_plan_scenes_by_id: dict[str, dict[str, Any]] = {}
     segment_by_id: dict[str, dict[str, Any]] = {}
     broll_segment_ids: set[str] = set()
-    visual_plan_path = project_dir / "manifests" / "visual-plan.json"
     script_path = project_dir / "script.json"
     script = load_json(script_path, report, "script")
     if isinstance(script, dict) and isinstance(script.get("segments"), list):
@@ -1200,17 +1198,6 @@ def validate_selected_visuals_manifest(manifest: Any, project_dir: Path, report:
                 segment_by_id[normalized_segment_id] = segment
                 if segment.get("type") == "B_ROLL":
                     broll_segment_ids.add(normalized_segment_id)
-    visual_plan = load_json(visual_plan_path, report, "visual plan")
-    if visual_plan is not None:
-        gate_findings: list[Any] = []
-        visual_plan_scenes = validate_visual_plan(visual_plan, gate_findings)
-        for finding in gate_findings:
-            report.error(finding.code, finding.message)
-        for scene in visual_plan_scenes:
-            for key in ("scene_id", "segment_id"):
-                value = scene.get(key)
-                if isinstance(value, str) and value.strip():
-                    visual_plan_scenes_by_id[value.strip()] = scene
     for index, item in enumerate(items):
         context = f"selected_visuals.items[{index}]"
         if not isinstance(item, dict):
@@ -1276,32 +1263,25 @@ def validate_selected_visuals_manifest(manifest: Any, project_dir: Path, report:
                     f"{context}.creative_concept must describe a custom visual metaphor, not a template type",
                 )
         if item.get("accepted") is True:
-            scene_id = item.get("scene_id")
             segment_id = item.get("segment_id")
-            visual_plan_scene = None
-            for value in (segment_id, scene_id):
-                if isinstance(value, str) and value.strip() in visual_plan_scenes_by_id:
-                    visual_plan_scene = visual_plan_scenes_by_id[value.strip()]
-                    break
-            if visual_plan_scene is None:
+            planned_segment = segment_by_id.get(segment_id.strip()) if isinstance(segment_id, str) else None
+            if not isinstance(planned_segment, dict) or planned_segment.get("type") != "B_ROLL":
                 report.error(
-                    "selected-visuals-unplanned-scene",
-                    f"{context} is accepted but does not match any scene_id or segment_id in manifests/visual-plan.json",
+                    "selected-visuals-unplanned-segment",
+                    f"{context} is accepted but does not match any B_ROLL segment_id in script.json",
                 )
                 is_broll_asset = False
             else:
-                plan_segment_id = visual_plan_scene.get("segment_id")
-                planned_segment = segment_by_id.get(plan_segment_id.strip()) if isinstance(plan_segment_id, str) else None
-                is_broll_asset = isinstance(planned_segment, dict) and planned_segment.get("type") == "B_ROLL"
+                is_broll_asset = True
                 planned_sources = {
                     panel.get("source_type")
-                    for panel in visual_plan_scene.get("panels", [])
+                    for panel in planned_segment.get("panels", [])
                     if isinstance(panel, dict) and panel.get("kind") == "broll"
                 }
                 if is_broll_asset and isinstance(source_type, str) and source_type in BROLL_SOURCE_TYPES and source_type not in planned_sources:
                     report.error(
                         "selected-visuals-source-strategy-mismatch",
-                        f"{context} uses source_type {source_type!r} but visual-plan scene uses broll panel source_type values {sorted(planned_sources)}",
+                        f"{context} uses source_type {source_type!r} but script segment uses broll panel source_type values {sorted(planned_sources)}",
                     )
             accepted_patterns.add(str(pattern))
             if is_broll_asset and isinstance(source_type, str) and source_type in BROLL_SOURCE_TYPES:

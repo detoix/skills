@@ -47,23 +47,23 @@ def write_json(path: Path, payload: Any) -> None:
     path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
-def scene_by_segment_id(visual_plan: Any) -> dict[str, dict[str, Any]]:
-    if not isinstance(visual_plan, dict) or not isinstance(visual_plan.get("scenes"), list):
+def segment_by_id(script: Any) -> dict[str, dict[str, Any]]:
+    if not isinstance(script, dict) or not isinstance(script.get("segments"), list):
         return {}
     result: dict[str, dict[str, Any]] = {}
-    for scene in visual_plan["scenes"]:
-        if isinstance(scene, dict) and isinstance(scene.get("segment_id"), str):
-            result[scene["segment_id"]] = scene
+    for segment in script["segments"]:
+        if isinstance(segment, dict) and isinstance(segment.get("segment_id"), str):
+            result[segment["segment_id"]] = segment
     return result
 
 
-def placeholder_text(entry: dict[str, Any], panel: dict[str, Any], scene: dict[str, Any] | None) -> str:
+def placeholder_text(entry: dict[str, Any], panel: dict[str, Any], segment: dict[str, Any] | None) -> str:
     candidates = [
         panel.get("prompt"),
         panel.get("visual_brief"),
         panel.get("description"),
-        scene.get("visual_idea") if scene else None,
-        scene.get("purpose") if scene else None,
+        segment.get("visual_direction") if segment else None,
+        segment.get("editor_notes") if segment else None,
         entry.get("visual_idea"),
         entry.get("caption_text"),
     ]
@@ -103,12 +103,12 @@ def render_placeholder_png(path: Path, text: str, size: tuple[int, int]) -> None
 
 def replace_generated_image_panels(
     timeline: list[dict[str, Any]],
-    visual_plan: Any,
+    script: Any,
     project_dir: Path,
     *,
     output_format: str,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    scenes = scene_by_segment_id(visual_plan)
+    segments = segment_by_id(script)
     output_size = OUTPUT_SIZES[output_format]
     placeholders: list[dict[str, Any]] = []
     prototype: list[dict[str, Any]] = []
@@ -121,8 +121,8 @@ def replace_generated_image_panels(
                 copied_panel = dict(panel) if isinstance(panel, dict) else panel
                 if isinstance(copied_panel, dict) and copied_panel.get("kind") == "broll" and copied_panel.get("source_type") == "generated-image":
                     segment_id = str(copied_entry.get("segment_id") or f"entry-{entry_index + 1}")
-                    scene = scenes.get(segment_id)
-                    text = placeholder_text(copied_entry, copied_panel, scene)
+                    segment = segments.get(segment_id)
+                    text = placeholder_text(copied_entry, copied_panel, segment)
                     safe_segment = sanitize_id(segment_id, f"entry-{entry_index + 1}")
                     rel_path = Path("prototype") / "placeholders" / f"{safe_segment}_panel_{panel_index + 1}.png"
                     abs_path = project_dir / rel_path
@@ -131,7 +131,6 @@ def replace_generated_image_panels(
                     placeholders.append(
                         {
                             "segment_id": segment_id,
-                            "scene_id": scene.get("scene_id") if scene else None,
                             "panel_index": panel_index,
                             "placeholder_text": text,
                             "sha256": sha256_text(text),
@@ -149,7 +148,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Create timeline.prototype.json with generated-image text placeholders.")
     parser.add_argument("--project-dir", default=".", help="Project directory.")
     parser.add_argument("--timeline", default="timeline.json", help="Input timeline path, relative to project-dir or absolute.")
-    parser.add_argument("--visual-plan", default="manifests/visual-plan.json", help="Visual plan path, relative to project-dir or absolute.")
+    parser.add_argument("--script", default="script.json", help="Script path, relative to project-dir or absolute.")
     parser.add_argument("--output", default="timeline.prototype.json", help="Output prototype timeline path.")
     parser.add_argument("--placeholders-manifest", default="manifests/prototype-placeholders.json", help="Output placeholder manifest path.")
     parser.add_argument("--format", choices=sorted(OUTPUT_SIZES), default="vertical", help="Placeholder canvas format.")
@@ -165,16 +164,16 @@ def main() -> int:
     args = parse_args()
     project_dir = Path(args.project_dir).resolve()
     timeline_path = resolve_path(project_dir, args.timeline)
-    visual_plan_path = resolve_path(project_dir, args.visual_plan)
+    script_path = resolve_path(project_dir, args.script)
     output_path = resolve_path(project_dir, args.output)
     placeholders_path = resolve_path(project_dir, args.placeholders_manifest)
     timeline = load_json(timeline_path)
     if not isinstance(timeline, list):
         raise ValueError("timeline must be an array")
-    visual_plan = load_json(visual_plan_path)
+    script = load_json(script_path)
     prototype, placeholders = replace_generated_image_panels(
         timeline,
-        visual_plan,
+        script,
         project_dir,
         output_format=args.format,
     )

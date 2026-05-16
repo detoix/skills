@@ -102,7 +102,7 @@ def infer_project_dir(explicit: str | None, output_dir: Path) -> Path:
     if explicit:
         return Path(explicit).resolve()
     for candidate in (output_dir.resolve(), *output_dir.resolve().parents):
-        if (candidate / "script.json").exists() and (candidate / "manifests" / "visual-plan.json").exists():
+        if (candidate / "script.json").exists():
             return candidate
     raise SystemExit("Production Pexels downloads require --project-dir or an output-dir inside an approved project.")
 

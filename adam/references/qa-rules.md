@@ -1,6 +1,6 @@
 # Adam QA Rules
 
-Run this check before presenting `script.json` and `manifests/visual-plan.json` for creative review.
+Run this check before presenting `script.json` for creative review.
 
 ## Host Fit
 
@@ -26,13 +26,12 @@ Reject if:
 - any static `A_ROLL` segment exceeds 20 seconds
 - pattern interrupts are more than 15 seconds apart
 
-## Visual Plan Contract
+## Visual Contract
 
 Reject if:
 
-- a B-roll script segment lacks a matching visual-plan scene
-- scene `type` differs from the script segment `type`
-- B-roll scene panels lack `source_type`
+- a B-roll script segment lacks `layout` or `panels`
+- B-roll segment panels lack `source_type`
 - visual ideas are too vague to produce
 - generated images are used as factual proof
 - synthetic-motion concepts look like generic templates
@@ -49,7 +48,7 @@ python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\pipeline_check.py `
   --mode script
 ```
 
-Validate creative gate after `script.json`, `manifests/visual-plan.json`, and `manifests/creative-review-request.json` exist:
+Validate creative gate after `script.json` and `manifests/creative-review-request.json` exist:
 
 ```powershell
 python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\pipeline_check.py `

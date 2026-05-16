@@ -133,8 +133,7 @@ async function inferProjectDir(options) {
   let current = path.dirname(path.resolve(options.output));
   while (true) {
     if (
-      (await fileExists(path.join(current, "script.json"))) &&
-      (await fileExists(path.join(current, "manifests", "visual-plan.json")))
+      (await fileExists(path.join(current, "script.json")))
     ) {
       return current;
     }

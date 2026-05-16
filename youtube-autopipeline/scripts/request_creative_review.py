@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create a blocking human-review request for script.json and visual-plan.json."""
+"""Create a blocking human-review request for script.json."""
 
 from __future__ import annotations
 

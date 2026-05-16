@@ -56,9 +56,14 @@ class PrototypeGateTests(unittest.TestCase):
         script_segment = {
             "segment_id": "S01",
             "type": segment_type,
+            "start_seconds": 0.0,
+            "end_seconds": 3.0,
+            "duration_seconds": 3.0,
             "start_time": 0.0,
             "end_time": 3.0,
             "narration": "Test narration.",
+            "visual_direction": "A simple generated illustration prompt" if generated_image else "Presenter explains the point.",
+            "editor_notes": "Readable and timed",
         }
         if panels:
             script_segment["layout"] = "fullscreen"
@@ -70,21 +75,7 @@ class PrototypeGateTests(unittest.TestCase):
             "broll_queries": [],
             "assembly_notes": [],
         }
-        scene = {
-            "scene_id": "SC01",
-            "segment_id": "S01",
-            "type": segment_type,
-            "purpose": "Test scene",
-            "visual_idea": "A simple generated illustration prompt",
-            "fallback_strategy": "Use a text placeholder",
-            "acceptance_criteria": "Readable and timed",
-        }
-        if panels:
-            scene["layout"] = "fullscreen"
-            scene["panels"] = panels
-        visual_plan = {"schema_version": 1, "metadata": {"format": "vertical"}, "scenes": [scene]}
         write_json(root / "script.json", script)
-        write_json(root / "manifests" / "visual-plan.json", visual_plan)
         request = production_gate.create_review_request(root)
         write_json(root / production_gate.REVIEW_REQUEST_RELATIVE_PATH, request)
         approval = production_gate.create_approval(root)
@@ -127,7 +118,6 @@ class PrototypeGateTests(unittest.TestCase):
             placeholders.append(
                 {
                     "segment_id": "S01",
-                    "scene_id": "SC01",
                     "placeholder_text": placeholder_text,
                     "sha256": production_gate.text_sha256(placeholder_text),
                 }
@@ -136,7 +126,6 @@ class PrototypeGateTests(unittest.TestCase):
             "schema_version": 1,
             "artifacts": {
                 "script": production_gate.artifact_record(root, production_gate.SCRIPT_RELATIVE_PATH),
-                "visual_plan": production_gate.artifact_record(root, production_gate.VISUAL_PLAN_RELATIVE_PATH),
                 "timeline_prototype": production_gate.artifact_record(root, production_gate.TIMELINE_PROTOTYPE_RELATIVE_PATH),
                 "prototype_video": production_gate.artifact_record(root, production_gate.PROTOTYPE_OUTPUT_RELATIVE_PATH),
                 "tts_prototype_manifest": production_gate.artifact_record(root, production_gate.TTS_PROTOTYPE_MANIFEST_RELATIVE_PATH),
@@ -503,7 +492,6 @@ class PrototypeGateTests(unittest.TestCase):
             with zipfile.ZipFile(zip_path) as archive:
                 names = set(archive.namelist())
             self.assertIn("script.json", names)
-            self.assertIn("manifests/visual-plan.json", names)
             self.assertIn("manifests/prototype-review-request.json", names)
             self.assertIn("manifests/prototype-manifest.json", names)
             self.assertIn("timeline.prototype.json", names)
@@ -578,25 +566,23 @@ class PrototypeGateTests(unittest.TestCase):
     def test_generated_image_panels_become_text_placeholders(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            (root / "manifests").mkdir(parents=True, exist_ok=True)
             write_json(
-                root / "manifests" / "visual-plan.json",
+                root / "script.json",
                 {
-                    "schema_version": 1,
-                    "metadata": {"format": "vertical"},
-                    "scenes": [
+                    "metadata": {"format_mode": "vertical"},
+                    "segments": [
                         {
-                            "scene_id": "SC01",
                             "segment_id": "S01",
                             "type": "B_ROLL",
-                            "purpose": "Test scene",
-                            "visual_idea": "A simple generated illustration prompt",
-                            "fallback_strategy": "Use a text placeholder",
-                            "acceptance_criteria": "Readable and timed",
+                            "visual_direction": "A simple generated illustration prompt",
+                            "editor_notes": "Readable and timed",
                             "layout": "fullscreen",
                             "panels": [{"kind": "broll", "source_type": "generated-image"}],
                         }
                     ],
+                    "tts_chunks": [],
+                    "broll_queries": [],
+                    "assembly_notes": [],
                 },
             )
             timeline = [
@@ -609,7 +595,7 @@ class PrototypeGateTests(unittest.TestCase):
                     "panels": [{"kind": "broll", "source_type": "generated-image", "path": "pending.png"}],
                 }
             ]
-            visual_plan = json.loads((root / "manifests" / "visual-plan.json").read_text(encoding="utf-8"))
+            script = json.loads((root / "script.json").read_text(encoding="utf-8"))
 
             def fake_render(path: Path, text: str, size: tuple[int, int]) -> None:
                 path.parent.mkdir(parents=True, exist_ok=True)
@@ -618,7 +604,7 @@ class PrototypeGateTests(unittest.TestCase):
             with patch.object(build_prototype_timeline, "render_placeholder_png", side_effect=fake_render):
                 prototype, placeholders = build_prototype_timeline.replace_generated_image_panels(
                     timeline,
-                    visual_plan,
+                    script,
                     root,
                     output_format="vertical",
                 )

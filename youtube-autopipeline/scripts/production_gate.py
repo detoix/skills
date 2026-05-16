@@ -36,7 +36,6 @@ HOLD_LAST_FRAME_MAX_EXTENSION_SECONDS = 0.12
 PING_PONG_MIN_SOURCE_REMAINDER_SECONDS = 1.0
 FIT_EPSILON_SECONDS = 1e-6
 SCRIPT_RELATIVE_PATH = Path("script.json")
-VISUAL_PLAN_RELATIVE_PATH = Path("manifests") / "visual-plan.json"
 APPROVAL_RELATIVE_PATH = Path("manifests") / "creative-approval.json"
 REVIEW_REQUEST_RELATIVE_PATH = Path("manifests") / "creative-review-request.json"
 PROTOTYPE_REVIEW_REQUEST_RELATIVE_PATH = Path("manifests") / "prototype-review-request.json"
@@ -305,52 +304,6 @@ def has_presenter_panel(item: dict[str, Any]) -> bool:
     return any(isinstance(panel, dict) and panel.get("kind") == "presenter" for panel in panels)
 
 
-def validate_visual_plan(plan: Any, findings: list[GateFinding]) -> list[dict[str, Any]]:
-    if not isinstance(plan, dict):
-        findings.append(GateFinding("ERROR", "visual-plan-shape", "visual-plan.json must be an object"))
-        return []
-    for key in ("schema_version", "metadata", "scenes"):
-        if key not in plan:
-            findings.append(GateFinding("ERROR", "visual-plan-missing-key", f"visual-plan.json is missing {key!r}"))
-    if not isinstance(plan.get("metadata"), dict):
-        findings.append(GateFinding("ERROR", "visual-plan-metadata", "visual-plan.metadata must be an object"))
-    scenes = plan.get("scenes")
-    if not isinstance(scenes, list) or not scenes:
-        findings.append(GateFinding("ERROR", "visual-plan-scenes", "visual-plan.scenes must be a non-empty array"))
-        return []
-
-    seen_scene_ids: set[str] = set()
-    valid_scenes: list[dict[str, Any]] = []
-    for index, scene in enumerate(scenes):
-        context = f"visual-plan.scenes[{index}]"
-        if not isinstance(scene, dict):
-            findings.append(GateFinding("ERROR", "visual-plan-scene-shape", f"{context} must be an object"))
-            continue
-        for field in ("scene_id", "segment_id", "type", "purpose", "visual_idea", "fallback_strategy", "acceptance_criteria"):
-            if field not in scene:
-                findings.append(GateFinding("ERROR", "visual-plan-scene-missing-key", f"{context} is missing {field!r}"))
-        for field in ("scene_id", "segment_id", "purpose", "visual_idea", "fallback_strategy"):
-            if field in scene and not is_non_empty_string(scene.get(field)):
-                findings.append(GateFinding("ERROR", "visual-plan-scene-field", f"{context}.{field} must be a non-empty string"))
-        broll_panel_sources(scene, findings, context)
-        acceptance = scene.get("acceptance_criteria")
-        if isinstance(acceptance, str):
-            if not acceptance.strip():
-                findings.append(GateFinding("ERROR", "visual-plan-acceptance", f"{context}.acceptance_criteria must be non-empty"))
-        elif isinstance(acceptance, list):
-            if not acceptance or any(not is_non_empty_string(item) for item in acceptance):
-                findings.append(GateFinding("ERROR", "visual-plan-acceptance", f"{context}.acceptance_criteria list must contain non-empty strings"))
-        elif "acceptance_criteria" in scene:
-            findings.append(GateFinding("ERROR", "visual-plan-acceptance", f"{context}.acceptance_criteria must be a string or array of strings"))
-        scene_id = scene.get("scene_id")
-        if isinstance(scene_id, str) and scene_id.strip():
-            if scene_id in seen_scene_ids:
-                findings.append(GateFinding("ERROR", "visual-plan-duplicate-scene", f"duplicate visual-plan scene_id: {scene_id}"))
-            seen_scene_ids.add(scene_id)
-        valid_scenes.append(scene)
-    return valid_scenes
-
-
 def validate_prototype_presenter_media(
     project_dir: Path,
     findings: list[GateFinding],
@@ -445,93 +398,60 @@ def validate_script_contract(script: Any, findings: list[GateFinding]) -> None:
     if isinstance(segments, list):
         for index, segment in enumerate(segments):
             if isinstance(segment, dict):
-                broll_panel_sources(segment, findings, f"script.segments[{index}]")
+                if segment.get("type") == "A_ROLL":
+                    broll_panel_sources(segment, findings, f"script.segments[{index}]")
+                elif segment.get("type") not in SEGMENT_TYPES:
+                    findings.append(GateFinding("ERROR", "segment-type", f"script.segments[{index}].type must be one of {sorted(SEGMENT_TYPES)}"))
     tts_chunks = script.get("tts_chunks")
     if isinstance(tts_chunks, list) and not tts_chunks:
         findings.append(GateFinding("ERROR", "script-tts-empty", "script.tts_chunks must not be empty before creative approval"))
 
 
-def validate_visual_plan_source_mix(script: Any, visual_plan: Any, scenes: list[dict[str, Any]], findings: list[GateFinding]) -> None:
-    if not isinstance(script, dict) or not isinstance(visual_plan, dict) or not scenes:
+def script_broll_segments(script: Any) -> list[dict[str, Any]]:
+    if not isinstance(script, dict) or not isinstance(script.get("segments"), list):
+        return []
+    return [segment for segment in script["segments"] if isinstance(segment, dict) and segment.get("type") == "B_ROLL"]
+
+
+def validate_script_visual_source_mix(script: Any, findings: list[GateFinding]) -> None:
+    if not isinstance(script, dict):
         return
     script_segments = script.get("segments")
     if not isinstance(script_segments, list):
         return
-    segment_by_id: dict[str, dict[str, Any]] = {}
-    for segment in script_segments:
-        if not isinstance(segment, dict):
-            continue
-        segment_id = segment.get("segment_id")
-        if isinstance(segment_id, str) and segment_id.strip():
-            segment_by_id[segment_id.strip()] = segment
 
     source_strategies: set[str] = set()
     broll_duration = 0.0
     presenter_panel_broll_duration = 0.0
-    scene_segment_ids = {
-        str(scene.get("segment_id", "")).strip()
-        for scene in scenes
-        if isinstance(scene.get("segment_id"), str) and str(scene.get("segment_id", "")).strip()
-    }
-
-    for scene in scenes:
-        segment_id = scene.get("segment_id")
-        if not isinstance(segment_id, str) or not segment_id.strip():
+    for index, segment in enumerate(script_segments):
+        if not isinstance(segment, dict) or segment.get("type") != "B_ROLL":
             continue
-        segment = segment_by_id.get(segment_id.strip())
-        if segment is None:
+        segment_sources = broll_panel_sources(segment, findings, f"script.segments[{index}]")
+        if not segment_sources:
             findings.append(
                 GateFinding(
                     "ERROR",
-                    "visual-plan-segment-not-found",
-                    f"visual-plan scene {scene.get('scene_id')!r} references segment_id {segment_id!r}, but script.json has no matching segment",
+                    "script-broll-source-missing",
+                    f"script segment {segment.get('segment_id')!r} uses B_ROLL and must define at least one B-roll panel source_type",
                 )
             )
-            continue
-        if scene.get("type") != segment.get("type"):
-            findings.append(
-                GateFinding(
-                    "ERROR",
-                    "visual-plan-segment-type-mismatch",
-                    f"visual-plan scene {scene.get('scene_id')!r} type {scene.get('type')!r} does not match script segment {segment_id!r} type {segment.get('type')!r}",
-                )
-            )
-            continue
-        if segment.get("type") == "A_ROLL":
-            continue
-        if segment.get("type") != "B_ROLL":
-            continue
-        scene_sources = broll_panel_sources(scene, findings, f"visual-plan scene {scene.get('scene_id')!r}")
-        if not scene_sources:
             continue
         duration = as_number(segment.get("duration_seconds"))
         if duration is None:
             findings.append(
                 GateFinding(
                     "ERROR",
-                    "visual-plan-segment-duration",
-                    f"script segment {segment_id!r} must have numeric duration_seconds for visual-plan source mix validation",
+                    "script-broll-segment-duration",
+                    f"script segment {segment.get('segment_id')!r} must have numeric duration_seconds for source mix validation",
                 )
             )
             continue
         if duration <= 0:
             continue
         broll_duration += duration
-        if has_presenter_panel(scene):
+        if has_presenter_panel(segment):
             presenter_panel_broll_duration += duration
-        source_strategies.update(scene_sources)
-
-    for segment_id, segment in segment_by_id.items():
-        if segment.get("type") != "B_ROLL":
-            continue
-        if segment_id not in scene_segment_ids:
-            findings.append(
-                GateFinding(
-                    "ERROR",
-                    "visual-plan-broll-source-missing",
-                    f"script segment {segment_id!r} uses B_ROLL and must have a visual-plan scene with B-roll panel source_type values",
-                )
-            )
+        source_strategies.update(segment_sources)
 
     if broll_duration > 0:
         presenter_ratio = presenter_panel_broll_duration / broll_duration
@@ -539,7 +459,7 @@ def validate_visual_plan_source_mix(script: Any, visual_plan: Any, scenes: list[
             findings.append(
                 GateFinding(
                     "ERROR",
-                    "broll-presenter-panel-ratio",
+                    "script-broll-presenter-panel-ratio",
                     f"{presenter_ratio * 100:.1f}% of B-roll duration has presenter panels; "
                     f"target is about {BROLL_PRESENTER_PANEL_TARGET_RATIO * 100:.1f}% "
                     f"(accepted range {BROLL_PRESENTER_PANEL_MIN_RATIO * 100:.1f}%"
@@ -551,8 +471,8 @@ def validate_visual_plan_source_mix(script: Any, visual_plan: Any, scenes: list[
             findings.append(
                 GateFinding(
                     "ERROR",
-                    "visual-plan-low-source-strategy-variety",
-                    f"visual-plan uses {len(source_strategies)} broll panel source_type values for {broll_duration:.2f}s of planned B-roll; "
+                    "script-low-source-strategy-variety",
+                    f"script.json uses {len(source_strategies)} broll panel source_type values for {broll_duration:.2f}s of planned B-roll; "
                     f"required at least {required_source_strategies} (one per started 20 seconds)",
                 )
             )
@@ -578,7 +498,7 @@ def validate_approval(approval: Any, project_dir: Path, findings: list[GateFindi
     if not isinstance(approved_items, list):
         findings.append(GateFinding("ERROR", "approval-items", "creative-approval.approved_items must be an array"))
     else:
-        for required in ("script", "visual_plan"):
+        for required in ("script",):
             if required not in approved_items:
                 findings.append(GateFinding("ERROR", "approval-items", f"creative-approval.approved_items must include {required!r}"))
     approved_at = approval.get("approved_at")
@@ -608,10 +528,7 @@ def validate_approval(approval: Any, project_dir: Path, findings: list[GateFindi
             if isinstance(loaded_request, dict):
                 request_payload = loaded_request
 
-    expected = {
-        "script": SCRIPT_RELATIVE_PATH,
-        "visual_plan": VISUAL_PLAN_RELATIVE_PATH,
-    }
+    expected = {"script": SCRIPT_RELATIVE_PATH}
     for key, default_rel_path in expected.items():
         artifact = approval_artifact(approval, key)
         if artifact is None:
@@ -659,7 +576,7 @@ def scene_matches_segment(scene: dict[str, Any], *, segment_id: str | None) -> b
 
 
 def require_broll_source_type(
-    scenes: list[dict[str, Any]],
+    segments: list[dict[str, Any]],
     findings: list[GateFinding],
     source_type: str | None,
     *,
@@ -671,10 +588,10 @@ def require_broll_source_type(
         findings.append(GateFinding("ERROR", "required-broll-source-type", f"unknown required B-roll source_type: {source_type}"))
         return
     matches = [
-        scene
-        for scene in scenes
-        if source_type in broll_panel_sources(scene, findings, f"visual-plan scene {scene.get('scene_id')!r}")
-        and scene_matches_segment(scene, segment_id=segment_id)
+        segment
+        for segment in segments
+        if source_type in broll_panel_sources(segment, findings, f"script segment {segment.get('segment_id')!r}")
+        and scene_matches_segment(segment, segment_id=segment_id)
     ]
     if not matches:
         identifier = f"segment_id={segment_id}" if segment_id else "the requested item"
@@ -682,21 +599,14 @@ def require_broll_source_type(
             GateFinding(
                 "ERROR",
                 "broll-source-type-not-approved",
-                f"visual-plan has no approved B-roll panel source_type={source_type!r} matching {identifier}",
+                f"script.json has no approved B-roll panel source_type={source_type!r} matching {identifier}",
             )
         )
 
 
-def visual_plan_requires_generated_images(visual_plan: Any) -> bool:
-    if not isinstance(visual_plan, dict):
-        return False
-    scenes = visual_plan.get("scenes")
-    if not isinstance(scenes, list):
-        return False
-    for scene in scenes:
-        if not isinstance(scene, dict):
-            continue
-        panels = scene.get("panels")
+def script_requires_generated_images(script: Any) -> bool:
+    for segment in script_broll_segments(script):
+        panels = segment.get("panels")
         if not isinstance(panels, list):
             continue
         for panel in panels:
@@ -826,7 +736,7 @@ def validate_presenter_prototype_contract(manifest: dict[str, Any], findings: li
 def validate_generated_image_placeholders(
     manifest: dict[str, Any],
     project_dir: Path,
-    visual_plan: Any,
+    script: Any,
     findings: list[GateFinding],
 ) -> None:
     placeholders = manifest.get("generated_image_placeholders")
@@ -835,8 +745,8 @@ def validate_generated_image_placeholders(
     if not isinstance(placeholders, list):
         findings.append(GateFinding("ERROR", "prototype-placeholders", "prototype-manifest.generated_image_placeholders must be an array"))
         return
-    if visual_plan_requires_generated_images(visual_plan) and not placeholders:
-        findings.append(GateFinding("ERROR", "prototype-placeholders-missing", "visual-plan uses generated-image but prototype manifest has no placeholders"))
+    if script_requires_generated_images(script) and not placeholders:
+        findings.append(GateFinding("ERROR", "prototype-placeholders-missing", "script.json uses generated-image but prototype manifest has no placeholders"))
     for index, placeholder in enumerate(placeholders):
         context = f"prototype-manifest.generated_image_placeholders[{index}]"
         if not isinstance(placeholder, dict):
@@ -877,7 +787,7 @@ def validate_generated_image_placeholders(
             findings.append(GateFinding("ERROR", "prototype-placeholder-stale", f"{context}.sha256 must match placeholder text"))
 
 
-def validate_prototype_manifest(manifest: Any, project_dir: Path, findings: list[GateFinding], visual_plan: Any = None) -> None:
+def validate_prototype_manifest(manifest: Any, project_dir: Path, findings: list[GateFinding], script: Any = None) -> None:
     if not isinstance(manifest, dict):
         findings.append(GateFinding("ERROR", "prototype-manifest-shape", "prototype-manifest.json must be an object"))
         return
@@ -888,7 +798,6 @@ def validate_prototype_manifest(manifest: Any, project_dir: Path, findings: list
         artifacts = {}
     required_artifacts = {
         "script": SCRIPT_RELATIVE_PATH,
-        "visual_plan": VISUAL_PLAN_RELATIVE_PATH,
         "timeline_prototype": TIMELINE_PROTOTYPE_RELATIVE_PATH,
         "prototype_video": PROTOTYPE_OUTPUT_RELATIVE_PATH,
         "tts_prototype_manifest": TTS_PROTOTYPE_MANIFEST_RELATIVE_PATH,
@@ -902,7 +811,7 @@ def validate_prototype_manifest(manifest: Any, project_dir: Path, findings: list
     validate_final_audio_manifest_contract(project_dir, findings)
     validate_tts_prototype_contract(manifest, project_dir, findings)
     validate_presenter_prototype_contract(manifest, findings)
-    validate_generated_image_placeholders(manifest, project_dir, visual_plan, findings)
+    validate_generated_image_placeholders(manifest, project_dir, script, findings)
 
 
 def validate_final_audio_manifest_contract(project_dir: Path, findings: list[GateFinding]) -> None:
@@ -1051,7 +960,7 @@ def validate_prototype_approval(approval: Any, project_dir: Path, findings: list
     if not isinstance(artifacts, dict):
         findings.append(GateFinding("ERROR", "prototype-approval-artifacts", "prototype-approval.artifacts must be an object"))
         artifacts = {}
-    for key in ("script", "visual_plan", "prototype_manifest", "timeline_prototype", "prototype_video", "tts_prototype_manifest", "tts_pronunciation_qa", "final_audio_manifest", "final_audio"):
+    for key in ("script", "prototype_manifest", "timeline_prototype", "prototype_video", "tts_prototype_manifest", "tts_pronunciation_qa", "final_audio_manifest", "final_audio"):
         artifact = validate_portable_artifact(artifacts.get(key), project_dir, findings, context=f"prototype-approval.artifacts.{key}")
         request_artifact = approval_artifact(request_payload, key) if request_payload else None
         if artifact and request_artifact:
@@ -1075,7 +984,7 @@ def write_pipeline_state(project_dir: Path, findings: list[GateFinding], *, gate
         recovery = "Fix prototype artifacts, regenerate manifests/prototype-review-request.json, then regenerate manifests/prototype-approval.json with approve_prototype.py."
     else:
         required_artifact = APPROVAL_RELATIVE_PATH
-        recovery = "Fix script.json, manifests/visual-plan.json, then regenerate manifests/creative-approval.json with approve_creative_plan.py."
+        recovery = "Fix script.json, then regenerate manifests/creative-approval.json with approve_creative_plan.py."
     payload = {
         "status": "blocked",
         "gate": gate,
@@ -1099,21 +1008,16 @@ def run_creative_gate(
     project_dir = project_dir.resolve()
     findings: list[GateFinding] = []
     script = load_json(project_dir / SCRIPT_RELATIVE_PATH, findings, "script")
-    visual_plan = load_json(project_dir / VISUAL_PLAN_RELATIVE_PATH, findings, "visual plan")
     approval = load_json(project_dir / APPROVAL_RELATIVE_PATH, findings, "creative approval")
 
     if script is not None:
         validate_script_contract(script, findings)
-
-    scenes: list[dict[str, Any]] = []
-    if visual_plan is not None:
-        scenes = validate_visual_plan(visual_plan, findings)
-        validate_visual_plan_source_mix(script, visual_plan, scenes, findings)
+        validate_script_visual_source_mix(script, findings)
 
     if approval is not None:
         validate_approval(approval, project_dir, findings)
 
-    require_broll_source_type(scenes, findings, require_source_type, segment_id=segment_id)
+    require_broll_source_type(script_broll_segments(script), findings, require_source_type, segment_id=segment_id)
 
     if write_state:
         write_pipeline_state(project_dir, findings, gate="creative-gate", blocked_stage="production")
@@ -1132,7 +1036,6 @@ def validate_prototype_review_request(request: Any, project_dir: Path, findings:
         return
     required_artifacts = {
         "script": SCRIPT_RELATIVE_PATH,
-        "visual_plan": VISUAL_PLAN_RELATIVE_PATH,
         "prototype_manifest": PROTOTYPE_MANIFEST_RELATIVE_PATH,
         "timeline_prototype": TIMELINE_PROTOTYPE_RELATIVE_PATH,
         "prototype_video": PROTOTYPE_OUTPUT_RELATIVE_PATH,
@@ -1155,12 +1058,12 @@ def validate_prototype_review_request(request: Any, project_dir: Path, findings:
 def run_prototype_review_ready_gate(project_dir: Path, *, write_state: bool = True) -> list[GateFinding]:
     project_dir = project_dir.resolve()
     findings = run_creative_gate(project_dir, write_state=False)
-    visual_plan = load_json(project_dir / VISUAL_PLAN_RELATIVE_PATH, findings, "visual plan")
+    script = load_json(project_dir / SCRIPT_RELATIVE_PATH, findings, "script")
     prototype_manifest = load_json(project_dir / PROTOTYPE_MANIFEST_RELATIVE_PATH, findings, "prototype manifest")
     prototype_review_request = load_json(project_dir / PROTOTYPE_REVIEW_REQUEST_RELATIVE_PATH, findings, "prototype review request")
 
     if prototype_manifest is not None:
-        validate_prototype_manifest(prototype_manifest, project_dir, findings, visual_plan)
+        validate_prototype_manifest(prototype_manifest, project_dir, findings, script)
     validate_prototype_timeline_presenter_policy(project_dir, findings)
     if prototype_review_request is not None:
         validate_prototype_review_request(prototype_review_request, project_dir, findings)
@@ -1173,12 +1076,12 @@ def run_prototype_review_ready_gate(project_dir: Path, *, write_state: bool = Tr
 def run_prototype_approved_gate(project_dir: Path, *, write_state: bool = True) -> list[GateFinding]:
     project_dir = project_dir.resolve()
     findings = run_creative_gate(project_dir, write_state=False)
-    visual_plan = load_json(project_dir / VISUAL_PLAN_RELATIVE_PATH, findings, "visual plan")
+    script = load_json(project_dir / SCRIPT_RELATIVE_PATH, findings, "script")
     prototype_manifest = load_json(project_dir / PROTOTYPE_MANIFEST_RELATIVE_PATH, findings, "prototype manifest")
     prototype_approval = load_json(project_dir / PROTOTYPE_APPROVAL_RELATIVE_PATH, findings, "prototype approval")
 
     if prototype_manifest is not None:
-        validate_prototype_manifest(prototype_manifest, project_dir, findings, visual_plan)
+        validate_prototype_manifest(prototype_manifest, project_dir, findings, script)
     validate_prototype_timeline_presenter_policy(project_dir, findings)
     if prototype_approval is not None:
         validate_prototype_approval(prototype_approval, project_dir, findings)
@@ -1191,11 +1094,8 @@ def run_prototype_approved_gate(project_dir: Path, *, write_state: bool = True) 
 def create_approval(project_dir: Path) -> dict[str, Any]:
     project_dir = project_dir.resolve()
     script_path = project_dir / SCRIPT_RELATIVE_PATH
-    visual_plan_path = project_dir / VISUAL_PLAN_RELATIVE_PATH
     if not script_path.exists():
         raise FileNotFoundError(f"Missing script: {script_path}")
-    if not visual_plan_path.exists():
-        raise FileNotFoundError(f"Missing visual plan: {visual_plan_path}")
     review_request_path = project_dir / REVIEW_REQUEST_RELATIVE_PATH
     if not review_request_path.exists():
         raise FileNotFoundError(f"Missing creative review request: {review_request_path}")
@@ -1206,17 +1106,14 @@ def create_approval(project_dir: Path) -> dict[str, Any]:
     if not isinstance(request_artifacts, dict):
         raise ValueError("creative-review-request.json is missing artifacts")
     current_script_sha = sha256_file(script_path)
-    current_visual_plan_sha = sha256_file(visual_plan_path)
     if (request_artifacts.get("script") or {}).get("sha256") != current_script_sha:
         raise ValueError("script.json changed after creative-review-request.json was created")
-    if (request_artifacts.get("visual_plan") or {}).get("sha256") != current_visual_plan_sha:
-        raise ValueError("manifests/visual-plan.json changed after creative-review-request.json was created")
     return {
         "schema_version": 1,
         "status": "approved",
         "approval_type": "human",
         "approved_at": datetime.now().astimezone().isoformat(timespec="seconds"),
-        "approved_items": ["script", "visual_plan"],
+        "approved_items": ["script"],
         "review_request": {
             "path": str(REVIEW_REQUEST_RELATIVE_PATH).replace("\\", "/"),
             "sha256": sha256_file(review_request_path),
@@ -1226,10 +1123,6 @@ def create_approval(project_dir: Path) -> dict[str, Any]:
                 "path": str(SCRIPT_RELATIVE_PATH).replace("\\", "/"),
                 "sha256": current_script_sha,
             },
-            "visual_plan": {
-                "path": str(VISUAL_PLAN_RELATIVE_PATH).replace("\\", "/"),
-                "sha256": current_visual_plan_sha,
-            },
         },
     }
 
@@ -1237,7 +1130,6 @@ def create_approval(project_dir: Path) -> dict[str, Any]:
 def prototype_artifact_records(project_dir: Path) -> dict[str, dict[str, str]]:
     return {
         "script": artifact_record(project_dir, SCRIPT_RELATIVE_PATH),
-        "visual_plan": artifact_record(project_dir, VISUAL_PLAN_RELATIVE_PATH),
         "prototype_manifest": artifact_record(project_dir, PROTOTYPE_MANIFEST_RELATIVE_PATH),
         "timeline_prototype": artifact_record(project_dir, TIMELINE_PROTOTYPE_RELATIVE_PATH),
         "prototype_video": artifact_record(project_dir, PROTOTYPE_OUTPUT_RELATIVE_PATH),
@@ -1251,10 +1143,10 @@ def prototype_artifact_records(project_dir: Path) -> dict[str, dict[str, str]]:
 def create_prototype_review_request(project_dir: Path) -> dict[str, Any]:
     project_dir = project_dir.resolve()
     findings = run_creative_gate(project_dir, write_state=False)
-    visual_plan = load_json(project_dir / VISUAL_PLAN_RELATIVE_PATH, findings, "visual plan")
+    script = load_json(project_dir / SCRIPT_RELATIVE_PATH, findings, "script")
     prototype_manifest = load_json(project_dir / PROTOTYPE_MANIFEST_RELATIVE_PATH, findings, "prototype manifest")
     if prototype_manifest is not None:
-        validate_prototype_manifest(prototype_manifest, project_dir, findings, visual_plan)
+        validate_prototype_manifest(prototype_manifest, project_dir, findings, script)
     errors = [finding for finding in findings if finding.severity == "ERROR"]
     if errors:
         messages = "; ".join(f"{finding.code}: {finding.message}" for finding in errors)
@@ -1292,7 +1184,6 @@ def create_prototype_approval(project_dir: Path) -> dict[str, Any]:
         "approved_at": datetime.now().astimezone().isoformat(timespec="seconds"),
         "approved_items": [
             "script",
-            "visual_plan",
             "prototype_manifest",
             "timeline_prototype",
             "prototype_video",
@@ -1312,17 +1203,12 @@ def create_prototype_approval(project_dir: Path) -> dict[str, Any]:
 def create_review_request(project_dir: Path) -> dict[str, Any]:
     project_dir = project_dir.resolve()
     script_path = project_dir / SCRIPT_RELATIVE_PATH
-    visual_plan_path = project_dir / VISUAL_PLAN_RELATIVE_PATH
     if not script_path.exists():
         raise FileNotFoundError(f"Missing script: {script_path}")
-    if not visual_plan_path.exists():
-        raise FileNotFoundError(f"Missing visual plan: {visual_plan_path}")
     findings: list[GateFinding] = []
     script = load_json(script_path, findings, "script")
-    visual_plan = load_json(visual_plan_path, findings, "visual plan")
     validate_script_contract(script, findings)
-    scenes = validate_visual_plan(visual_plan, findings)
-    validate_visual_plan_source_mix(script, visual_plan, scenes, findings)
+    validate_script_visual_source_mix(script, findings)
     errors = [finding for finding in findings if finding.severity == "ERROR"]
     if errors:
         messages = "; ".join(f"{finding.code}: {finding.message}" for finding in errors)
@@ -1338,10 +1224,6 @@ def create_review_request(project_dir: Path) -> dict[str, Any]:
                 "path": str(SCRIPT_RELATIVE_PATH).replace("\\", "/"),
                 "sha256": sha256_file(script_path),
             },
-            "visual_plan": {
-                "path": str(VISUAL_PLAN_RELATIVE_PATH).replace("\\", "/"),
-                "sha256": sha256_file(visual_plan_path),
-            },
         },
     }
 
@@ -1350,8 +1232,8 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Validate the YouTube autopipeline creative production gate.")
     parser.add_argument("--project-dir", default=".", help="Project directory.")
     parser.add_argument("--gate", choices=("creative", "prototype-review-ready", "prototype-approved"), default="creative", help="Gate to validate.")
-    parser.add_argument("--require-broll-source-type", choices=sorted(ALLOWED_SOURCE_STRATEGIES), help="Require an approved visual-plan scene with this B-roll panel source_type.")
-    parser.add_argument("--segment-id", help="Segment id to match in visual-plan.")
+    parser.add_argument("--require-broll-source-type", choices=sorted(ALLOWED_SOURCE_STRATEGIES), help="Require an approved script B-roll panel with this source_type.")
+    parser.add_argument("--segment-id", help="Segment id to match in script.json.")
     parser.add_argument("--json", action="store_true", help="Emit JSON findings.")
     return parser.parse_args()
 

@@ -18,7 +18,6 @@ from production_gate import (
     FINAL_AUDIO_RELATIVE_PATH,
     TIMELINE_PROTOTYPE_RELATIVE_PATH,
     TTS_PROTOTYPE_MANIFEST_RELATIVE_PATH,
-    VISUAL_PLAN_RELATIVE_PATH,
     SCRIPT_RELATIVE_PATH,
     is_portable_relative_path,
     run_creative_gate,
@@ -29,7 +28,6 @@ from production_gate import (
 DEFAULT_OUTPUT_RELATIVE_PATH = Path("outputs") / "prototype-bundle-no-mp4.zip"
 REQUIRED_RELATIVE_PATHS = {
     SCRIPT_RELATIVE_PATH,
-    VISUAL_PLAN_RELATIVE_PATH,
     TIMELINE_PROTOTYPE_RELATIVE_PATH,
     TTS_PROTOTYPE_MANIFEST_RELATIVE_PATH,
     FINAL_AUDIO_MANIFEST_RELATIVE_PATH,
@@ -99,9 +97,9 @@ def project_relative_posix(project_dir: Path, path: Path) -> str:
 def package_bundle(project_dir: Path, output_path: Path) -> dict[str, Any]:
     project_dir = project_dir.resolve()
     findings = run_creative_gate(project_dir, write_state=False)
-    visual_plan = load_json(project_dir / VISUAL_PLAN_RELATIVE_PATH)
+    script = load_json(project_dir / SCRIPT_RELATIVE_PATH)
     prototype_manifest = load_json(project_dir / PROTOTYPE_MANIFEST_RELATIVE_PATH)
-    validate_prototype_manifest(prototype_manifest, project_dir, findings, visual_plan)
+    validate_prototype_manifest(prototype_manifest, project_dir, findings, script)
     errors = [finding for finding in findings if finding.severity == "ERROR"]
     if errors:
         messages = "; ".join(f"{finding.code}: {finding.message}" for finding in errors)

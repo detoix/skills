@@ -20,25 +20,28 @@ def write_json(path: Path, payload: object) -> None:
 
 
 class SelectedVisualsResolverTests(unittest.TestCase):
-    def write_visual_plan(self, root: Path, source_type: str, *, segment_id: str = "S01", scene_id: str = "V01") -> None:
+    def write_script(self, root: Path, source_type: str, *, segment_id: str = "S01") -> None:
         write_json(
-            root / "manifests" / "visual-plan.json",
+            root / "script.json",
             {
-                "schema_version": "1.0",
-                "scenes": [
+                "metadata": {"format_mode": "vertical"},
+                "segments": [
                     {
-                        "scene_id": scene_id,
                         "segment_id": segment_id,
                         "type": "B_ROLL",
+                        "start_seconds": 0,
+                        "end_seconds": 3,
+                        "duration_seconds": 3,
                         "layout": "fullscreen",
-                        "purpose": "Test",
-                        "visual_idea": "Test visual",
-                        "source_strategy": source_type,
-                        "fallback_strategy": "Manual replacement",
-                        "acceptance_criteria": ["Valid asset"],
+                        "narration": "Test narration.",
+                        "visual_direction": "Test visual",
+                        "editor_notes": "Valid asset",
                         "panels": [{"kind": "broll", "source_type": source_type}],
                     }
                 ],
+                "tts_chunks": [],
+                "broll_queries": [],
+                "assembly_notes": [],
             },
         )
 
@@ -51,7 +54,7 @@ class SelectedVisualsResolverTests(unittest.TestCase):
     def test_missing_source_type_fails(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            self.write_visual_plan(root, "manual")
+            self.write_script(root, "manual")
             asset = root / "broll" / "manual" / "asset.png"
             asset.parent.mkdir(parents=True)
             asset.write_bytes(b"asset")
@@ -60,10 +63,10 @@ class SelectedVisualsResolverTests(unittest.TestCase):
 
             self.assertTrue(any("source_type" in error for error in errors), errors)
 
-    def test_source_type_matching_visual_plan_passes(self):
+    def test_source_type_matching_script_passes(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            self.write_visual_plan(root, "manual")
+            self.write_script(root, "manual")
             asset = root / "broll" / "manual" / "asset.png"
             asset.parent.mkdir(parents=True)
             asset.write_bytes(b"asset")
@@ -86,10 +89,10 @@ class SelectedVisualsResolverTests(unittest.TestCase):
             self.assertEqual(resolved["items"][0]["source_type"], "manual")
             self.assertIn("sha256", resolved["items"][0])
 
-    def test_source_type_mismatch_with_visual_plan_fails(self):
+    def test_source_type_mismatch_with_script_fails(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            self.write_visual_plan(root, "webpage")
+            self.write_script(root, "webpage")
             asset = root / "broll" / "manual" / "asset.png"
             asset.parent.mkdir(parents=True)
             asset.write_bytes(b"asset")
@@ -108,12 +111,12 @@ class SelectedVisualsResolverTests(unittest.TestCase):
                 },
             )
 
-            self.assertTrue(any("does not match visual-plan" in error for error in errors), errors)
+            self.assertTrue(any("does not match script" in error for error in errors), errors)
 
     def test_generated_folder_with_manual_source_type_stays_manual(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            self.write_visual_plan(root, "manual")
+            self.write_script(root, "manual")
             asset = root / "broll" / "generated" / "local.png"
             asset.parent.mkdir(parents=True)
             asset.write_bytes(b"local graphic")
@@ -138,7 +141,7 @@ class SelectedVisualsResolverTests(unittest.TestCase):
     def test_generated_image_without_accepted_z_image_plan_entry_fails(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            self.write_visual_plan(root, "generated-image")
+            self.write_script(root, "generated-image")
             asset = root / "broll" / "generated" / "S01.png"
             asset.parent.mkdir(parents=True)
             asset.write_bytes(b"generated")
@@ -162,7 +165,7 @@ class SelectedVisualsResolverTests(unittest.TestCase):
     def test_generated_image_with_accepted_z_image_plan_entry_passes(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            self.write_visual_plan(root, "generated-image")
+            self.write_script(root, "generated-image")
             asset = root / "broll" / "generated" / "S01.png"
             asset.parent.mkdir(parents=True)
             asset.write_bytes(b"generated")
@@ -190,7 +193,7 @@ class SelectedVisualsResolverTests(unittest.TestCase):
     def test_webpage_without_source_url_fails(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            self.write_visual_plan(root, "webpage")
+            self.write_script(root, "webpage")
             asset = root / "broll" / "web" / "capture.webm"
             asset.parent.mkdir(parents=True)
             asset.write_bytes(b"web")
@@ -214,7 +217,7 @@ class SelectedVisualsResolverTests(unittest.TestCase):
     def test_synthetic_motion_without_board_proof_fails(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            self.write_visual_plan(root, "synthetic-motion")
+            self.write_script(root, "synthetic-motion")
             asset = root / "broll" / "boards" / "S01" / "S01.webm"
             asset.parent.mkdir(parents=True)
             asset.write_bytes(b"board")

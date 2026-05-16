@@ -3,11 +3,11 @@ name: animated-broll-boards
 description: >-
   Create custom animated HTML/CSS/JS motion-board clips only for reel segments
   that already have a B-roll panel source_type of "synthetic-motion" in an approved
-  parent visual plan. Use for diagrams, synthetic UI, process maps, comparisons, or
-  abstract synthetic-motion B-roll only when the parent plan explicitly selected
+  parent script. Use for diagrams, synthetic UI, process maps, comparisons, or
+  abstract synthetic-motion B-roll only when the parent script explicitly selected
   synthetic motion and non-synthetic sources were considered less effective. Do
   not use this skill for general B-roll selection, stock footage replacement,
-  visual planning, or as a default for educational reels.
+  or as a default for educational reels.
 ---
 
 # Animated B-roll Boards
@@ -23,7 +23,7 @@ Use it to create a custom animated scene for a specific reel segment. The agent 
 - No static PNG UI boards.
 - No Pillow-generated production boards.
 - Do not use fixed component/layout generators as the creative output.
-- Do not use this skill unless the parent autopipeline `manifests\visual-plan.json` explicitly selected a B-roll panel with `source_type: "synthetic-motion"` or `source_strategy: "synthetic-motion"` for the target segment.
+- Do not use this skill unless the parent autopipeline `script.json` explicitly selected a B-roll panel with `source_type: "synthetic-motion"` for the target segment.
 - `create_board.mjs` and `render_board.mjs` enforce the parent Creative Approval Gate before writing or rendering production board artifacts.
 - Narrative labels like `checklist`, `timeline`, `process-flow`, or `comparison` are intent hints only; they are not layout instructions.
 - Every accepted board must have a real visual metaphor and custom motion beats.

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create the human approval artifact for an approved creative plan."""
+"""Create the human approval artifact for an approved script."""
 
 from __future__ import annotations
 
@@ -8,11 +8,11 @@ import json
 import sys
 from pathlib import Path
 
-from production_gate import APPROVAL_RELATIVE_PATH, SCRIPT_RELATIVE_PATH, VISUAL_PLAN_RELATIVE_PATH, GateFinding, create_approval, validate_visual_plan
+from production_gate import APPROVAL_RELATIVE_PATH, SCRIPT_RELATIVE_PATH, GateFinding, create_approval, validate_script_contract, validate_script_visual_source_mix
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Generate manifests/creative-approval.json for the current script and visual plan.")
+    parser = argparse.ArgumentParser(description="Generate manifests/creative-approval.json for the current script.")
     parser.add_argument("--project-dir", default=".", help="Project directory.")
     parser.add_argument("--resume-signal", required=True, help="Must be exactly 'approved' after human review.")
     return parser.parse_args()
@@ -26,9 +26,9 @@ def main() -> int:
     script = json.loads((project_dir / SCRIPT_RELATIVE_PATH).read_text(encoding="utf-8-sig"))
     if not isinstance(script, dict):
         raise ValueError("script.json must be an object before approval")
-    visual_plan = json.loads((project_dir / VISUAL_PLAN_RELATIVE_PATH).read_text(encoding="utf-8-sig"))
     findings: list[GateFinding] = []
-    validate_visual_plan(visual_plan, findings)
+    validate_script_contract(script, findings)
+    validate_script_visual_source_mix(script, findings)
     errors = [finding for finding in findings if finding.severity == "ERROR"]
     if errors:
         for error in errors:

@@ -20,7 +20,7 @@ except Exception:
 def infer_project_dir(output_path):
     current = Path(output_path).resolve().parent
     for candidate in (current, *current.parents):
-        if (candidate / "script.json").exists() and (candidate / "manifests" / "visual-plan.json").exists():
+        if (candidate / "script.json").exists():
             return candidate
     return None
 

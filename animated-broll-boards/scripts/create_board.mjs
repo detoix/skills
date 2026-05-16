@@ -58,7 +58,7 @@ function printHelp() {
   console.log(`Usage:
   node scripts/create_board.mjs --project-dir <dir> --segment-id <id>
 
-Default mode derives the creative brief from script.json and manifests/visual-plan.json.
+Default mode derives the creative brief from script.json.
 `);
 }
 
@@ -135,26 +135,15 @@ function toStringArray(value) {
   return [];
 }
 
-function formatFromMetadata(script, visualPlan) {
-  const raw = firstString(script?.metadata?.format_mode, visualPlan?.metadata?.format_mode, "vertical").toLowerCase();
+function formatFromMetadata(script) {
+  const raw = firstString(script?.metadata?.format_mode, "vertical").toLowerCase();
   if (raw === "landscape" || raw === "16:9") return "landscape";
   return "vertical";
 }
 
-function findVisualScene(visualPlan, segmentId) {
-  const scenes = Array.isArray(visualPlan?.scenes) ? visualPlan.scenes : [];
-  const scene = scenes.find((item) => {
-    if (!item || typeof item !== "object") return false;
-    if (segmentId && item.segment_id === segmentId) return true;
-    return false;
-  });
-  if (!scene) throw new Error(`No visual-plan scene found for segment_id=${segmentId}`);
-  return scene;
-}
-
-function findSegment(script, visualScene, segmentId) {
+function findSegment(script, segmentId) {
   const segments = Array.isArray(script?.segments) ? script.segments : [];
-  const wanted = segmentId || visualScene?.segment_id;
+  const wanted = segmentId;
   const segment = segments.find((item) => item && item.segment_id === wanted);
   if (!segment) throw new Error(`No script segment found for segment_id=${wanted || "(missing)"}`);
   return segment;
@@ -163,16 +152,13 @@ function findSegment(script, visualScene, segmentId) {
 async function deriveCreativeBrief(projectDir, segmentId) {
   const root = path.resolve(projectDir);
   const scriptPath = path.join(root, "script.json");
-  const visualPlanPath = path.join(root, "manifests", "visual-plan.json");
   const script = await readJson(scriptPath, "script.json");
-  const visualPlan = await readJson(visualPlanPath, "visual-plan.json");
-  const visualScene = findVisualScene(visualPlan, segmentId);
-  const segment = findSegment(script, visualScene, segmentId);
-  const acceptance = toStringArray(visualScene.acceptance_criteria);
-  const copyBlocks = toStringArray(segment.on_screen_text || visualScene.on_screen_text);
+  const segment = findSegment(script, segmentId);
+  const acceptance = toStringArray(segment.acceptance_criteria || segment.editor_notes);
+  const copyBlocks = toStringArray(segment.on_screen_text);
   const motionBeats = [
-    firstString(segment.pattern_interrupt_type, visualScene.layout, segment.layout),
-    firstString(visualScene.visual_idea, segment.visual_direction),
+    firstString(segment.pattern_interrupt_type, segment.layout),
+    firstString(segment.visual_direction, segment.narration),
     ...acceptance.slice(0, 2),
   ].filter(Boolean);
   const avoid = [
@@ -183,26 +169,25 @@ async function deriveCreativeBrief(projectDir, segmentId) {
   ];
   const brief = {
     segment_id: segment.segment_id,
-    intent: firstString(visualScene.purpose, segment.visual_direction, segment.narration),
+    intent: firstString(segment.visual_direction, segment.narration),
     audience: firstString(script?.metadata?.target_audience, "reel viewer"),
-    visual_metaphor: firstString(visualScene.visual_idea, segment.visual_direction),
-    art_direction: firstString(visualPlan?.metadata?.visual_style, segment.editor_notes, "custom motion-design board"),
+    visual_metaphor: firstString(segment.visual_direction, segment.narration),
+    art_direction: firstString(script?.metadata?.visual_style, segment.editor_notes, "custom motion-design board"),
     composition: firstString(
-      visualScene.layout ? `${visualScene.layout}: ${visualScene.visual_idea || ""}` : "",
       segment.layout ? `${segment.layout}: ${segment.visual_direction || ""}` : "",
-      visualScene.visual_idea,
+      segment.visual_direction,
     ),
     motion_beats: motionBeats.length ? motionBeats : ["establish visual metaphor", "animate key states", "resolve on readable message"],
-    copy_blocks: copyBlocks.length ? copyBlocks : [firstString(segment.on_screen_text, segment.narration, visualScene.purpose)],
+    copy_blocks: copyBlocks.length ? copyBlocks : [firstString(segment.on_screen_text, segment.narration, segment.visual_direction)],
     avoid,
-    acceptance_notes: acceptance.length ? acceptance.join(" ") : firstString(segment.editor_notes, "Readable at phone scale and aligned with visual plan."),
-    format: formatFromMetadata(script, visualPlan),
+    acceptance_notes: acceptance.length ? acceptance.join(" ") : firstString(segment.editor_notes, "Readable at phone scale and aligned with script visual fields."),
+    format: formatFromMetadata(script),
     duration: Number(segment.duration_seconds || 6),
-    narrative_intent: firstString(segment.pattern_interrupt_type, visualScene.purpose),
+    narrative_intent: firstString(segment.pattern_interrupt_type, segment.visual_direction),
     preset: "custom-directed",
   };
   return {
-    briefPath: `${path.relative(root, scriptPath)} + ${path.relative(root, visualPlanPath)}`,
+    briefPath: path.relative(root, scriptPath),
     brief: normalizeCreativeBrief(brief),
   };
 }

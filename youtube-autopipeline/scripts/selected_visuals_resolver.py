@@ -64,38 +64,31 @@ def provider_from_url(url: str) -> str | None:
     return None
 
 
-def visual_plan_sources(visual_plan: Any) -> dict[tuple[str | None, str | None], set[str]]:
-    sources: dict[tuple[str | None, str | None], set[str]] = {}
-    if not isinstance(visual_plan, dict) or not isinstance(visual_plan.get("scenes"), list):
+def script_sources(script: Any) -> dict[str, set[str]]:
+    sources: dict[str, set[str]] = {}
+    if not isinstance(script, dict) or not isinstance(script.get("segments"), list):
         return sources
-    for scene in visual_plan["scenes"]:
-        if not isinstance(scene, dict):
+    for segment in script["segments"]:
+        if not isinstance(segment, dict) or segment.get("type") != "B_ROLL":
             continue
-        scene_id = scene.get("scene_id") if isinstance(scene.get("scene_id"), str) else None
-        segment_id = scene.get("segment_id") if isinstance(scene.get("segment_id"), str) else None
-        scene_sources: set[str] = set()
-        strategy = scene.get("source_strategy")
-        if isinstance(strategy, str) and strategy in BROLL_SOURCE_TYPES:
-            scene_sources.add(strategy)
-        panels = scene.get("panels")
+        segment_id = segment.get("segment_id")
+        if not isinstance(segment_id, str) or not segment_id.strip():
+            continue
+        segment_sources: set[str] = set()
+        panels = segment.get("panels")
         if isinstance(panels, list):
             for panel in panels:
                 if isinstance(panel, dict) and panel.get("kind") == "broll" and panel.get("source_type") in BROLL_SOURCE_TYPES:
-                    scene_sources.add(str(panel["source_type"]))
-        if scene_sources:
-            sources[(segment_id, scene_id)] = scene_sources
+                    segment_sources.add(str(panel["source_type"]))
+        if segment_sources:
+            sources[segment_id.strip()] = segment_sources
     return sources
 
 
-def planned_sources_for_item(item: dict[str, Any], planned_sources: dict[tuple[str | None, str | None], set[str]]) -> set[str]:
+def planned_sources_for_item(item: dict[str, Any], planned_sources: dict[str, set[str]]) -> set[str]:
     segment_id = item.get("segment_id") if isinstance(item.get("segment_id"), str) else None
-    scene_id = item.get("scene_id") if isinstance(item.get("scene_id"), str) else None
-    for key in ((segment_id, scene_id), (segment_id, None), (None, scene_id)):
-        if key in planned_sources:
-            return planned_sources[key]
-    matches = [sources for (plan_segment, plan_scene), sources in planned_sources.items() if plan_segment == segment_id or plan_scene == scene_id]
-    if len(matches) == 1:
-        return matches[0]
+    if segment_id:
+        return planned_sources.get(segment_id, set())
     return set()
 
 
@@ -187,7 +180,7 @@ def resolve_item(
     project_dir: Path,
     item: dict[str, Any],
     index: int,
-    planned_sources: dict[tuple[str | None, str | None], set[str]],
+    planned_sources: dict[str, set[str]],
     accepted_z_outputs: set[str],
     errors: list[str],
 ) -> dict[str, Any] | None:
@@ -206,9 +199,9 @@ def resolve_item(
         return None
     planned = planned_sources_for_item(item, planned_sources)
     if not planned:
-        errors.append(f"items[{index}] does not match any B-roll source_type in manifests/visual-plan.json")
+        errors.append(f"items[{index}] does not match any B-roll source_type in script.json")
     elif source_type not in planned:
-        errors.append(f"items[{index}].source_type {source_type!r} does not match visual-plan sources {sorted(planned)}")
+        errors.append(f"items[{index}].source_type {source_type!r} does not match script sources {sorted(planned)}")
 
     resolved = dict(item)
     file_path: Path | None = None
@@ -253,10 +246,10 @@ def resolve_manifest(project_dir: Path, input_path: Path, manifest: Any) -> tupl
         return {}, ["selected visuals intent manifest must be an object"]
     if "resolver" in manifest:
         errors.append("input already contains resolver metadata; pass the intent manifest, not a resolved manifest")
-    visual_plan = load_json(project_dir / "manifests" / "visual-plan.json")
-    planned_sources = visual_plan_sources(visual_plan)
+    script = load_json(project_dir / "script.json")
+    planned_sources = script_sources(script)
     if not planned_sources:
-        errors.append("manifests/visual-plan.json contains no B-roll source_type declarations")
+        errors.append("script.json contains no B-roll source_type declarations")
     accepted_z_outputs = accepted_z_image_outputs(project_dir)
     items = manifest.get("items")
     if not isinstance(items, list):

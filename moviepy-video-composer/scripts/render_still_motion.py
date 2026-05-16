@@ -117,7 +117,7 @@ def infer_project_dir(explicit: str | None, output_path: Path) -> Path:
     if explicit:
         return Path(explicit).resolve()
     for candidate in (output_path.parent, *output_path.parent.parents):
-        if (candidate / "script.json").exists() and (candidate / "manifests" / "visual-plan.json").exists():
+        if (candidate / "script.json").exists():
             return candidate
     raise ValueError("Still-motion render requires --project-dir or an output path inside an approved project.")
 

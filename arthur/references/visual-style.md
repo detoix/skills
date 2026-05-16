@@ -2,11 +2,9 @@
 
 Arthur's visuals should feel like recovered records, forensic exhibits, archival traces, and documentary fragments from the pre-Singularity period.
 
-## Visual Plan Rules
+## Visual Rules
 
-Arthur must create `manifests/visual-plan.json` that matches `script.json` by `segment_id`.
-
-For every B-roll scene:
+For every B-roll segment in `script.json`:
 
 - use `layout`
 - use `panels[]`
