@@ -37,7 +37,7 @@ SPLIT_AXES = {"horizontal", "vertical"}
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
 STILL_MOTION_TYPES = {"push-in", "pull-back", "pan-left", "pan-right", "pan-up", "pan-down", "diagonal-drift", "swipe-in"}
 HOLD_LAST_FRAME_MAX_EXTENSION_SECONDS = 0.12
-PING_PONG_MIN_SOURCE_REMAINDER_SECONDS = 1.0
+PING_PONG_MAX_EXTENSION_SECONDS = 1.0
 FIT_EPSILON_SECONDS = 1e-6
 DEFAULT_FPS = 30
 DEFAULT_CODEC = "libx264"
@@ -726,7 +726,7 @@ def fit_kind_for_entry_clip(entry: TimelineEntry) -> str:
 
 
 def ping_pong_extension_limit(available_duration: float) -> float:
-    return max(0.0, available_duration - PING_PONG_MIN_SOURCE_REMAINDER_SECONDS)
+    return PING_PONG_MAX_EXTENSION_SECONDS
 
 
 def duration_fit_action(available_duration: float, target_duration: float, fit_kind: str) -> str:
