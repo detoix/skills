@@ -21,7 +21,7 @@ own implementation details and output contracts.
   `manifests/visual-plan.json`.
 - `youtube-scriptwriter` owns the `script.json` schema and baseline spoken-writing
   contract.
-- `tts`, `latentsync`, `codeformer-postprocess`, `animated-broll-boards`,
+- `tts`, `latentsync`, `animated-broll-boards`,
   `playwright-broll-recorder`, `pexels-stock-downloader`,
   `moviepy-video-composer`, and `reel-captions` own their implementation choices.
 - `youtube-autopipeline` owns gate order, artifact flow, validation calls, and
@@ -180,8 +180,7 @@ approval artifact produced by the previous gate.
 3. Create or update `manifests\presenter-plan.json`, then run `latentsync` for
    visible presenter segments and panels.
 4. Make and record the presenter-quality decision before final timeline
-   assembly. `codeformer-postprocess` owns restoration mechanics when
-   restoration is selected.
+   assembly.
 5. Produce final generated images for approved generated-image placeholder
    panels and review them before timeline use.
 6. Reuse prototype B-roll assets that still match the approved visual plan and

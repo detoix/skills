@@ -84,7 +84,7 @@ REQUIRED_SKILLS = (
     "playwright-broll-recorder",
     "moviepy-video-composer",
 )
-OPTIONAL_SKILLS = ("codeformer-postprocess", "pexels-stock-downloader")
+OPTIONAL_SKILLS = ("pexels-stock-downloader",)
 
 
 @dataclass

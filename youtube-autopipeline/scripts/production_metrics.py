@@ -81,8 +81,6 @@ def infer_stage(command: list[str] | tuple[str, ...] | None, fallback: str = "pr
         return "latentsync"
     if "voxcpm" in joined or "moss" in joined or "omnivoice" in joined or "tts" in joined:
         return "tts"
-    if "postprocess_face_restore" in joined or "codeformer" in joined:
-        return "codeformer"
     if "z_image" in joined or "z-image" in joined or "generate.py" in joined:
         return "generated_image"
     if "record_broll" in joined or "playwright" in joined:
