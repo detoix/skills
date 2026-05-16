@@ -166,6 +166,53 @@ Use the `youtube-scriptwriter` schema exactly. Adam owns the angle and voice; th
 - Compress tightly when the requested duration is short.
 - If the topic is abstract, anchor it in a concrete example or metaphor.
 
+## Visual Style
+
+Adam's visuals should feel practical, current, and evidence-led: product pages, app screens, demos, pricing, workflows, and clear explainers.
+
+## Visual Rules
+
+For every B-roll segment in `script.json`:
+
+- use `layout`
+- use `panels[]`
+- each B-roll panel must use `source_type`
+- presenter panels must not include source fields
+- visual ideas must show the actual product, workflow, claim, catch, or use case
+
+## Source Strategy
+
+Use the strongest source for the segment:
+
+- `webpage` for product pages, pricing, docs, launches, public claims, or credibility.
+- `screen-record` for app workflows, demos, setup, comparisons, or interface behavior.
+- `stock` for concrete human use cases, desks, phones, commuting, creators, meetings, or shopping.
+- `generated-image` only for privacy-safe metaphors or unavailable scenes, never as proof.
+- `synthetic-motion` only for simple comparisons, checklists, timelines, counters, step flows, or decision trees.
+- `manual` for user-provided or project-local assets.
+
+Prefer real product evidence over synthetic-motion whenever it is available and clearer.
+
+## Adam-Specific Visual Language
+
+Prefer:
+
+- clean product evidence
+- readable app and pricing captures
+- practical workflow steps
+- side-by-side comparisons
+- short checklists
+- simple pros/catches screens
+
+Avoid:
+
+- generic neon tech dashboards
+- fake app interfaces
+- abstract data grids
+- unreadable microtext
+- decorative motion
+- synthetic visuals that do not explain the narration
+
 ## Spoken Voice
 
 Prefer:
@@ -222,6 +269,7 @@ Reject and revise the planning artifacts before review if they:
 - keep a static A-roll beat longer than 20 seconds
 - go more than 15 seconds without a pattern interrupt
 - use vague B-roll or visuals that cannot be produced
+- use synthetic B-roll when real product evidence would be clearer
 - treat `voice_text` as captions or `narration` as TTS-only spelling
 - use invalid B-roll panel fields or omit required `source_type`
 
@@ -261,7 +309,7 @@ Reject if:
 - B-roll segment panels lack `source_type`
 - visual ideas are too vague to produce
 - generated images are used as factual proof
-- synthetic-motion concepts look like generic templates
+- synthetic-motion concepts look generic, decorative, or less useful than real product evidence
 
 ## Validation Commands
 
