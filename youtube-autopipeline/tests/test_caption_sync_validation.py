@@ -213,6 +213,29 @@ class CaptionSyncValidationTests(unittest.TestCase):
 
         self.assertIn("broll-overlay-source", {item.code for item in report.findings})
 
+    def test_pipeline_check_allows_pip_still_motion_background(self):
+        segment = {
+            "type": "B_ROLL",
+            "layout": "fullscreen",
+            "panels": [
+                {
+                    "kind": "broll",
+                    "source_type": "generated-image",
+                    "path": "broll/generated/S06.png",
+                    "treatment": "still_motion",
+                    "motion_type": "pan-left",
+                },
+                {"kind": "presenter", "path": "synced/profile/P01.mp4", "treatment": "overlay"},
+            ],
+            "start_time": 0.0,
+            "end_time": 2.0,
+        }
+        report = pipeline_check.Report()
+
+        pipeline_check.validate_segment_contract(segment, report, "timeline[0]")
+
+        self.assertNotIn("pip-broll-treatment", {item.code for item in report.findings})
+
     def test_pipeline_check_rejects_top_level_broll_treatment(self):
         timeline = [
             {

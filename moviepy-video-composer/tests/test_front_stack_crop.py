@@ -197,6 +197,30 @@ class FrontStackCropTests(unittest.TestCase):
         self.assertEqual(expanded["overlay_path"], "synced/profile/P01.mp4")
         self.assertEqual(expanded["overlay_scale"], 0.34)
 
+    def test_pip_allows_still_motion_background_treatment(self):
+        expanded = compose_video.validate_and_expand_entry(
+            {
+                "type": "B_ROLL",
+                "layout": "fullscreen",
+                "panels": [
+                    {
+                        "kind": "broll",
+                        "source_type": "generated-image",
+                        "path": "broll/generated/S06.png",
+                        "treatment": "still_motion",
+                        "motion_type": "pan-left",
+                    },
+                    {"kind": "presenter", "path": "synced/profile/P01.mp4", "treatment": "overlay", "overlay_scale": 0.34},
+                ],
+                "start_time": 0.0,
+                "end_time": 2.0,
+            },
+            0,
+        )
+
+        self.assertEqual(expanded["background_path"], "broll/generated/S06.png")
+        self.assertEqual(expanded["overlay_path"], "synced/profile/P01.mp4")
+
     def test_fullscreen_still_motion_expands_panel_motion_type(self):
         expanded = compose_video.validate_and_expand_entry(
             {

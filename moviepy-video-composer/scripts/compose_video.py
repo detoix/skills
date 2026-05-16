@@ -325,8 +325,8 @@ def validate_and_expand_entry(item: dict[str, Any], index: int) -> dict[str, Any
         elif presenter is not None:
             if presenter_treatment != "overlay":
                 raise ValueError(f"Timeline entry {index} fullscreen presenter PiP requires presenter panel treatment 'overlay'.")
-            if broll_treatment is not None:
-                raise ValueError(f"Timeline entry {index} fullscreen PiP background broll panel must not define treatment.")
+            if broll_treatment not in (None, "still_motion"):
+                raise ValueError(f"Timeline entry {index} fullscreen PiP background broll panel treatment must be 'still_motion' when defined.")
         expanded["clip_path"] = broll_panels[0]["path"]
         if "clip_start" in broll_panels[0]:
             expanded["clip_start"] = broll_panels[0]["clip_start"]
@@ -1458,22 +1458,26 @@ def build_evidence_overlay_clip(project_dir: Path, entry: TimelineEntry):
 
 
 def build_pip_clip(project_dir: Path, entry: TimelineEntry):
-    background_path = resolve_media_path(project_dir, entry.background_path, "background_path")
     overlay_path = resolve_media_path(project_dir, entry.overlay_path, "overlay_path")
+    panels = entry.panels if isinstance(entry.panels, list) else []
+    background_panel = next((panel for panel in panels if isinstance(panel, dict) and panel.get("kind") == "broll"), None)
+    overlay_panel = next((panel for panel in panels if isinstance(panel, dict) and panel.get("kind") == "presenter"), None)
 
-    background_clip, background_source = normalize_video_clip(
-        background_path,
+    fitted_background, background_handles = build_panel_clip(
+        project_dir,
+        entry.background_path,
         entry.duration,
         entry.clip_offset("background_clip_start"),
         "PIP background",
-        fit_kind_for_panel(entry.panels[0] if isinstance(entry.panels, list) and len(entry.panels) > 0 else None, entry.background_path),
+        (OUTPUT_WIDTH, OUTPUT_HEIGHT),
+        background_panel,
     )
     overlay_clip, overlay_source = normalize_video_clip(
         overlay_path,
         entry.duration,
         entry.clip_offset("overlay_clip_start"),
         "PIP overlay",
-        fit_kind_for_panel(entry.panels[1] if isinstance(entry.panels, list) and len(entry.panels) > 1 else None, entry.overlay_path),
+        fit_kind_for_panel(overlay_panel, entry.overlay_path),
     )
     cropped_overlay = None
     if entry.overlay_crop_x is not None and entry.overlay_crop_y is not None:
@@ -1487,12 +1491,6 @@ def build_pip_clip(project_dir: Path, entry: TimelineEntry):
     elif PIP_OVERLAY_SHAPE == "circle":
         cropped_overlay = center_crop_to_square(overlay_clip)
         overlay_clip = cropped_overlay
-    fitted_background, background_handles = scale_clip_to_canvas(
-        background_clip,
-        (OUTPUT_WIDTH, OUTPUT_HEIGHT),
-        "cover",
-    )
-
     overlay_scale = entry.overlay_scale if entry.overlay_scale is not None else DEFAULT_OVERLAY_SCALE
     if overlay_scale <= 0:
         raise ValueError("overlay_scale must be positive.")
@@ -1519,9 +1517,7 @@ def build_pip_clip(project_dir: Path, entry: TimelineEntry):
     ).with_duration(entry.duration)
     return composite, [
         composite,
-        background_clip,
         overlay_clip,
-        background_source,
         overlay_source,
         fitted_background,
         *background_handles,

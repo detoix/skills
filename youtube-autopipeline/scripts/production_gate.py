@@ -333,8 +333,8 @@ def broll_panel_sources(item: dict[str, Any], findings: list[GateFinding], conte
         elif presenter_count:
             if presenter_treatment != "overlay":
                 findings.append(GateFinding("ERROR", "pip-presenter-treatment", f"{context} fullscreen PiP requires presenter panel treatment 'overlay'"))
-            if broll_treatment is not None:
-                findings.append(GateFinding("ERROR", "pip-broll-treatment", f"{context} fullscreen PiP background broll panel must not define treatment"))
+            if broll_treatment not in (None, "still_motion"):
+                findings.append(GateFinding("ERROR", "pip-broll-treatment", f"{context} fullscreen PiP background broll panel treatment must be 'still_motion' when defined"))
     return sources
 
 

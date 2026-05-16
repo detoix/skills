@@ -249,8 +249,8 @@ def validate_segment_contract(
         elif presenter_count:
             if presenter_treatment != "overlay":
                 report.error("pip-presenter-treatment", f"{context} fullscreen PiP requires presenter panel treatment 'overlay'")
-            if broll_treatment is not None:
-                report.error("pip-broll-treatment", f"{context} fullscreen PiP background broll panel must not define treatment")
+            if broll_treatment not in (None, "still_motion"):
+                report.error("pip-broll-treatment", f"{context} fullscreen PiP background broll panel treatment must be 'still_motion' when defined")
     return "B_ROLL"
 
 
