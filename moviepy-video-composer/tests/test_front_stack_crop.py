@@ -173,7 +173,7 @@ class FrontStackCropTests(unittest.TestCase):
 
     def test_duration_fit_rejects_presenter_tail_over_limit(self):
         with self.assertRaises(ValueError):
-            compose_video.duration_fit_action(3.0, 4.0, "presenter")
+            compose_video.duration_fit_action(1.5, 3.0, "presenter")
 
     def test_duration_fit_loops_loop_safe_broll(self):
         self.assertEqual(compose_video.duration_fit_action(3.0, 6.0, "loop_safe_broll"), "loop")

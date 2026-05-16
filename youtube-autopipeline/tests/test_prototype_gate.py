@@ -147,8 +147,8 @@ class PrototypeGateTests(unittest.TestCase):
             "tts": {
                 "engine": "voxcpm",
                 "model_id": "openbmb/VoxCPM2",
-                "prototype_inference_timesteps": 10,
-                "production_inference_timesteps": 10,
+                "prototype_inference_timesteps": 8,
+                "production_inference_timesteps": 8,
                 "cfg_value": 2.0,
                 "normalize": False,
                 "denoise": False,
@@ -192,6 +192,16 @@ class PrototypeGateTests(unittest.TestCase):
         prototype_manifest = json.loads(prototype_manifest_path.read_text(encoding="utf-8"))
         prototype_manifest["artifacts"]["final_audio_manifest"] = production_gate.artifact_record(root, production_gate.FINAL_AUDIO_MANIFEST_RELATIVE_PATH)
         write_json(prototype_manifest_path, prototype_manifest)
+
+    def update_prototype_tts(self, root: Path, **updates) -> None:
+        manifest_path = root / production_gate.PROTOTYPE_MANIFEST_RELATIVE_PATH
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        for key, value in updates.items():
+            if value is None:
+                manifest["tts"].pop(key, None)
+            else:
+                manifest["tts"][key] = value
+        write_json(manifest_path, manifest)
 
     def approve_prototype(self, root: Path) -> None:
         request = production_gate.create_prototype_review_request(root)
@@ -264,7 +274,7 @@ class PrototypeGateTests(unittest.TestCase):
             root = Path(tmp)
             self.write_creative_project(root)
             self.write_prototype_bundle(root)
-            self.mock_media_duration.return_value = 2.0
+            self.mock_media_duration.return_value = 1.4
             findings = production_gate.run_prototype_review_ready_gate(root, write_state=False)
             self.assertIn("prototype-presenter-too-short", {item.code for item in findings})
 
@@ -296,6 +306,34 @@ class PrototypeGateTests(unittest.TestCase):
             (root / "tts" / "clean" / "T01.wav").write_bytes(b"changed prototype tts chunk")
             findings = production_gate.run_prototype_approved_gate(root, write_state=False)
             self.assertIn("prototype-tts-chunk-audio-stale", {item.code for item in findings})
+
+    def test_prototype_review_ready_gate_accepts_matching_tts_settings(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.write_creative_project(root)
+            self.write_prototype_bundle(root)
+            self.update_prototype_tts(root, prototype_inference_timesteps=8, production_inference_timesteps=8)
+            self.request_prototype_review(root)
+            findings = production_gate.run_prototype_review_ready_gate(root, write_state=False)
+            self.assertNotIn("prototype-tts-settings", {item.code for item in findings})
+
+    def test_prototype_review_ready_gate_rejects_mismatched_tts_settings(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.write_creative_project(root)
+            self.write_prototype_bundle(root)
+            self.update_prototype_tts(root, prototype_inference_timesteps=8, production_inference_timesteps=9)
+            findings = production_gate.run_prototype_review_ready_gate(root, write_state=False)
+            self.assertIn("prototype-tts-settings", {item.code for item in findings})
+
+    def test_prototype_review_ready_gate_rejects_missing_tts_settings(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.write_creative_project(root)
+            self.write_prototype_bundle(root)
+            self.update_prototype_tts(root, prototype_inference_timesteps=None)
+            findings = production_gate.run_prototype_review_ready_gate(root, write_state=False)
+            self.assertIn("prototype-tts-settings", {item.code for item in findings})
 
     def test_prototype_review_ready_gate_rejects_empty_final_audio_manifest_chunks(self):
         with tempfile.TemporaryDirectory() as tmp:

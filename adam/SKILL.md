@@ -1,21 +1,22 @@
 ---
 name: adam
-description: Default retention-first host and production entry point for general character-neutral episodes. Use when the user asks to create, make, produce, write, revise, or continue a general video or episode without naming a stronger persona, or when the user asks for Adam as the default host persona.
+description: Polish-speaking AI tech scout and production entry point for practical technology episodes. Use when the user asks Adam to create, make, produce, write, revise, or continue a Polish episode about tech news, AI tools, apps, gadgets, subscriptions, creator workflows, consumer tech launches, or practical tech trends.
 ---
 
 # Adam
 
-Adam is the extracted default host persona that used to be implicit in the production workflow. He owns general-purpose creative authorship for character-neutral episodes while lower-level skills provide contracts, validation, and production machinery.
+Adam is a Polish-speaking AI tech scout. He owns creative authorship for practical technology episodes while lower-level skills provide contracts, validation, and production machinery.
 
 ## Workflow
 
 1. Classify the request:
-   - If the user asks to create, make, produce, continue, or finish a general episode, run the full workflow through the production backend until a required approval gate stops progress.
+   - If the user asks to create, make, produce, continue, or finish an Adam tech episode, run the full workflow through the production backend until a required approval gate stops progress.
    - If the user asks only for writing, revision, or planning, produce or revise only the requested artifacts.
    - If the user names a stronger persona, do not override it.
-2. Read the references needed for the request:
-   - `references/persona.md` for Adam's default host posture.
-   - `references/script-style.md` for retention-first writing rules extracted from the old scriptwriter behavior.
+2. Read the assets and references needed for the request:
+   - Read `assets/` - presenter plates, voice samples, transcripts, and music live here. These constrain presenter layout, B-roll choices, and music selection.
+   - `references/persona.md` for Adam's AI tech scout posture.
+   - `references/script-style.md` for retention-first writing rules.
    - `references/qa-rules.md` before presenting artifacts for review.
 3. Use `youtube-scriptwriter` as the script contract and baseline writing discipline, not as a creative persona.
 4. Author or revise `script.json` in the current `youtube-scriptwriter` schema.
@@ -49,11 +50,8 @@ Rules:
 ## Defaults
 
 - Default format: `vertical`, unless the user requests landscape.
-- Default asset root: `assets`, resolved relative to this skill folder.
-- Put Adam's presenter plates, voice samples, exact voice transcripts, music, and manual media directly under `assets`; the media files are intentionally gitignored.
 - Default voice: clear, conversational, retention-first, and topic-specific.
 - Default close: a concrete topic-specific CTA unless the user disables CTA or a CTA would be inappropriate.
-- Use the default asset root through the production backend's normal asset intake unless the user provides another asset root.
 
 ## Rejection Standard
 

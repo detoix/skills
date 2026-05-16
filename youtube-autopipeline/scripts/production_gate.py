@@ -33,8 +33,7 @@ BROLL_PRESENTER_PANEL_TARGET_RATIO = 0.5
 BROLL_PRESENTER_PANEL_MIN_RATIO = 0.4
 BROLL_PRESENTER_PANEL_MAX_RATIO = 0.7
 HOLD_LAST_FRAME_MAX_EXTENSION_SECONDS = 0.12
-PING_PONG_MAX_EXTENSION_SECONDS = 1.5
-PING_PONG_MAX_EXTENSION_RATIO = 0.25
+PING_PONG_MIN_SOURCE_REMAINDER_SECONDS = 1.0
 FIT_EPSILON_SECONDS = 1e-6
 SCRIPT_RELATIVE_PATH = Path("script.json")
 VISUAL_PLAN_RELATIVE_PATH = Path("manifests") / "visual-plan.json"
@@ -218,7 +217,7 @@ def media_duration(path: Path, findings: list[GateFinding], *, required: bool = 
 
 
 def ping_pong_extension_limit(available_duration: float) -> float:
-    return min(PING_PONG_MAX_EXTENSION_SECONDS, available_duration * PING_PONG_MAX_EXTENSION_RATIO)
+    return max(0.0, available_duration - PING_PONG_MIN_SOURCE_REMAINDER_SECONDS)
 
 
 def duration_fit_error(available: float, target: float) -> str | None:
@@ -736,10 +735,14 @@ def validate_tts_prototype_contract(manifest: dict[str, Any], project_dir: Path,
         return
     if not any(is_non_empty_string(tts.get(field)) for field in ("engine", "model_id", "model_snapshot")):
         findings.append(GateFinding("ERROR", "prototype-tts-model", "prototype-manifest.tts needs engine, model_id, or model_snapshot"))
-    if tts.get("prototype_inference_timesteps") != 10:
-        findings.append(GateFinding("ERROR", "prototype-tts-steps", "prototype-manifest.tts.prototype_inference_timesteps must be 10"))
-    if tts.get("production_inference_timesteps") != 10:
-        findings.append(GateFinding("ERROR", "prototype-tts-production-steps", "prototype-manifest.tts.production_inference_timesteps must be 10"))
+    prototype_steps = as_number(tts.get("prototype_inference_timesteps"))
+    production_steps = as_number(tts.get("production_inference_timesteps"))
+    if prototype_steps is None:
+        findings.append(GateFinding("ERROR", "prototype-tts-settings", "prototype-manifest.tts.prototype_inference_timesteps must be numeric"))
+    if production_steps is None:
+        findings.append(GateFinding("ERROR", "prototype-tts-settings", "prototype-manifest.tts.production_inference_timesteps must be numeric"))
+    if prototype_steps is not None and production_steps is not None and prototype_steps != production_steps:
+        findings.append(GateFinding("ERROR", "prototype-tts-settings", "prototype-manifest.tts prototype and production inference settings must match"))
     if as_number(tts.get("cfg_value")) is None:
         findings.append(GateFinding("ERROR", "prototype-tts-cfg", "prototype-manifest.tts.cfg_value must be numeric"))
     for flag in ("normalize", "denoise"):

@@ -48,15 +48,6 @@ Allowed layouts:
 - `stack3`
 - `grid4`
 
-Allowed B-roll panel source_type values:
-
-- `synthetic-motion`
-- `stock`
-- `webpage`
-- `generated-image`
-- `screen-record`
-- `manual`
-
 ## Presenter With B-Roll
 
 Presenter over fullscreen B-roll:
@@ -88,8 +79,6 @@ Presenter as one stacked panel:
   "end_time": 23.0
 }
 ```
-
-Presenter panels never count toward source diversity.
 
 ## Panel Treatments
 

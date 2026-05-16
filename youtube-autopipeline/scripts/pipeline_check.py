@@ -28,8 +28,7 @@ BROLL_PRESENTER_PANEL_MIN_RATIO = 0.4
 BROLL_PRESENTER_PANEL_MAX_RATIO = 0.7
 LOOP_UNSAFE_BROLL_SOURCES = {"webpage", "screen-record"}
 HOLD_LAST_FRAME_MAX_EXTENSION_SECONDS = 0.12
-PING_PONG_MAX_EXTENSION_SECONDS = 1.5
-PING_PONG_MAX_EXTENSION_RATIO = 0.25
+PING_PONG_MIN_SOURCE_REMAINDER_SECONDS = 1.0
 FIT_EPSILON_SECONDS = 1e-6
 SPLIT_AXES = {"horizontal", "vertical"}
 STILL_MOTION_TYPES = {"push-in", "pull-back", "pan-left", "pan-right", "pan-up", "pan-down", "diagonal-drift", "swipe-in"}
@@ -479,7 +478,7 @@ def path_looks_like_presenter(path: Path) -> bool:
 
 
 def ping_pong_extension_limit(available_duration: float) -> float:
-    return min(PING_PONG_MAX_EXTENSION_SECONDS, available_duration * PING_PONG_MAX_EXTENSION_RATIO)
+    return max(0.0, available_duration - PING_PONG_MIN_SOURCE_REMAINDER_SECONDS)
 
 
 def fit_kind_for_panel(panel: dict[str, Any] | None, path: Path) -> str:

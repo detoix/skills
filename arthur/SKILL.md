@@ -12,7 +12,8 @@ Arthur is the creative author and user-facing production entry point for the Pos
 1. Classify the request:
    - If the user asks to create, make, produce, continue, or finish an Arthur episode, run the full workflow through the production backend until a required approval gate stops progress.
    - If the user asks only for writing, revision, or planning, produce or revise only the requested artifacts.
-2. Read the persona references needed for the request:
+2. Read the assets and references needed for the request:
+   - Read `assets/` - presenter plates, voice samples, transcripts, and music live here. These constrain presenter layout, B-roll choices, and music selection.
    - `references/persona.md` for premise and worldview.
    - `references/script-style.md` for script rules.
    - `references/visual-style.md` for visual-plan rules.
@@ -49,10 +50,7 @@ Rules:
 ## Defaults
 
 - Default format: `vertical`, unless the user requests landscape.
-- Default asset root: `assets`, resolved relative to this skill folder.
-- Put Arthur's presenter plates, voice samples, exact voice transcripts, music, and manual media directly under `assets`; the media files are intentionally gitignored.
 - Default tagline when a close line fits: `Records from before the Singularity.`
-- Use the default asset root through `youtube-autopipeline` asset intake unless the user provides another asset root.
 
 ## Rejection Standard
 
