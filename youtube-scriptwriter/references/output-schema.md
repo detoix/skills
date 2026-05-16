@@ -19,9 +19,7 @@ python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\pipeline_check.py `
   "metadata": {},
   "segments": [],
   "tts_chunks": [],
-  "broll_queries": [],
-
-  "assembly_notes": []
+  "broll_queries": []
 }
 ```
 
@@ -73,20 +71,7 @@ Allowed `B_ROLL` panel source_type values:
 - `generated-image`
 - `screen-record`
 - `manual`
-
-Do not use layout or treatment names as segment `type` values. Presenter overlays are represented by `presenter` panels in a B-roll layout. Still motion and punch-in are treatments, not segment types.
-
-Rules:
-
-- `A_ROLL` can never exceed 20 seconds.
-- `A_ROLL` must not include `layout`, `panels`, `source`, or `source_type`.
-- `B_ROLL` must include at least one panel with `kind: "broll"` and a valid `source_type`.
-- A pattern interrupt must occur every 5-15 seconds.
-- Visual changes should be intentional and tied to clarity, pacing, or retention.
-- Keep `narration` conversational.
-- By default, the final segment must be a close-CTA unless the user explicitly disables CTA.
-- For the final CTA segment, set `pattern_interrupt_type` to `close-cta`.
-- Keep the final CTA segment short, usually 3-7 seconds, and do not introduce a new factual claim, offer, link, or promise that was not present in the brief.
+- `web-evidence`: user/project-supplied local cropped proof image
 
 ## `tts_chunks`
 
@@ -106,27 +91,9 @@ Each item must contain:
 
 - `segment_id`
 - `query`
-- `source_type`: `webpage`, `stock`, `screen-record`, `generated-image`, `synthetic-motion`, or `manual`
+- `source_type`: `webpage`, `stock`, `screen-record`, `generated-image`, `synthetic-motion`, `manual`, or `web-evidence`
 - `must_include`
 - `avoid`
 - `orientation_preference`: `landscape`, `vertical`, or `either`
 
-Use `generated-image` when a controlled synthetic visual is likely stronger than stock or screen capture, especially for abstract concepts, privacy-safe metaphor scenes, neutral fake UI backgrounds, or clean caption-safe graphic inserts. Do not use it to hide missing user assets when the brief depends on a real product, person, location, brand, or app.
-
-
-
-## `assembly_notes`
-
-Each item must contain:
-
-- `segment_id`
-- `note`
-- `risk`: `none`, `fallback`, or `manual-review`
-
-Use assembly notes for:
-
-- where to use avatar footage
-- when to include a presenter panel in a B-roll layout
-- when to layer text
-- where a search query may need stock footage or manual asset selection
-- any fallback that the pipeline must not hide
+`web-evidence` entries describe a user/project-supplied local proof image and its source page.

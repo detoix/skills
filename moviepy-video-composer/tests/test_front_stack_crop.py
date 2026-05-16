@@ -146,6 +146,106 @@ class FrontStackCropTests(unittest.TestCase):
             normalize.assert_called_once_with(image_path.resolve(), 2.0, 0.0, "STACK_2 bottom clip", "loop_safe_broll")
             scale.assert_called_once_with(source_clip, (1080, 960), "cover")
 
+    def test_top_level_broll_treatment_is_rejected(self):
+        with self.assertRaises(ValueError):
+            compose_video.validate_and_expand_entry(
+                {
+                    "type": "B_ROLL",
+                    "layout": "fullscreen",
+                    "treatment": "evidence_overlay",
+                    "panels": [{"kind": "broll", "source_type": "web-evidence", "path": "evidence.png", "treatment": "overlay"}],
+                    "start_time": 0.0,
+                    "end_time": 2.0,
+                },
+                0,
+            )
+
+    def test_web_evidence_overlay_expands_from_panel_treatments(self):
+        expanded = compose_video.validate_and_expand_entry(
+            {
+                "type": "B_ROLL",
+                "layout": "fullscreen",
+                "panels": [
+                    {"kind": "presenter", "path": "source-assets/presenter-front.mp4", "treatment": "blur"},
+                    {"kind": "broll", "source_type": "web-evidence", "path": "evidence.png", "treatment": "overlay"},
+                ],
+                "start_time": 0.0,
+                "end_time": 2.0,
+            },
+            0,
+        )
+
+        self.assertEqual(expanded["clip_path"], "evidence.png")
+        self.assertEqual(expanded["background_path"], "source-assets/presenter-front.mp4")
+
+    def test_pip_expands_from_presenter_overlay_treatment(self):
+        expanded = compose_video.validate_and_expand_entry(
+            {
+                "type": "B_ROLL",
+                "layout": "fullscreen",
+                "panels": [
+                    {"kind": "broll", "source_type": "webpage", "path": "broll/site.mp4"},
+                    {"kind": "presenter", "path": "synced/profile/P01.mp4", "treatment": "overlay", "overlay_scale": 0.34},
+                ],
+                "start_time": 0.0,
+                "end_time": 2.0,
+            },
+            0,
+        )
+
+        self.assertEqual(expanded["background_path"], "broll/site.mp4")
+        self.assertEqual(expanded["overlay_path"], "synced/profile/P01.mp4")
+        self.assertEqual(expanded["overlay_scale"], 0.34)
+
+    def test_fullscreen_still_motion_expands_panel_motion_type(self):
+        expanded = compose_video.validate_and_expand_entry(
+            {
+                "type": "B_ROLL",
+                "layout": "fullscreen",
+                "panels": [
+                    {
+                        "kind": "broll",
+                        "source_type": "generated-image",
+                        "path": "broll/generated/S01.png",
+                        "treatment": "still_motion",
+                        "motion_type": "pan-left",
+                    }
+                ],
+                "start_time": 0.0,
+                "end_time": 2.0,
+            },
+            0,
+        )
+
+        self.assertEqual(expanded["treatment"], "still_motion")
+        self.assertEqual(expanded["motion_type"], "pan-left")
+
+    def test_web_evidence_requires_blurred_presenter_panel(self):
+        with self.assertRaises(ValueError):
+            compose_video.validate_and_expand_entry(
+                {
+                    "type": "B_ROLL",
+                    "layout": "fullscreen",
+                    "panels": [{"kind": "broll", "source_type": "web-evidence", "path": "evidence.png", "treatment": "overlay"}],
+                    "start_time": 0.0,
+                    "end_time": 2.0,
+                },
+                0,
+            )
+
+    def test_panel_role_is_rejected(self):
+        with self.assertRaises(ValueError):
+            compose_video.validate_and_expand_entry(
+                {
+                    "type": "B_ROLL",
+                    "layout": "fullscreen",
+                    "panels": [{"kind": "broll", "source_type": "manual", "path": "panel.png", "role": "background"}],
+                    "start_time": 0.0,
+                    "end_time": 2.0,
+                },
+                0,
+            )
+
     def test_broll_still_motion_panel_defaults_to_push_in(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

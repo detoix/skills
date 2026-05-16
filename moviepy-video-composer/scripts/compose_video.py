@@ -28,7 +28,10 @@ LEGACY_TOP_LEVEL_TYPES = {"A-ROLL", "B-ROLL", "PIP", "TEXT", "TEXT_GRAPHIC", "ST
 BROLL_LAYOUTS = {"fullscreen", "stack2", "stack3", "grid4"}
 BROLL_LAYOUT_PANEL_COUNTS = {"stack2": 2, "stack3": 3, "grid4": 4}
 PANEL_KINDS = {"broll", "presenter"}
-BROLL_SOURCE_TYPES = {"webpage", "stock", "screen-record", "generated-image", "manual", "synthetic-motion"}
+BROLL_SOURCE_TYPES = {"webpage", "stock", "screen-record", "generated-image", "manual", "synthetic-motion", "web-evidence"}
+BROLL_PANEL_TREATMENTS = {"overlay", "still_motion"}
+PRESENTER_PANEL_TREATMENTS = {"overlay", "blur"}
+AROLL_TREATMENTS = {"camera_motion"}
 LOOP_UNSAFE_BROLL_SOURCES = {"webpage", "screen-record"}
 SPLIT_AXES = {"horizontal", "vertical"}
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
@@ -44,6 +47,9 @@ OUTPUT_HEIGHT = 1080
 DEFAULT_OVERLAY_SCALE = 0.3
 DEFAULT_OVERLAY_POSITION: tuple[str, str] | None = ("right", "bottom")
 OVERLAY_PADDING = 20
+EVIDENCE_OVERLAY_WIDTH_FRACTION = 0.82
+EVIDENCE_OVERLAY_HEIGHT_FRACTION = 0.58
+EVIDENCE_OVERLAY_BLUR_RADIUS = 24
 PIP_CORNER_RADIUS = 28
 PIP_OVERLAY_SHAPE = "circle"
 DEFAULT_FONT = "C:\\Windows\\Fonts\\arialbd.ttf"
@@ -233,6 +239,9 @@ def validate_and_expand_entry(item: dict[str, Any], index: int) -> dict[str, Any
         for field in ("layout", "panels", "source", "source_strategy"):
             if field in item:
                 raise ValueError(f"Timeline entry {index} field {field!r} is only valid for B_ROLL.")
+        treatment = item.get("treatment")
+        if treatment is not None and treatment not in AROLL_TREATMENTS:
+            raise ValueError(f"Timeline entry {index} A_ROLL treatment must be one of {sorted(AROLL_TREATMENTS)}.")
         if not isinstance(item.get("clip_path"), str) or not item.get("clip_path", "").strip():
             raise ValueError(f"Timeline entry {index} A_ROLL requires clip_path.")
         return expanded
@@ -246,12 +255,16 @@ def validate_and_expand_entry(item: dict[str, Any], index: int) -> dict[str, Any
     expected_count = BROLL_LAYOUT_PANEL_COUNTS.get(str(layout))
     if expected_count is not None and len(panels) != expected_count:
         raise ValueError(f"Timeline entry {index} layout {layout!r} requires exactly {expected_count} panels.")
+    if "treatment" in item:
+        raise ValueError(f"Timeline entry {index} B_ROLL treatment is not supported; use panel treatment.")
 
     broll_panels: list[dict[str, Any]] = []
     presenter_panels: list[dict[str, Any]] = []
     for panel_index, panel in enumerate(panels):
         if not isinstance(panel, dict):
             raise ValueError(f"Timeline entry {index} panels[{panel_index}] must be an object.")
+        if "role" in panel:
+            raise ValueError(f"Timeline entry {index} panels[{panel_index}].role is not supported; use layout/treatment/panel kind.")
         kind = panel.get("kind")
         if kind not in PANEL_KINDS:
             raise ValueError(f"Timeline entry {index} panels[{panel_index}].kind must be one of {sorted(PANEL_KINDS)}.")
@@ -260,13 +273,26 @@ def validate_and_expand_entry(item: dict[str, Any], index: int) -> dict[str, Any
         if kind == "broll":
             if "source" in panel:
                 raise ValueError(f"Timeline entry {index} panels[{panel_index}].source is not supported; use source_type.")
-            if panel.get("source_type") not in BROLL_SOURCE_TYPES:
+            source_type = panel.get("source_type")
+            if source_type not in BROLL_SOURCE_TYPES:
                 raise ValueError(f"Timeline entry {index} panels[{panel_index}].source_type must be one of {sorted(BROLL_SOURCE_TYPES)}.")
+            panel_treatment = panel.get("treatment")
+            if panel_treatment is not None and panel_treatment not in BROLL_PANEL_TREATMENTS:
+                raise ValueError(f"Timeline entry {index} panels[{panel_index}].treatment must be one of {sorted(BROLL_PANEL_TREATMENTS)}.")
+            if panel_treatment == "overlay" and (layout != "fullscreen" or source_type != "web-evidence"):
+                raise ValueError(f"Timeline entry {index} panels[{panel_index}].treatment 'overlay' requires fullscreen web-evidence.")
+            if source_type == "web-evidence" and layout != "fullscreen":
+                raise ValueError(f"Timeline entry {index} panels[{panel_index}].source_type 'web-evidence' requires fullscreen layout.")
             broll_panels.append(panel)
         else:
+            panel_treatment = panel.get("treatment")
+            if panel_treatment is not None and panel_treatment not in PRESENTER_PANEL_TREATMENTS:
+                raise ValueError(f"Timeline entry {index} panels[{panel_index}].treatment must be one of {sorted(PRESENTER_PANEL_TREATMENTS)}.")
+            if panel_treatment in PRESENTER_PANEL_TREATMENTS and layout != "fullscreen":
+                raise ValueError(f"Timeline entry {index} panels[{panel_index}].treatment requires fullscreen layout.")
             if "source" in panel or "source_type" in panel or "source_strategy" in panel:
                 raise ValueError(f"Timeline entry {index} panels[{panel_index}] is presenter media and cannot define source fields.")
-            if layout == "fullscreen" and DEFAULT_OVERLAY_POSITION is None:
+            if layout == "fullscreen" and panel_treatment == "overlay" and DEFAULT_OVERLAY_POSITION is None:
                 overlay_position = panel.get("overlay_position")
                 if (
                     not isinstance(overlay_position, list)
@@ -284,14 +310,34 @@ def validate_and_expand_entry(item: dict[str, Any], index: int) -> dict[str, Any
             raise ValueError(f"Timeline entry {index} fullscreen B_ROLL requires exactly one broll panel.")
         if len(presenter_panels) > 1:
             raise ValueError(f"Timeline entry {index} fullscreen B_ROLL allows at most one presenter overlay.")
+        broll = broll_panels[0]
+        presenter = presenter_panels[0] if presenter_panels else None
+        broll_treatment = broll.get("treatment")
+        presenter_treatment = presenter.get("treatment") if presenter else None
+        is_web_evidence = broll.get("source_type") == "web-evidence"
+        if broll_treatment == "overlay" and not is_web_evidence:
+            raise ValueError(f"Timeline entry {index} broll panel treatment 'overlay' requires source_type 'web-evidence'.")
+        if is_web_evidence:
+            if broll_treatment != "overlay":
+                raise ValueError(f"Timeline entry {index} source_type 'web-evidence' requires panel treatment 'overlay'.")
+            if presenter is None or presenter_treatment != "blur":
+                raise ValueError(f"Timeline entry {index} source_type 'web-evidence' requires one presenter panel with treatment 'blur'.")
+        elif presenter is not None:
+            if presenter_treatment != "overlay":
+                raise ValueError(f"Timeline entry {index} fullscreen presenter PiP requires presenter panel treatment 'overlay'.")
+            if broll_treatment is not None:
+                raise ValueError(f"Timeline entry {index} fullscreen PiP background broll panel must not define treatment.")
         expanded["clip_path"] = broll_panels[0]["path"]
         if "clip_start" in broll_panels[0]:
             expanded["clip_start"] = broll_panels[0]["clip_start"]
-        for field in ("treatment", "motion_type"):
-            if field in broll_panels[0]:
-                expanded[field] = broll_panels[0][field]
-        if presenter_panels:
-            presenter = presenter_panels[0]
+        if is_web_evidence:
+            expanded["background_path"] = presenter["path"]
+            if "clip_start" in presenter:
+                expanded["background_clip_start"] = presenter["clip_start"]
+            for field in ("overlay_scale", "overlay_position"):
+                if field in broll_panels[0]:
+                    expanded[field] = broll_panels[0][field]
+        elif presenter is not None:
             expanded["background_path"] = broll_panels[0]["path"]
             expanded["overlay_path"] = presenter["path"]
             if "clip_start" in broll_panels[0]:
@@ -301,6 +347,10 @@ def validate_and_expand_entry(item: dict[str, Any], index: int) -> dict[str, Any
             for field in ("overlay_scale", "overlay_position", "overlay_crop_x", "overlay_crop_y", "overlay_crop_size"):
                 if field in presenter:
                     expanded[field] = presenter[field]
+        else:
+            for field in ("treatment", "motion_type"):
+                if field in broll_panels[0]:
+                    expanded[field] = broll_panels[0][field]
     elif layout == "stack2":
         expanded["clip_path_top"] = panels[0]["path"]
         expanded["clip_path_bot"] = panels[1]["path"]
@@ -1321,6 +1371,92 @@ def build_standard_clip(project_dir: Path, entry: TimelineEntry):
     return framed, [framed, clip, source, *framed_handles]
 
 
+def resolve_evidence_overlay_background(project_dir: Path, entry: TimelineEntry) -> Path:
+    if not entry.background_path:
+        raise FileNotFoundError("web-evidence requires a presenter panel with treatment 'blur'.")
+    return resolve_media_path(project_dir, entry.background_path, "background_path")
+
+
+def blur_clip_frames(clip, radius: int):
+    try:
+        from PIL import Image, ImageFilter
+    except ImportError as exc:
+        raise RuntimeError("Pillow is required for overlay background blur.") from exc
+
+    def blur_frame(frame):
+        return np.array(Image.fromarray(frame).filter(ImageFilter.GaussianBlur(radius=radius)))
+
+    return VideoClip(lambda t: blur_frame(clip.get_frame(t)), duration=clip.duration)
+
+
+def fit_evidence_overlay(clip, scale_fraction: float | None):
+    width_limit = int(OUTPUT_WIDTH * (scale_fraction or EVIDENCE_OVERLAY_WIDTH_FRACTION))
+    height_limit = int(OUTPUT_HEIGHT * EVIDENCE_OVERLAY_HEIGHT_FRACTION)
+    scale = min(width_limit / clip.w, height_limit / clip.h)
+    if scale <= 0:
+        raise ValueError("web-evidence overlay has invalid dimensions.")
+    resized = clip.resized(width=max(1, int(clip.w * scale)))
+    if resized.h > height_limit:
+        resized = clip.resized(height=max(1, height_limit))
+    return resized
+
+
+def build_evidence_overlay_clip(project_dir: Path, entry: TimelineEntry):
+    panel = next(
+        (
+            panel
+            for panel in (entry.panels or [])
+            if isinstance(panel, dict) and panel.get("kind") == "broll" and panel.get("source_type") == "web-evidence"
+        ),
+        {},
+    )
+    if not isinstance(panel, dict) or panel.get("source_type") != "web-evidence":
+        raise ValueError("web-evidence composition requires source_type 'web-evidence'.")
+    evidence_path = resolve_media_path(project_dir, entry.clip_path, "web-evidence clip_path")
+    if evidence_path.suffix.lower() not in IMAGE_EXTENSIONS:
+        raise ValueError("web-evidence overlay path must be a still image.")
+    if entry.clip_start:
+        raise ValueError("web-evidence overlay clip_start is not valid for still images.")
+
+    background_path = resolve_evidence_overlay_background(project_dir, entry)
+    background_clip, background_source = normalize_video_clip(
+        background_path,
+        entry.duration,
+        entry.clip_offset("background_clip_start"),
+        "overlay background",
+        "loop_safe_broll",
+    )
+    fitted_background, background_handles = scale_clip_to_canvas(background_clip, (OUTPUT_WIDTH, OUTPUT_HEIGHT), "cover")
+    blurred_background = blur_clip_frames(fitted_background, EVIDENCE_OVERLAY_BLUR_RADIUS).with_duration(entry.duration)
+
+    evidence_clip = ImageClip(str(evidence_path)).with_duration(entry.duration)
+    resized_evidence = fit_evidence_overlay(evidence_clip, entry.overlay_scale)
+    mask = build_rounded_mask((resized_evidence.w, resized_evidence.h), 18, entry.duration)
+    masked_evidence = resized_evidence.with_mask(mask).with_duration(entry.duration)
+    position = entry.overlay_position or ("center", int(OUTPUT_HEIGHT * 0.22))
+    evidence_position = compute_overlay_position((OUTPUT_WIDTH, OUTPUT_HEIGHT), (masked_evidence.w, masked_evidence.h), position)
+
+    composite = CompositeVideoClip(
+        [
+            blurred_background,
+            masked_evidence.with_position(evidence_position),
+        ],
+        size=(OUTPUT_WIDTH, OUTPUT_HEIGHT),
+    ).with_duration(entry.duration)
+    return composite, [
+        composite,
+        background_clip,
+        background_source,
+        fitted_background,
+        *background_handles,
+        blurred_background,
+        evidence_clip,
+        resized_evidence,
+        mask,
+        masked_evidence,
+    ]
+
+
 def build_pip_clip(project_dir: Path, entry: TimelineEntry):
     background_path = resolve_media_path(project_dir, entry.background_path, "background_path")
     overlay_path = resolve_media_path(project_dir, entry.overlay_path, "overlay_path")
@@ -1427,7 +1563,12 @@ def _render_segment_worker(
         if entry.layout == "fullscreen" and entry.overlay_path:
             segment, handles = build_pip_clip(project_dir, entry)
         elif entry.layout == "fullscreen":
-            if (entry.panels or [{}])[0].get("treatment") == "still_motion":
+            if any(
+                isinstance(panel, dict) and panel.get("kind") == "broll" and panel.get("source_type") == "web-evidence"
+                for panel in (entry.panels or [])
+            ):
+                segment, handles = build_evidence_overlay_clip(project_dir, entry)
+            elif (entry.panels or [{}])[0].get("treatment") == "still_motion":
                 segment, handles = build_still_motion_clip(project_dir, entry)
             else:
                 segment, handles = build_standard_clip(project_dir, entry)

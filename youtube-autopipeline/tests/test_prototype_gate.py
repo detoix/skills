@@ -73,7 +73,6 @@ class PrototypeGateTests(unittest.TestCase):
             "segments": [script_segment],
             "tts_chunks": [{"chunk_id": "T01", "voice_text": "Test narration."}],
             "broll_queries": [],
-            "assembly_notes": [],
         }
         write_json(root / "script.json", script)
         request = production_gate.create_review_request(root)
@@ -582,7 +581,6 @@ class PrototypeGateTests(unittest.TestCase):
                     ],
                     "tts_chunks": [],
                     "broll_queries": [],
-                    "assembly_notes": [],
                 },
             )
             timeline = [

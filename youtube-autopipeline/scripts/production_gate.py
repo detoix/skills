@@ -23,12 +23,16 @@ ALLOWED_SOURCE_STRATEGIES = {
     "webpage",
     "screen-record",
     "synthetic-motion",
+    "web-evidence",
 }
 SEGMENT_TYPES = {"A_ROLL", "B_ROLL"}
 LEGACY_TOP_LEVEL_TYPES = {"A-ROLL", "B-ROLL", "PIP", "TEXT", "TEXT_GRAPHIC", "STACK_2", "STACK_3", "SPLIT_2", "GRID_4", "STILL_MOTION", "PUNCH_IN"}
 BROLL_LAYOUTS = {"fullscreen", "stack2", "stack3", "grid4"}
 BROLL_LAYOUT_PANEL_COUNTS = {"stack2": 2, "stack3": 3, "grid4": 4}
 PANEL_KINDS = {"broll", "presenter"}
+BROLL_PANEL_TREATMENTS = {"overlay", "still_motion"}
+PRESENTER_PANEL_TREATMENTS = {"overlay", "blur"}
+AROLL_TREATMENTS = {"camera_motion"}
 BROLL_PRESENTER_PANEL_TARGET_RATIO = 0.5
 BROLL_PRESENTER_PANEL_MIN_RATIO = 0.4
 BROLL_PRESENTER_PANEL_MAX_RATIO = 0.7
@@ -249,11 +253,16 @@ def broll_panel_sources(item: dict[str, Any], findings: list[GateFinding], conte
         for field in ("layout", "panels", "source", "source_type", "source_strategy"):
             if field in item:
                 findings.append(GateFinding("ERROR", "aroll-broll-field", f"{context}.{field} is only valid for B_ROLL"))
+        treatment = item.get("treatment")
+        if treatment is not None and treatment not in AROLL_TREATMENTS:
+            findings.append(GateFinding("ERROR", "aroll-treatment", f"{context}.treatment must be one of {sorted(AROLL_TREATMENTS)}"))
         return []
 
     layout = item.get("layout")
     if layout not in BROLL_LAYOUTS:
         findings.append(GateFinding("ERROR", "broll-layout", f"{context}.layout must be one of {sorted(BROLL_LAYOUTS)}"))
+    if "treatment" in item:
+        findings.append(GateFinding("ERROR", "broll-treatment", f"{context}.treatment is not supported; use panel treatment"))
     panels = item.get("panels")
     if not isinstance(panels, list) or not panels:
         findings.append(GateFinding("ERROR", "broll-panels", f"{context}.panels must be a non-empty array"))
@@ -265,11 +274,14 @@ def broll_panel_sources(item: dict[str, Any], findings: list[GateFinding], conte
     sources: list[str] = []
     broll_count = 0
     presenter_count = 0
+    broll_source_types: list[Any] = []
     for panel_index, panel in enumerate(panels):
         panel_context = f"{context}.panels[{panel_index}]"
         if not isinstance(panel, dict):
             findings.append(GateFinding("ERROR", "broll-panel-shape", f"{panel_context} must be an object"))
             continue
+        if "role" in panel:
+            findings.append(GateFinding("ERROR", "broll-panel-role", f"{panel_context}.role is not supported; use layout/treatment/panel kind"))
         kind = panel.get("kind")
         if kind not in PANEL_KINDS:
             findings.append(GateFinding("ERROR", "broll-panel-kind", f"{panel_context}.kind must be one of {sorted(PANEL_KINDS)}"))
@@ -279,12 +291,25 @@ def broll_panel_sources(item: dict[str, Any], findings: list[GateFinding], conte
             if "source" in panel:
                 findings.append(GateFinding("ERROR", "broll-panel-source-legacy", f"{panel_context}.source is not supported; use source_type"))
             source_type = panel.get("source_type")
+            broll_source_types.append(source_type)
             if source_type not in ALLOWED_SOURCE_STRATEGIES:
                 findings.append(GateFinding("ERROR", "broll-panel-source-type", f"{panel_context}.source_type must be one of {sorted(ALLOWED_SOURCE_STRATEGIES)}"))
             else:
                 sources.append(str(source_type))
+            panel_treatment = panel.get("treatment")
+            if panel_treatment is not None and panel_treatment not in BROLL_PANEL_TREATMENTS:
+                findings.append(GateFinding("ERROR", "broll-panel-treatment", f"{panel_context}.treatment must be one of {sorted(BROLL_PANEL_TREATMENTS)}"))
+            if panel_treatment == "overlay" and (layout != "fullscreen" or source_type != "web-evidence"):
+                findings.append(GateFinding("ERROR", "broll-panel-overlay-layout", f"{panel_context}.treatment 'overlay' requires fullscreen web-evidence"))
+            if source_type == "web-evidence" and layout != "fullscreen":
+                findings.append(GateFinding("ERROR", "web-evidence-layout", f"{panel_context}.source_type 'web-evidence' requires fullscreen layout"))
         else:
             presenter_count += 1
+            panel_treatment = panel.get("treatment")
+            if panel_treatment is not None and panel_treatment not in PRESENTER_PANEL_TREATMENTS:
+                findings.append(GateFinding("ERROR", "presenter-treatment", f"{panel_context}.treatment must be one of {sorted(PRESENTER_PANEL_TREATMENTS)}"))
+            if panel_treatment in PRESENTER_PANEL_TREATMENTS and layout != "fullscreen":
+                findings.append(GateFinding("ERROR", "presenter-treatment-layout", f"{panel_context}.treatment requires fullscreen layout"))
             if "source" in panel or "source_type" in panel or "source_strategy" in panel:
                 findings.append(GateFinding("ERROR", "presenter-source", f"{panel_context} is presenter media and must not define source fields"))
     if broll_count == 0:
@@ -294,14 +319,35 @@ def broll_panel_sources(item: dict[str, Any], findings: list[GateFinding], conte
             findings.append(GateFinding("ERROR", "fullscreen-broll-count", f"{context}.layout 'fullscreen' requires exactly one broll panel"))
         if presenter_count > 1:
             findings.append(GateFinding("ERROR", "fullscreen-presenter-count", f"{context}.layout 'fullscreen' allows at most one presenter overlay"))
+        broll_panel = next((panel for panel in panels if isinstance(panel, dict) and panel.get("kind") == "broll"), None)
+        presenter_panel = next((panel for panel in panels if isinstance(panel, dict) and panel.get("kind") == "presenter"), None)
+        broll_treatment = broll_panel.get("treatment") if isinstance(broll_panel, dict) else None
+        presenter_treatment = presenter_panel.get("treatment") if isinstance(presenter_panel, dict) else None
+        if broll_treatment == "overlay" and broll_source_types != ["web-evidence"]:
+            findings.append(GateFinding("ERROR", "broll-overlay-source", f"{context} broll panel treatment 'overlay' requires source_type 'web-evidence'"))
+        if "web-evidence" in broll_source_types:
+            if broll_treatment != "overlay":
+                findings.append(GateFinding("ERROR", "web-evidence-treatment", f"{context} source_type 'web-evidence' requires panel treatment 'overlay'"))
+            if presenter_count != 1 or presenter_treatment != "blur":
+                findings.append(GateFinding("ERROR", "web-evidence-presenter-blur", f"{context} source_type 'web-evidence' requires one presenter panel with treatment 'blur'"))
+        elif presenter_count:
+            if presenter_treatment != "overlay":
+                findings.append(GateFinding("ERROR", "pip-presenter-treatment", f"{context} fullscreen PiP requires presenter panel treatment 'overlay'"))
+            if broll_treatment is not None:
+                findings.append(GateFinding("ERROR", "pip-broll-treatment", f"{context} fullscreen PiP background broll panel must not define treatment"))
     return sources
 
 
-def has_presenter_panel(item: dict[str, Any]) -> bool:
+def has_presenter_presence_treatment(item: dict[str, Any]) -> bool:
     panels = item.get("panels")
     if not isinstance(panels, list):
         return False
-    return any(isinstance(panel, dict) and panel.get("kind") == "presenter" for panel in panels)
+    for panel in panels:
+        if not isinstance(panel, dict):
+            continue
+        if panel.get("kind") == "presenter":
+            return True
+    return False
 
 
 def validate_prototype_presenter_media(
@@ -384,12 +430,12 @@ def validate_script_contract(script: Any, findings: list[GateFinding]) -> None:
     if not isinstance(script, dict):
         findings.append(GateFinding("ERROR", "script-shape", "script.json must be an object"))
         return
-    for key in ("metadata", "segments", "tts_chunks", "broll_queries", "assembly_notes"):
+    for key in ("metadata", "segments", "tts_chunks", "broll_queries"):
         if key not in script:
             findings.append(GateFinding("ERROR", "script-missing-key", f"script.json is missing {key!r}"))
     if not isinstance(script.get("metadata"), dict):
         findings.append(GateFinding("ERROR", "script-metadata", "script.metadata must be an object"))
-    for key in ("segments", "tts_chunks", "broll_queries", "assembly_notes"):
+    for key in ("segments", "tts_chunks", "broll_queries"):
         if key in script and not isinstance(script.get(key), list):
             findings.append(GateFinding("ERROR", "script-list", f"script.{key} must be an array"))
     segments = script.get("segments")
@@ -449,7 +495,7 @@ def validate_script_visual_source_mix(script: Any, findings: list[GateFinding]) 
         if duration <= 0:
             continue
         broll_duration += duration
-        if has_presenter_panel(segment):
+        if has_presenter_presence_treatment(segment):
             presenter_panel_broll_duration += duration
         source_strategies.update(segment_sources)
 

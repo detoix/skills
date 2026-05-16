@@ -21,7 +21,8 @@ Use the strongest source for the segment:
 - `stock` for human behavior, public scenes, physical spaces, or texture.
 - `generated-image` for controlled metaphor, mood, privacy-safe scenes, or impossible archival images.
 - `synthetic-motion` for diagrams, archive boards, timelines, classifications, counters, and forensic UI.
-- `manual` for user-provided or project-local assets.
+- `web-evidence` for user/project-supplied local cropped proof images with `source_url` or `capture_source_url`.
+- `manual` for other user-provided or project-local assets.
 
 Do not use generic futurism as a substitute for evidence. Avoid fake proof.
 

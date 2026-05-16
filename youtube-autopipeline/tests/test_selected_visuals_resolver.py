@@ -41,7 +41,6 @@ class SelectedVisualsResolverTests(unittest.TestCase):
                 ],
                 "tts_chunks": [],
                 "broll_queries": [],
-                "assembly_notes": [],
             },
         )
 
@@ -213,6 +212,56 @@ class SelectedVisualsResolverTests(unittest.TestCase):
             )
 
             self.assertTrue(any("source_url" in error for error in errors), errors)
+
+    def test_web_evidence_requires_screenshot_source_url(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.write_script(root, "web-evidence")
+            asset = root / "broll" / "evidence" / "S01.png"
+            asset.parent.mkdir(parents=True)
+            asset.write_bytes(b"evidence")
+
+            _, errors = self.resolve(
+                root,
+                {
+                    "segment_id": "S01",
+                    "scene_id": "V01",
+                    "section_pattern": "web-evidence-overlay",
+                    "source_type": "web-evidence",
+                    "local_path": "broll/evidence/S01.png",
+                    "accepted": True,
+                    "reason": "Evidence screenshot over blurred presenter plate",
+                    "risk": "none",
+                },
+            )
+
+            self.assertTrue(any("source_url" in error for error in errors), errors)
+
+    def test_web_evidence_with_local_asset_and_source_url_passes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.write_script(root, "web-evidence")
+            asset = root / "broll" / "evidence" / "S01.png"
+            asset.parent.mkdir(parents=True)
+            asset.write_bytes(b"evidence")
+
+            resolved, errors = self.resolve(
+                root,
+                {
+                    "segment_id": "S01",
+                    "scene_id": "V01",
+                    "section_pattern": "web-evidence-overlay",
+                    "source_type": "web-evidence",
+                    "local_path": "broll/evidence/S01.png",
+                    "source_url": "https://example.com/news?id=1",
+                    "accepted": True,
+                    "reason": "Evidence screenshot over blurred presenter plate",
+                    "risk": "none",
+                },
+            )
+
+            self.assertFalse(errors, errors)
+            self.assertEqual(resolved["items"][0]["source_type"], "web-evidence")
 
     def test_synthetic_motion_without_board_proof_fails(self):
         with tempfile.TemporaryDirectory() as tmp:

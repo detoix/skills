@@ -36,9 +36,11 @@ CAPTION_POSITIONS = {"top", "center", "bottom"}
 PRESENTER_TYPES = {"A_ROLL"}
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
 AUDIO_EXTENSIONS = {".mp3", ".wav", ".m4a", ".aac", ".flac", ".ogg"}
-BROLL_SOURCE_TYPES = {"webpage", "stock", "screen-record", "generated-image", "manual", "synthetic-motion"}
+BROLL_SOURCE_TYPES = {"webpage", "stock", "screen-record", "generated-image", "manual", "synthetic-motion", "web-evidence"}
+BROLL_PANEL_TREATMENTS = {"overlay", "still_motion"}
+PRESENTER_PANEL_TREATMENTS = {"overlay", "blur"}
+AROLL_TREATMENTS = {"camera_motion"}
 GRAPHIC_TARGETS = {"B_ROLL", "manual"}
-ASSEMBLY_RISKS = {"none", "fallback", "manual-review"}
 PRESENTER_REPEAT_REASON_CODES = {
     "limited_available_sources",
     "continuity_choice",
@@ -50,6 +52,7 @@ SECTION_PATTERNS = {
     "fullscreen-stock",
     "fullscreen-manual",
     "fullscreen-webpage",
+    "web-evidence-overlay",
     "fullscreen-generated-motion",
     "pip-presenter-broll",
     "pip-presenter-screen",
@@ -159,11 +162,16 @@ def validate_segment_contract(
         for field in ("layout", "panels", "source", "source_type", "source_strategy"):
             if field in item:
                 report.error("aroll-broll-field", f"{context}.{field} is only valid for B_ROLL")
+        treatment = item.get("treatment")
+        if treatment is not None and treatment not in AROLL_TREATMENTS:
+            report.error("aroll-treatment", f"{context}.treatment must be one of {sorted(AROLL_TREATMENTS)}")
         return "A_ROLL"
 
     layout = item.get("layout")
     if layout not in BROLL_LAYOUTS:
         report.error("broll-layout", f"{context}.layout must be one of {sorted(BROLL_LAYOUTS)}")
+    if "treatment" in item:
+        report.error("broll-treatment", f"{context}.treatment is not supported; use panel treatment")
     panels = item.get("panels")
     if not isinstance(panels, list) or not panels:
         report.error("broll-panels", f"{context}.panels must be a non-empty array")
@@ -173,11 +181,14 @@ def validate_segment_contract(
         report.error("broll-panel-count", f"{context}.layout {layout!r} requires exactly {expected_count} panels")
     broll_count = 0
     presenter_count = 0
+    broll_source_types: list[Any] = []
     for panel_index, panel in enumerate(panels):
         panel_context = f"{context}.panels[{panel_index}]"
         if not isinstance(panel, dict):
             report.error("broll-panel-shape", f"{panel_context} must be an object")
             continue
+        if "role" in panel:
+            report.error("broll-panel-role", f"{panel_context}.role is not supported; use layout/treatment/panel kind")
         kind = panel.get("kind")
         if kind not in PANEL_KINDS:
             report.error("broll-panel-kind", f"{panel_context}.kind must be one of {sorted(PANEL_KINDS)}")
@@ -190,13 +201,26 @@ def validate_segment_contract(
             if "source" in panel:
                 report.error("broll-panel-source-legacy", f"{panel_context}.source is not supported; use source_type")
             source_type = panel.get("source_type")
+            broll_source_types.append(source_type)
             if source_type not in BROLL_SOURCE_TYPES:
                 report.error("broll-panel-source-type", f"{panel_context}.source_type must be one of {sorted(BROLL_SOURCE_TYPES)}")
+            panel_treatment = panel.get("treatment")
+            if panel_treatment is not None and panel_treatment not in BROLL_PANEL_TREATMENTS:
+                report.error("broll-panel-treatment", f"{panel_context}.treatment must be one of {sorted(BROLL_PANEL_TREATMENTS)}")
+            if panel_treatment == "overlay" and (layout != "fullscreen" or source_type != "web-evidence"):
+                report.error("broll-panel-overlay-layout", f"{panel_context}.treatment 'overlay' requires fullscreen web-evidence")
+            if source_type == "web-evidence" and layout != "fullscreen":
+                report.error("web-evidence-layout", f"{panel_context}.source_type 'web-evidence' requires fullscreen layout")
         else:
             presenter_count += 1
+            panel_treatment = panel.get("treatment")
+            if panel_treatment is not None and panel_treatment not in PRESENTER_PANEL_TREATMENTS:
+                report.error("presenter-treatment", f"{panel_context}.treatment must be one of {sorted(PRESENTER_PANEL_TREATMENTS)}")
+            if panel_treatment in PRESENTER_PANEL_TREATMENTS and layout != "fullscreen":
+                report.error("presenter-treatment-layout", f"{panel_context}.treatment requires fullscreen layout")
             if "source" in panel or "source_type" in panel or "source_strategy" in panel:
                 report.error("presenter-source", f"{panel_context} is presenter media and must not define source fields")
-            if format_mode == "vertical" and layout == "fullscreen":
+            if format_mode == "vertical" and layout == "fullscreen" and panel_treatment == "overlay":
                 overlay_position = panel.get("overlay_position")
                 if (
                     not isinstance(overlay_position, list)
@@ -211,6 +235,22 @@ def validate_segment_contract(
             report.error("fullscreen-broll-count", f"{context}.layout 'fullscreen' requires exactly one broll panel")
         if presenter_count > 1:
             report.error("fullscreen-presenter-count", f"{context}.layout 'fullscreen' allows at most one presenter overlay")
+        broll_panel = next((panel for panel in panels if isinstance(panel, dict) and panel.get("kind") == "broll"), None)
+        presenter_panel = next((panel for panel in panels if isinstance(panel, dict) and panel.get("kind") == "presenter"), None)
+        broll_treatment = broll_panel.get("treatment") if isinstance(broll_panel, dict) else None
+        presenter_treatment = presenter_panel.get("treatment") if isinstance(presenter_panel, dict) else None
+        if broll_treatment == "overlay" and broll_source_types != ["web-evidence"]:
+            report.error("broll-overlay-source", f"{context} broll panel treatment 'overlay' requires source_type 'web-evidence'")
+        if "web-evidence" in broll_source_types:
+            if broll_treatment != "overlay":
+                report.error("web-evidence-treatment", f"{context} source_type 'web-evidence' requires panel treatment 'overlay'")
+            if presenter_count != 1 or presenter_treatment != "blur":
+                report.error("web-evidence-presenter-blur", f"{context} source_type 'web-evidence' requires one presenter panel with treatment 'blur'")
+        elif presenter_count:
+            if presenter_treatment != "overlay":
+                report.error("pip-presenter-treatment", f"{context} fullscreen PiP requires presenter panel treatment 'overlay'")
+            if broll_treatment is not None:
+                report.error("pip-broll-treatment", f"{context} fullscreen PiP background broll panel must not define treatment")
     return "B_ROLL"
 
 
@@ -221,7 +261,7 @@ def validate_script(script: Any, report: Report, format_mode: str | None = None)
 
     require_keys(
         script,
-        ("metadata", "segments", "tts_chunks", "broll_queries", "assembly_notes"),
+        ("metadata", "segments", "tts_chunks", "broll_queries"),
         report,
         "script",
     )
@@ -229,8 +269,6 @@ def validate_script(script: Any, report: Report, format_mode: str | None = None)
     segments = script.get("segments")
     tts_chunks = script.get("tts_chunks")
     broll_queries = script.get("broll_queries")
-
-    assembly_notes = script.get("assembly_notes")
 
     if not isinstance(metadata, dict):
         report.error("script-metadata", "metadata must be an object")
@@ -270,9 +308,6 @@ def validate_script(script: Any, report: Report, format_mode: str | None = None)
     if not isinstance(broll_queries, list):
         report.error("script-broll", "broll_queries must be an array")
         broll_queries = []
-
-    if not isinstance(assembly_notes, list):
-        report.error("script-assembly-notes", "assembly_notes must be an array")
 
     previous_end = 0.0
     last_interrupt: float | None = None
@@ -375,20 +410,6 @@ def validate_script(script: Any, report: Report, format_mode: str | None = None)
             orientation = item.get("orientation_preference")
             if orientation not in {"vertical", "either"}:
                 report.warn("generated-orientation", f"broll_queries[{index}] generated image should prefer vertical or either")
-
-
-
-    for index, item in enumerate(assembly_notes):
-        if not isinstance(item, dict):
-            report.error("assembly-notes-shape", f"assembly_notes[{index}] must be an object")
-            continue
-        ref = item.get("segment_id")
-        if ref not in segment_ids:
-            report.error("assembly-notes-ref", f"assembly_notes[{index}] references unknown segment {ref!r}")
-        require_keys(item, ("segment_id", "note", "risk"), report, f"assembly_notes[{index}]")
-        if item.get("risk") not in ASSEMBLY_RISKS:
-            report.error("assembly-risk", f"assembly_notes[{index}].risk must be one of {sorted(ASSEMBLY_RISKS)}")
-
 def resolve_path(project_dir: Path, value: Any) -> Path | None:
     if not isinstance(value, str) or not value:
         return None
@@ -515,11 +536,16 @@ def duration_fit_error(available: float, target: float, fit_kind: str) -> str | 
     return None
 
 
-def has_presenter_panel(item: dict[str, Any]) -> bool:
+def has_presenter_presence_treatment(item: dict[str, Any]) -> bool:
     panels = item.get("panels")
     if not isinstance(panels, list):
         return False
-    return any(isinstance(panel, dict) and panel.get("kind") == "presenter" for panel in panels)
+    for panel in panels:
+        if not isinstance(panel, dict):
+            continue
+        if panel.get("kind") == "presenter":
+            return True
+    return False
 
 
 def validate_final_audio_manifest_timeline(
@@ -611,7 +637,7 @@ def validate_timeline(
         duration = end - start
         if entry_type == "B_ROLL":
             broll_duration += duration
-            if has_presenter_panel(entry):
+            if has_presenter_presence_treatment(entry):
                 presenter_panel_broll_duration += duration
 
         media_fields: list[tuple[str, str, float, dict[str, Any] | None, str]] = []

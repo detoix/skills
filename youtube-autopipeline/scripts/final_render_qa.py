@@ -266,7 +266,7 @@ def timeline_asset_categories(timeline: list[dict[str, Any]]) -> dict[str, Any]:
                     continue
                 if panel.get("kind") == "presenter":
                     categories.add("presenter_panel")
-                    if panel.get("role") == "overlay":
+                    if layout == "fullscreen" and panel.get("treatment") == "overlay":
                         categories.add("pip_presenter")
                         pip_entries.append(
                             {

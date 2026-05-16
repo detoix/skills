@@ -178,7 +178,9 @@ approval artifact produced by the previous gate.
 2. Reuse the approved `final_audio.wav` and
    `manifests\final-audio-manifest.json` from Stage 2 as final narration.
 3. Create or update `manifests\presenter-plan.json`, then run `latentsync` for
-   visible presenter segments and panels.
+   visible presenter segments and panels. Do not run LatentSync for B-roll
+   presenter panels using `treatment: "blur"` because the presenter plate is
+   heavily blurred behind evidence and is not a visible talking presenter.
 4. Make and record the presenter-quality decision before final timeline
    assembly.
 5. Produce final generated images for approved generated-image placeholder
@@ -245,11 +247,13 @@ approval artifact produced by the previous gate.
 
 ## B-Roll and Timeline Boundaries
 
-Use [references/timeline-mapping.md](references/timeline-mapping.md) for the
-exact script-to-timeline conversion rules.
-
 Supported B-roll panel `source_type` values are `webpage`, `stock`,
-`screen-record`, `generated-image`, `manual`, and `synthetic-motion`.
+`screen-record`, `generated-image`, `manual`, `synthetic-motion`, and
+`web-evidence`.
+
+`web-evidence` selected visuals are user/project-supplied local cropped proof
+images with `source_url` or `capture_source_url`.
+
 Presenter panels, A-roll, captions, overlays, and layout names are outside
 selected-visuals source diversity.
 
@@ -294,4 +298,3 @@ overlay panels.
 ## Resources
 
 - Project layout and filenames: [references/project-layout.md](references/project-layout.md)
-- Script-to-timeline conversion rules: [references/timeline-mapping.md](references/timeline-mapping.md)

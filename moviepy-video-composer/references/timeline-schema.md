@@ -48,6 +48,7 @@ Allowed B-roll panel `source_type` values:
 - `generated-image`
 - `screen-record`
 - `manual`
+- `web-evidence`
 
 ## Presenter Panels
 
@@ -58,8 +59,8 @@ Presenter overlay over fullscreen B-roll:
   "type": "B_ROLL",
   "layout": "fullscreen",
   "panels": [
-    { "kind": "broll", "source_type": "webpage", "path": "broll/site.mp4", "role": "background" },
-    { "kind": "presenter", "path": "synced/profile/P01.mp4", "role": "overlay", "overlay_scale": 0.34 }
+    { "kind": "broll", "source_type": "webpage", "path": "broll/site.mp4" },
+    { "kind": "presenter", "path": "synced/profile/P01.mp4", "treatment": "overlay", "overlay_scale": 0.34 }
   ],
   "start_time": 10.0,
   "end_time": 16.0
@@ -94,6 +95,21 @@ Still motion is a B-roll panel treatment:
   "path": "broll/generated/S03.png",
   "treatment": "still_motion",
   "motion_type": "push-in"
+}
+```
+
+Evidence overlay uses panel treatments:
+
+```json
+{
+  "type": "B_ROLL",
+  "layout": "fullscreen",
+  "panels": [
+    { "kind": "presenter", "path": "source-assets/presenter-front.mp4", "treatment": "blur" },
+    { "kind": "broll", "source_type": "web-evidence", "path": "broll/evidence/S03.png", "treatment": "overlay" }
+  ],
+  "start_time": 21.0,
+  "end_time": 26.0
 }
 ```
 

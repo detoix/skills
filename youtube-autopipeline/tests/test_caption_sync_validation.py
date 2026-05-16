@@ -9,6 +9,8 @@ from unittest.mock import patch
 
 PIPELINE_PATH = Path(__file__).resolve().parents[1] / "scripts" / "pipeline_check.py"
 sys.path.insert(0, str(PIPELINE_PATH.parent))
+import production_gate
+
 PIPELINE_SPEC = importlib.util.spec_from_file_location("pipeline_check", PIPELINE_PATH)
 pipeline_check = importlib.util.module_from_spec(PIPELINE_SPEC)
 assert PIPELINE_SPEC and PIPELINE_SPEC.loader
@@ -95,6 +97,68 @@ class CaptionSyncValidationTests(unittest.TestCase):
                 pipeline_check.validate_timeline(timeline, root, report, None, "vertical")
             self.assertIn("clip-too-short", {item.code for item in report.findings})
 
+    def test_pipeline_check_counts_evidence_overlay_as_presenter_presence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "broll" / "evidence").mkdir(parents=True)
+            (root / "broll" / "manual").mkdir(parents=True)
+            (root / "source-assets").mkdir(parents=True)
+            (root / "broll" / "evidence" / "S01.png").write_bytes(b"placeholder")
+            (root / "broll" / "manual" / "S02.mp4").write_bytes(b"placeholder")
+            (root / "source-assets" / "presenter-front.mp4").write_bytes(b"placeholder")
+            timeline = [
+                {
+                    "type": "B_ROLL",
+                    "layout": "fullscreen",
+                    "panels": [
+                        {"kind": "presenter", "path": "source-assets/presenter-front.mp4", "treatment": "blur"},
+                        {"kind": "broll", "source_type": "web-evidence", "path": "broll/evidence/S01.png", "treatment": "overlay"},
+                    ],
+                    "start_time": 0.0,
+                    "end_time": 3.0,
+                },
+                {
+                    "type": "B_ROLL",
+                    "layout": "fullscreen",
+                    "panels": [{"kind": "broll", "source_type": "manual", "path": "broll/manual/S02.mp4"}],
+                    "start_time": 3.0,
+                    "end_time": 6.0,
+                },
+            ]
+            report = pipeline_check.Report()
+            with patch.object(pipeline_check, "media_duration", return_value=6.0):
+                pipeline_check.validate_timeline(timeline, root, report, None, "vertical")
+
+            self.assertNotIn("broll-presenter-panel-ratio", {item.code for item in report.findings})
+
+    def test_production_gate_counts_evidence_overlay_as_presenter_presence(self):
+        script = {
+            "segments": [
+                {
+                    "segment_id": "S01",
+                    "type": "B_ROLL",
+                    "layout": "fullscreen",
+                    "duration_seconds": 3.0,
+                    "panels": [
+                        {"kind": "presenter", "path": "source-assets/presenter-front.mp4", "treatment": "blur"},
+                        {"kind": "broll", "source_type": "web-evidence", "treatment": "overlay"},
+                    ],
+                },
+                {
+                    "segment_id": "S02",
+                    "type": "B_ROLL",
+                    "layout": "fullscreen",
+                    "duration_seconds": 3.0,
+                    "panels": [{"kind": "broll", "source_type": "manual"}],
+                },
+            ]
+        }
+        findings = []
+
+        production_gate.validate_script_visual_source_mix(script, findings)
+
+        self.assertNotIn("script-broll-presenter-panel-ratio", {item.code for item in findings})
+
     def test_pipeline_check_rejects_legacy_broll_panel_source(self):
         timeline = [
             {
@@ -118,7 +182,7 @@ class CaptionSyncValidationTests(unittest.TestCase):
                 "layout": "fullscreen",
                 "panels": [
                     {"kind": "broll", "source_type": "manual", "path": "broll/manual/asset.png"},
-                    {"kind": "presenter", "source_type": "manual", "path": "synced/profile/P01.mp4", "role": "overlay"},
+                    {"kind": "presenter", "source_type": "manual", "path": "synced/profile/P01.mp4", "treatment": "overlay"},
                 ],
                 "start_time": 0.0,
                 "end_time": 2.0,
@@ -129,6 +193,58 @@ class CaptionSyncValidationTests(unittest.TestCase):
         pipeline_check.validate_timeline(timeline, Path("."), report, None, "vertical")
 
         self.assertIn("presenter-source", {item.code for item in report.findings})
+
+    def test_pipeline_check_rejects_broll_overlay_without_web_evidence_source(self):
+        timeline = [
+            {
+                "type": "B_ROLL",
+                "layout": "fullscreen",
+                "panels": [
+                    {"kind": "presenter", "path": "source-assets/presenter-front.mp4", "treatment": "blur"},
+                    {"kind": "broll", "source_type": "manual", "path": "broll/manual/asset.png", "treatment": "overlay"},
+                ],
+                "start_time": 0.0,
+                "end_time": 2.0,
+            }
+        ]
+        report = pipeline_check.Report()
+
+        pipeline_check.validate_timeline(timeline, Path("."), report, None, "vertical")
+
+        self.assertIn("broll-overlay-source", {item.code for item in report.findings})
+
+    def test_pipeline_check_rejects_top_level_broll_treatment(self):
+        timeline = [
+            {
+                "type": "B_ROLL",
+                "layout": "fullscreen",
+                "treatment": "pip",
+                "panels": [{"kind": "broll", "source_type": "manual", "path": "broll/manual/asset.png"}],
+                "start_time": 0.0,
+                "end_time": 2.0,
+            }
+        ]
+        report = pipeline_check.Report()
+
+        pipeline_check.validate_timeline(timeline, Path("."), report, None, "vertical")
+
+        self.assertIn("broll-treatment", {item.code for item in report.findings})
+
+    def test_pipeline_check_rejects_panel_role(self):
+        timeline = [
+            {
+                "type": "B_ROLL",
+                "layout": "fullscreen",
+                "panels": [{"kind": "broll", "source_type": "manual", "path": "broll/manual/asset.png", "role": "background"}],
+                "start_time": 0.0,
+                "end_time": 2.0,
+            }
+        ]
+        report = pipeline_check.Report()
+
+        pipeline_check.validate_timeline(timeline, Path("."), report, None, "vertical")
+
+        self.assertIn("broll-panel-role", {item.code for item in report.findings})
 
     def test_final_render_qa_fails_non_final_audio_alignment_source(self):
         findings = final_render_qa.build_findings(
@@ -208,7 +324,7 @@ class CaptionSyncValidationTests(unittest.TestCase):
                     "layout": "fullscreen",
                     "panels": [
                         {"kind": "broll", "source_type": "manual", "path": "broll/manual/asset.png"},
-                        {"kind": "presenter", "path": "synced/profile/P01.mp4", "role": "overlay"},
+                        {"kind": "presenter", "path": "synced/profile/P01.mp4", "treatment": "overlay"},
                     ],
                     "start_time": 2.0,
                     "end_time": 4.0,

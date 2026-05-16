@@ -15,7 +15,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 RESOLVER_NAME = "youtube-autopipeline-selected-visuals-resolver"
 RESOLVER_VERSION = "1.0.0"
-BROLL_SOURCE_TYPES = {"webpage", "stock", "screen-record", "generated-image", "manual", "synthetic-motion"}
+BROLL_SOURCE_TYPES = {"webpage", "stock", "screen-record", "generated-image", "manual", "synthetic-motion", "web-evidence"}
 IDENTITY_FIELDS = {"canonical_id", "sha256", "provenance"}
 
 
@@ -159,6 +159,11 @@ def validate_source_type_proof(
     elif source_type == "webpage":
         if not (isinstance(source_url, str) and source_url.strip()) and not isinstance(item.get("capture_source_url"), str):
             errors.append(f"{context}.source_url or capture_source_url is required for webpage")
+    elif source_type == "web-evidence":
+        if file_path is None:
+            errors.append(f"{context}.local_path is required for web-evidence")
+        if not (isinstance(source_url, str) and source_url.strip()) and not isinstance(item.get("capture_source_url"), str):
+            errors.append(f"{context}.source_url or capture_source_url is required for web-evidence")
     elif source_type == "stock":
         provider = item.get("provider")
         if provider != "pexels" and not (isinstance(source_url, str) and provider_from_url(source_url) == "pexels"):

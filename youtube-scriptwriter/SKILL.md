@@ -51,17 +51,21 @@ Top-level keys:
 - `segments`
 - `tts_chunks`
 - `broll_queries`
-- `assembly_notes`
 
 Do not use Markdown as the automation interface unless the caller explicitly asks for a human-readable companion after the JSON exists.
 
 ## Baseline Rules
 
 - Keep segment timing explicit and sequential.
-- Keep `A_ROLL` segments at or below 20 seconds.
+- Keep `A_ROLL` segments at or below 15 seconds.
 - Insert a pattern interrupt every 5-15 seconds.
+- By default, end with a short close-CTA segment unless the user disables CTA; set its `pattern_interrupt_type` to `close-cta` and do not introduce a new factual claim, offer, link, or promise.
 - Use only `A_ROLL` and `B_ROLL` as segment types.
-- For B-roll panels, use `source_type`, not `source`.
+- B-roll panels must define `source_type`.
+- B-roll treatments are panel-level.
+- Fullscreen PiP is one B-roll panel plus one presenter panel with `treatment: "overlay"`.
+- Select `web-evidence` only when the user or project already supplies a local cropped proof image with `source_url` or `capture_source_url`.
+- Fullscreen evidence overlay is one presenter panel with `treatment: "blur"` plus one `web-evidence` B-roll panel with `treatment: "overlay"`.
 - Do not use `broll_search_query`.
 - Keep `segments[].narration` natural and correctly written; captions use this text.
 - Use `tts_chunks[].voice_text` only for TTS-safe spoken wording.
