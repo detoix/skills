@@ -225,8 +225,9 @@ approval artifact produced by the previous gate.
       --timeline <project-dir>\timeline.json `
       --status needs_review
     ```
-12. Summarize production timing logs from
-    `manifests\production-timings.jsonl`, then report final outputs or blockers.
+12. Report final outputs or blockers. When final production succeeds, include:
+    final video path, QA status, notable warnings, exactly 3 title options, one
+    concise description, and 5-10 relevant tags.
 
 ## Cross-Skill Artifact Contracts
 
