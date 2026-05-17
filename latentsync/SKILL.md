@@ -34,9 +34,6 @@ project folder:
 C:\Users\kdeptula\skills\latentsync\.cache\affine
 ```
 
-Cache identity must be hash-based, not filename-based. The batch runner keys cache files by source video SHA-256,
-resolution, mask, mask image SHA-256, and cache schema version. If cache metadata does not match, the runner ignores it
-and recomputes normally.
 
 To precompute persistent affine cache for all reusable avatar videos in an asset folder, run:
 
