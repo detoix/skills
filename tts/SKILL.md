@@ -30,25 +30,23 @@ The TTS script lives in:
 
 If a task is being run from another workspace, do not assume a per-project `.\venv` exists in that workspace. Resolve `.\.venv` relative to this skill directory unless the user provides a different one.
 
-### Linux CPU VoxCPM2 Runtime
+### Runtime Role
 
-A persistent CPU-only VoxCPM2 runtime is installed at:
+This skill owns speech synthesis mechanics only. Callers own voice identity, asset discovery, project context, and approval state. Do not make this skill depend on or name upstream callers, channels, or global user-specific voice directories.
 
-`/home/detoix/.local/share/voxcpm2-cpu`
+Required clone inputs from the caller:
 
-Use it for deterministic short Polish clone tests or emergency CPU fallback when the Windows/RTX setup is unavailable:
+- `voice_sample.wav`: source voice sample
+- `transcript.txt`: exact transcript of that sample
+- target text or batch input derived from the caller's approved narration chunks
+- output path or project-local TTS output directory
 
-```bash
-/home/detoix/.local/share/voxcpm2-cpu/venv/bin/python \
-  /home/detoix/.local/share/voxcpm2-cpu/scripts/generate_clone.py \
-  --voice-dir /home/detoix/.local/share/voxcpm2-cpu/voices/krzysztof \
-  --text "Cześć, to jest krótka próba klonowania głosu po polsku." \
-  --steps 4 \
-  --max-len 80 \
-  --output /home/detoix/.local/share/voxcpm2-cpu/outputs/out.wav
-```
+Runtime paths are execution details:
 
-The script writes a JSON manifest next to each WAV containing steps, hashes, VoxCPM commit, Torch version, device, and output SHA256.
+- Windows/GPU production: use the skill-local VoxCPM2 wrapper and `.venv` documented below.
+- Linux/CPU fallback: `/home/detoix/.local/share/voxcpm2-cpu`, used only when GPU runtime is unavailable or for short deterministic smoke tests.
+
+On the Sandy Bridge Linux CPU fallback, VoxCPM2 low-precision CPU checkpoints must load as `float32`; otherwise the runtime can terminate with `SIGILL`. The local VoxCPM source patch in `/home/detoix/.local/share/voxcpm2-cpu/src/VoxCPM/src/voxcpm/model/utils.py` handles this and prints `adjusted dtype bfloat16 -> float32 for device cpu` during a healthy run.
 
 ## Workflow
 
@@ -108,7 +106,7 @@ Exact transcript of the sample audio
 - For the default VoxCPM prompt/reference path, do not add `--normalize`, `--control`, `--no-optimize`, custom `--cfg-value`, or custom `--inference-timesteps` unless the user explicitly requests experimentation.
 - If the caller supplies a parenthetical cue at the start of the text, treat it as a micro-prosody nudge only.
 - Keep such cues very short and sparse so the model stays close to the cloned speaker identity.
-- Prefer cues about discourse position or transition, such as `clear start`, `steady continuation`, `slight contrast`, or `gentle wrap-up`, over strong mood or persona descriptions.
+- Prefer cues about discourse position or transition, such as `clear start`, `steady continuation`, `slight contrast`, or `gentle wrap-up`, over strong mood or performance descriptions.
 - If a cue makes the output sound less like the speaker, remove it rather than strengthening it.
 - Prefer handling text normalization at the TTS stage rather than pushing engine-specific rewrites upstream into the scriptwriter skill.
 - If the narration contains digits, dates, abbreviations, passwords, or mixed-language tokens and the raw clone sounds garbled, test `--normalize` first so `wetext` can expand the text automatically.
