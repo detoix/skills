@@ -1,0 +1,13 @@
+.cache/
+temp/
+outputs/
+models/
+*.wav
+*.mp4
+*.mov
+*.zip
+**/*.wav
+**/*.mp4
+**/*.mov
+**/*.zip
+cpu-optimization-analysis.md

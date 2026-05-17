@@ -14,6 +14,10 @@ from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any
 
+YOUTUBE_AUTOPIPELINE_SCRIPTS = Path(__file__).resolve().parents[2] / "youtube-autopipeline" / "scripts"
+if str(YOUTUBE_AUTOPIPELINE_SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(YOUTUBE_AUTOPIPELINE_SCRIPTS))
+
 from production_metrics import end_stage, start_stage
 
 

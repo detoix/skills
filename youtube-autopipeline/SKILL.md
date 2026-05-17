@@ -121,7 +121,7 @@ approval artifact produced by the previous gate.
    approved prototype and final narration path.
 3. Run pronunciation QA:
    ```powershell
-   python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\tts_pronunciation_qa.py `
+   C:\Users\kdeptula\skills\tts\.venv\Scripts\python.exe C:\Users\kdeptula\skills\tts\scripts\tts_pronunciation_qa.py `
      --project-dir <project-dir> `
      --script <project-dir>\script.json `
      --tts-dir <project-dir>\tts\clean `

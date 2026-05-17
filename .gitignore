@@ -18,10 +18,3 @@ models/
 
 *.skill
 
-# Generated or downloaded local runtime artifacts.
-*.glb
-smoke_test_generation.png
-image-to-3d/scripts/temp_wheels/
-image-to-3d/scripts/trellis2_core/
-latentsync/.cache/
-tts/cpu-optimization-analysis.md

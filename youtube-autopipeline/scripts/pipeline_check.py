@@ -997,12 +997,6 @@ def preflight(project_dir: Path, report: Report, require_pexels: bool) -> None:
     else:
         report.error("ffmpeg-missing", f"ffmpeg not found; expected {ffmpeg_dir}")
 
-    tts_python = Path.home() / "Downloads" / "speech-gen" / "venv" / "Scripts" / "python.exe"
-    if tts_python.exists():
-        report.info("tts-env-found", f"TTS Python: {tts_python}")
-    else:
-        report.error("tts-env-missing", f"TTS environment missing: {tts_python}")
-
     composer_python = skills_root / "moviepy-video-composer" / ".venv" / "Scripts" / "python.exe"
     if run_python_import(composer_python, "moviepy"):
         report.info("composer-ok", f"moviepy import works in {composer_python}")
