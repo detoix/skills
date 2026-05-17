@@ -32,13 +32,14 @@ If a task is being run from another workspace, do not assume a per-project `.\ve
 
 ### Runtime Role
 
-This skill exists to synthesize cloned narration for persona-led production skills such as `adam` and `arthur`. The persona skill owns the host voice identity and points to its own assets. TTS only turns approved `tts_chunks[].voice_text` into audio that matches the selected persona voice.
+This skill owns speech synthesis mechanics only. Callers (such as the persona-led production skills `adam` and `arthur`) own voice identity, asset discovery, project context, and approval state. To keep the design modular, do not make this skill hardcode dependencies on or name specific upstream callers, channels, or global user-specific voice directories in its implementation logic.
 
-Persona voice inputs are resolved from the active persona/project asset context, not from a hardcoded global voice directory:
+Required clone inputs from the caller (resolved from the active persona/project asset context, not from a hardcoded global directory):
 
 - `voice_sample.wav`: the persona/source voice sample
 - `transcript.txt`: exact transcript of that sample
-- optional project-local TTS manifests and clean chunk directories
+- target text or batch input derived from the caller's approved narration chunks (e.g. `tts_chunks[].voice_text`)
+- output path, project-local TTS output directory, or optional project-local TTS manifests and clean chunk directories
 
 Runtime paths are execution details:
 
@@ -105,7 +106,7 @@ Exact transcript of the sample audio
 - For the default VoxCPM prompt/reference path, do not add `--normalize`, `--control`, `--no-optimize`, custom `--cfg-value`, or custom `--inference-timesteps` unless the user explicitly requests experimentation.
 - If the caller supplies a parenthetical cue at the start of the text, treat it as a micro-prosody nudge only.
 - Keep such cues very short and sparse so the model stays close to the cloned speaker identity.
-- Prefer cues about discourse position or transition, such as `clear start`, `steady continuation`, `slight contrast`, or `gentle wrap-up`, over strong mood or persona descriptions.
+- Prefer cues about discourse position or transition, such as `clear start`, `steady continuation`, `slight contrast`, or `gentle wrap-up`, over strong mood or performance descriptions.
 - If a cue makes the output sound less like the speaker, remove it rather than strengthening it.
 - Prefer handling text normalization at the TTS stage rather than pushing engine-specific rewrites upstream into the scriptwriter skill.
 - If the narration contains digits, dates, abbreviations, passwords, or mixed-language tokens and the raw clone sounds garbled, test `--normalize` first so `wetext` can expand the text automatically.
