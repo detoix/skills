@@ -30,23 +30,9 @@ The TTS script lives in:
 
 If a task is being run from another workspace, do not assume a per-project `.\venv` exists in that workspace. Resolve `.\.venv` relative to this skill directory unless the user provides a different one.
 
-### Runtime Role
+### Linux/CPU fallback
 
-This skill owns speech synthesis mechanics only. Callers (such as the persona-led production skills `adam` and `arthur`) own voice identity, asset discovery, project context, and approval state. To keep the design modular, do not make this skill hardcode dependencies on or name specific upstream callers, channels, or global user-specific voice directories in its implementation logic.
-
-Required clone inputs from the caller (resolved from the active persona/project asset context, not from a hardcoded global directory):
-
-- `voice_sample.wav`: the persona/source voice sample
-- `transcript.txt`: exact transcript of that sample
-- target text or batch input derived from the caller's approved narration chunks (e.g. `tts_chunks[].voice_text`)
-- output path, project-local TTS output directory, or optional project-local TTS manifests and clean chunk directories
-
-Runtime paths are execution details:
-
-- Windows/GPU production: use the skill-local VoxCPM2 wrapper and `.venv` documented below.
-- Linux/CPU fallback: `/home/detoix/.local/share/voxcpm2-cpu`, used only when GPU runtime is unavailable or for short deterministic smoke tests.
-
-On the Sandy Bridge Linux CPU fallback, VoxCPM2 low-precision CPU checkpoints must load as `float32`; otherwise the runtime can terminate with `SIGILL`. The local VoxCPM source patch in `/home/detoix/.local/share/voxcpm2-cpu/src/VoxCPM/src/voxcpm/model/utils.py` handles this and prints `adjusted dtype bfloat16 -> float32 for device cpu` during a healthy run.
+On the Sandy Bridge Linux CPU fallback, use `/home/detoix/.local/share/voxcpm2-cpu`.
 
 ## Workflow
 
