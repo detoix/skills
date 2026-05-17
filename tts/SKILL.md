@@ -30,25 +30,22 @@ The TTS script lives in:
 
 If a task is being run from another workspace, do not assume a per-project `.\venv` exists in that workspace. Resolve `.\.venv` relative to this skill directory unless the user provides a different one.
 
-### Linux CPU VoxCPM2 Runtime
+### Runtime Role
 
-A persistent CPU-only VoxCPM2 runtime is installed at:
+This skill exists to synthesize cloned narration for persona-led production skills such as `adam` and `arthur`. The persona skill owns the host voice identity and points to its own assets. TTS only turns approved `tts_chunks[].voice_text` into audio that matches the selected persona voice.
 
-`/home/detoix/.local/share/voxcpm2-cpu`
+Persona voice inputs are resolved from the active persona/project asset context, not from a hardcoded global voice directory:
 
-Use it for deterministic short Polish clone tests or emergency CPU fallback when the Windows/RTX setup is unavailable:
+- `voice_sample.wav`: the persona/source voice sample
+- `transcript.txt`: exact transcript of that sample
+- optional project-local TTS manifests and clean chunk directories
 
-```bash
-/home/detoix/.local/share/voxcpm2-cpu/venv/bin/python \
-  /home/detoix/.local/share/voxcpm2-cpu/scripts/generate_clone.py \
-  --voice-dir /home/detoix/.local/share/voxcpm2-cpu/voices/krzysztof \
-  --text "Cześć, to jest krótka próba klonowania głosu po polsku." \
-  --steps 4 \
-  --max-len 80 \
-  --output /home/detoix/.local/share/voxcpm2-cpu/outputs/out.wav
-```
+Runtime paths are execution details:
 
-The script writes a JSON manifest next to each WAV containing steps, hashes, VoxCPM commit, Torch version, device, and output SHA256.
+- Windows/GPU production: use the skill-local VoxCPM2 wrapper and `.venv` documented below.
+- Linux/CPU fallback: `/home/detoix/.local/share/voxcpm2-cpu`, used only when GPU runtime is unavailable or for short deterministic smoke tests.
+
+On the Sandy Bridge Linux CPU fallback, VoxCPM2 low-precision CPU checkpoints must load as `float32`; otherwise the runtime can terminate with `SIGILL`. The local VoxCPM source patch in `/home/detoix/.local/share/voxcpm2-cpu/src/VoxCPM/src/voxcpm/model/utils.py` handles this and prints `adjusted dtype bfloat16 -> float32 for device cpu` during a healthy run.
 
 ## Workflow
 
