@@ -228,6 +228,7 @@ The fixed terminal tag must always be exact and final:
 Rules:
 
 - Do not put any CTA, explanation, or extra narration after the fixed terminal tag.
+- `Records from before the Singularity.` must be its own final `tts_chunk`, mapped only to the terminal-tag segment.
 - Insert a short silence break before the fixed terminal tag.
 - The fixed terminal tag must have no soundtrack or music underneath it.
 - The CTA line may have music underneath if it fits the episode, but the terminal tag must be isolated.
