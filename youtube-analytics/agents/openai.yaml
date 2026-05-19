@@ -1,0 +1,4 @@
+interface:
+  display_name: "YouTube Analytics"
+  short_description: "Pull and analyze read-only YouTube channel analytics locally."
+  default_prompt: "Use this skill to set up or run the local YouTube Analytics pipeline for read-only channel metrics."

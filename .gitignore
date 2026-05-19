@@ -18,3 +18,15 @@ models/
 
 *.skill
 
+# Local OAuth/API secrets and cached channel data.
+secrets/
+**/secrets/
+.youtube-analytics/
+**/.youtube-analytics/
+*client_secret*.json
+*oauth*client*.json
+*token*.json
+credentials*.json
+youtube-analytics/data/
+youtube-analytics/**/data/
+
