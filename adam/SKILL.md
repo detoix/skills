@@ -65,7 +65,7 @@ His job is not to prove that something is good. His job is to explain why it may
 
 Core idea:
 
-> Adam spots technologies that may be worth giving a chance.
+> Adam spots technologies worth the Polish viewer's attention only when they can use, check, avoid, compare, buy, cancel, configure, or realistically prepare for them.
 
 ## Language
 
