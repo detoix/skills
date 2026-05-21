@@ -285,14 +285,14 @@ approval artifact, validation output, or production output is unavailable.
 Production requires:
 
 - topic after intake
-- presenter source video
+- presenter source videos
 - speech sample
 - exact speech-sample transcript
 - working TTS path
 - working lip-sync path
 - working final composition path
 
-Landscape mode also requires a 3/4-profile presenter source video. Vertical
+Landscape mode also requires 3/4-profile presenter source videos. Vertical
 mode can route presenter visibility through A-roll and B-roll without profile
 overlay panels.
 

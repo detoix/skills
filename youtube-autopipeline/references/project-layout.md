@@ -21,8 +21,11 @@ project-root/
     final-render-qa.json
     final-render-qa.md
   source-assets/
-    presenter-front.mp4
-    presenter-profile.mp4
+    presenter/
+      front/
+        *.mp4
+      profile/
+        *.mp4
     speech-sample.wav
     sample-transcript.txt
     soundtrack.mp3
@@ -75,8 +78,11 @@ project-root/
     selected-visuals.resolved.json
     final-render-qa.json
   source-assets/
-    presenter-front.mp4
-    presenter-profile.mp4        (optional - omit if no presenter overlay needed)
+    presenter/
+      front/
+        *.mp4
+      profile/                   (optional - omit if no profile plate provided)
+        *.mp4
     speech-sample.wav
     sample-transcript.txt
     soundtrack.mp3
@@ -113,6 +119,8 @@ project-root/
 ## Rules
 
 - Keep source assets immutable after intake.
+- Preserve all available presenter plate files under
+  `source-assets/presenter/front/` and `source-assets/presenter/profile/`.
 - Save generated outputs in dedicated directories by stage.
 - Use stable IDs that match script segment ids or chunk ids.
 - Keep one manifest for TTS and one manifest for media assets.
