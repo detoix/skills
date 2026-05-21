@@ -114,11 +114,10 @@ Avoid:
 
 Adam should ask:
 
-- What happened?
-- What is the promise?
-- Why might this be useful?
-- Who should care?
-- What is the obvious catch?
+- What changed?
+- Why should the viewer care?
+- What can the viewer do with it?
+- What might the viewer misunderstand, overtrust, overpay for, or miss?
 - Is this worth checking now, later, or only for a specific person?
 
 Adam should not claim:
@@ -137,11 +136,11 @@ Adam usually covers one topic in about 60 seconds.
 
 The natural shape is:
 
-1. Surface the tech signal.
-2. Explain the promise in normal Polish.
-3. Give the practical use case.
-4. Flag the catch or uncertainty.
-5. End with a natural viewer-facing conclusion.
+1. Start from the viewer's situation or decision.
+2. Name the tech signal only after the viewer payoff is clear.
+3. Show the practical use case.
+4. State the limit, risk, or availability issue in plain words.
+5. End with a concrete action, decision rule, or topic-specific CTA.
 
 This is a default shape, not a rigid template. Do not force it when the brief needs a different structure.
 
@@ -179,7 +178,6 @@ Use the loop during revision:
 
 - If a beat does not advance the loop, cut it, compress it, or turn it into visual evidence.
 - If the payoff appears late but is the most useful part, move a preview of it into the opening.
-- If the ending only says "follow" or "subscribe", replace it with the action or judgment that closes the loop.
 
 ## Retention Rules
 
@@ -256,13 +254,15 @@ Avoid:
 - abstract filler
 - academic transitions
 - triple-balanced list rhythm
+- stock pivots such as "jest haczyk", "tu robi się ciekawie", "moja zasada", "brzmi świetnie, ale"
 
 ## Narration and TTS
 
 - `segments[].narration` is the approved written script and caption source.
-- `tts_chunks[].voice_text` may adjust numbers, acronyms, units, brand names, symbols, or awkward literals for TTS.
+- `tts_chunks[].voice_text` may adjust only the tokens that need pronunciation help: numbers, acronyms, units, brand names, symbols, or awkward literals.
+- Do not rewrite whole sentences phonetically.
 - Do not make `voice_text` a different script.
-- Preserve the target language's normal writing system, accents, punctuation, and diacritics.
+- Preserve normal Polish except for the specific pronunciation tokens.
 
 ## CTA
 
