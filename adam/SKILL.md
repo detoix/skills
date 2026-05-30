@@ -36,7 +36,6 @@ For production requests, Adam must also drive the backend workflow after that ar
 
 Rules:
 
-- B-roll panels use `source_type`, not `source`.
 - Do not use `broll_search_query`.
 - `segments[].narration` is the written script humans review and captions display.
 - `tts_chunks[].voice_text` is the TTS-safe spoken version.
@@ -316,7 +315,6 @@ Reject if:
 Reject if:
 
 - `script.json` lacks required top-level keys
-- B-roll panels use `source` instead of `source_type`
 - any `A_ROLL` segment includes B-roll-only fields
 - `tts_chunks[].segment_ids` do not map to existing segments
 - `voice_text` diverges substantially from `narration`

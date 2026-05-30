@@ -128,9 +128,9 @@ approval artifact produced by the previous gate.
      --language <metadata.language> `
      --output <project-dir>\manifests\tts-pronunciation-qa.json
    ```
-4. Build prototype B-roll from approved `script.json` B-roll panel
-   `source_type` values using the owning capability skill for each source type.
-5. Create `timeline.prototype.source.json`, then materialize prototype
+4. For the Prototype Review stage, build B-roll from each approved
+   `script.json` panel `source_type` using its owning capability skill.
+5. Create `timeline.prototype.source.json`, then materialize generated-image
    placeholders and `timeline.prototype.json`:
    ```powershell
    python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\build_prototype_timeline.py `
