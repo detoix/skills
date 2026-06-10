@@ -70,10 +70,12 @@ approval artifact produced by the previous gate.
    exact voice-sample transcript, and optional music.
 2. Create one project directory and keep generated artifacts inside it. Use
    [references/project-layout.md](references/project-layout.md).
-3. Normalize available assets:
+3. Copy available source assets into `<project-dir>\source-assets`, preserving
+   the full presenter plate library. Then inventory `<project-dir>\source-assets`,
+   so the asset manifest includes every usable front/profile presenter clip:
    ```powershell
    python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\asset_inventory.py `
-     --asset-root <asset-root> `
+     --asset-root <project-dir>\source-assets `
      --output <project-dir>\manifests\assets-manifest.json
    ```
 4. Create or reuse `script.json`. Upstream author QA runs before creative
@@ -140,7 +142,9 @@ approval artifact produced by the previous gate.
      --output <project-dir>\timeline.prototype.json `
      --format <landscape-or-vertical>
    ```
-6. Use raw muted presenter video for prototype presenter panels. Record
+6. Use raw muted presenter source videos from `assets-manifest.json` for
+   prototype presenter panels. Distribute available front/profile presenter
+   plates across visible A-roll and overlay moments. Record
    `presenter.latentsync: "skipped"` and
    `presenter.presenter_mode: "raw_muted_video"` in
    `manifests\prototype-manifest.json`.
@@ -177,10 +181,14 @@ approval artifact produced by the previous gate.
    ```
 2. Reuse the approved `final_audio.wav` and
    `manifests\final-audio-manifest.json` from Stage 2 as final narration.
-3. Create or update `manifests\presenter-plan.json`, then run `latentsync` for
-   visible presenter segments and panels. Do not run LatentSync for B-roll
+3. Select concrete presenter source videos from
+   `manifests\assets-manifest.json`, then run `latentsync` for visible
+   presenter segments and panels. Distribute available front/profile presenter
+   plates across visible presenter moments. Skip LatentSync for B-roll
    presenter panels using `treatment: "blur"` because the presenter plate is
    heavily blurred behind evidence and is not a visible talking presenter.
+   Record the selected source videos in the LatentSync jobs/report and final
+   timeline.
 4. Make and record the presenter-quality decision before final timeline
    assembly.
 5. Produce final generated images for approved generated-image placeholder

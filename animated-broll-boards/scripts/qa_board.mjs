@@ -111,24 +111,8 @@ function validateCreativeManifest(manifest, failures) {
   if (!Array.isArray(brief.motion_beats) || brief.motion_beats.length < 2) {
     failures.push("creative_brief.motion_beats must contain at least two beats");
   }
-  if (!Array.isArray(brief.copy_blocks) || brief.copy_blocks.length < 1) {
-    failures.push("creative_brief.copy_blocks must contain at least one copy block");
-  }
   if (manifest.scene_hash === undefined || typeof manifest.scene_hash !== "string" || manifest.scene_hash.length !== 64) {
     failures.push("manifest.scene_hash must be a SHA-256 hex string");
-  }
-}
-
-function validateCopyBlocks(manifest, bodyText, failures) {
-  const blocks = manifest.creative_brief?.copy_blocks;
-  if (!Array.isArray(blocks)) return;
-  const normalizedBody = String(bodyText || "").replace(/\s+/g, " ").trim();
-  for (const block of blocks) {
-    if (typeof block !== "string" || !block.trim()) continue;
-    const expected = block.replace(/\s+/g, " ").trim();
-    if (!normalizedBody.includes(expected)) {
-      failures.push(`Visible copy is missing or altered from copy_blocks: ${expected}`);
-    }
   }
 }
 
@@ -248,8 +232,6 @@ async function main() {
     if (dom.animatedCount < 4) failures.push(`Too few animated elements: ${dom.animatedCount}; custom motion scenes require at least 4`);
     if (uniqueSampleCount < 3) failures.push(`Scene appears too static; only ${uniqueSampleCount} unique sampled frames`);
     if (previewStat.size < 10000) failures.push("Preview screenshot is suspiciously small");
-    validateCopyBlocks(manifest, dom.bodyText, failures);
-
     const qa = {
       status: failures.length ? "fail" : "pass",
       failures,

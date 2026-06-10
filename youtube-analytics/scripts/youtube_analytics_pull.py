@@ -19,6 +19,7 @@ SCOPES = [
 DEFAULT_METRICS = ",".join(
     [
         "views",
+        "engagedViews",
         "estimatedMinutesWatched",
         "averageViewDuration",
         "averageViewPercentage",
@@ -29,6 +30,57 @@ DEFAULT_METRICS = ",".join(
         "subscribersLost",
     ]
 )
+
+SUPPLEMENTAL_REPORTS = [
+    {
+        "name": "traffic_source",
+        "metrics": "views,estimatedMinutesWatched,averageViewDuration,averageViewPercentage",
+        "dimensions": "insightTrafficSourceType",
+        "sort": "-views",
+    },
+    {
+        "name": "day_traffic_source",
+        "metrics": "views,averageViewPercentage",
+        "dimensions": "day,insightTrafficSourceType",
+        "sort": "day",
+    },
+    {
+        "name": "device_type",
+        "metrics": "views,averageViewPercentage",
+        "dimensions": "deviceType",
+        "sort": "-views",
+    },
+    {
+        "name": "operating_system",
+        "metrics": "views,averageViewPercentage",
+        "dimensions": "operatingSystem",
+        "sort": "-views",
+    },
+    {
+        "name": "subscribed_status",
+        "metrics": "views,averageViewPercentage",
+        "dimensions": "subscribedStatus",
+        "sort": "-views",
+    },
+    {
+        "name": "creator_content_type",
+        "metrics": "views,averageViewPercentage",
+        "dimensions": "creatorContentType",
+        "sort": "-views",
+    },
+    {
+        "name": "country",
+        "metrics": "views,averageViewPercentage",
+        "dimensions": "country",
+        "sort": "-views",
+    },
+    {
+        "name": "age_gender",
+        "metrics": "viewerPercentage",
+        "dimensions": "ageGroup,gender",
+        "sort": "-viewerPercentage",
+    },
+]
 
 
 def default_base_dir() -> Path:
@@ -115,6 +167,36 @@ def query_analytics(
     return analytics_rows(analytics.reports().query(**request).execute())
 
 
+def fetch_supplemental_reports(
+    analytics,
+    *,
+    channel_id: str,
+    start_date: str,
+    end_date: str,
+    output_dir: Path,
+    max_results: int,
+) -> list[dict[str, object]]:
+    statuses = []
+    for report in SUPPLEMENTAL_REPORTS:
+        name = str(report["name"])
+        try:
+            headers, rows = query_analytics(
+                analytics,
+                channel_id=channel_id,
+                start_date=start_date,
+                end_date=end_date,
+                metrics=str(report["metrics"]),
+                dimensions=str(report["dimensions"]),
+                sort=str(report["sort"]),
+                max_results=max_results,
+            )
+            write_csv(output_dir / f"{name}.csv", headers, rows)
+            statuses.append({"name": name, "status": "ok", "rows": len(rows)})
+        except Exception as exc:  # Keep the main export usable if a report is unavailable.
+            statuses.append({"name": name, "status": "error", "error": str(exc)})
+    return statuses
+
+
 def chunks(values: list[str], size: int) -> Iterable[list[str]]:
     for index in range(0, len(values), size):
         yield values[index : index + size]
@@ -173,6 +255,7 @@ def main() -> int:
     parser.add_argument("--metrics", default=DEFAULT_METRICS)
     parser.add_argument("--max-results", type=int, default=200)
     parser.add_argument("--skip-metadata", action="store_true")
+    parser.add_argument("--skip-supplemental", action="store_true")
     args = parser.parse_args()
 
     if not args.client_secrets.exists():
@@ -233,6 +316,17 @@ def main() -> int:
         ]
         write_csv(args.output_dir / "video_metadata.csv", metadata_headers, metadata_rows)
 
+    supplemental_reports = []
+    if not args.skip_supplemental:
+        supplemental_reports = fetch_supplemental_reports(
+            analytics,
+            channel_id=args.channel_id,
+            start_date=start_date,
+            end_date=end_date,
+            output_dir=args.output_dir,
+            max_results=args.max_results,
+        )
+
     manifest = {
         "start_date": start_date,
         "end_date": end_date,
@@ -240,6 +334,7 @@ def main() -> int:
         "metrics": args.metrics.split(","),
         "analytics_by_video_rows": len(video_rows),
         "analytics_by_day_rows": len(day_rows),
+        "supplemental_reports": supplemental_reports,
     }
     ensure_parent(args.output_dir / "manifest.json")
     (args.output_dir / "manifest.json").write_text(

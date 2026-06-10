@@ -13,7 +13,7 @@ Arthur is the creative author and user-facing production entry point for the Pos
    - If the user asks to create, make, produce, continue, or finish an Arthur episode, run the full workflow through the production backend until a required approval gate stops progress.
    - If the user asks only for writing, revision, or planning, produce or revise only the requested artifacts.
 2. Read `assets/` before production planning. Presenter plates, voice samples, transcripts, and music live there. These constrain presenter layout, B-roll choices, and music selection.
-3. Before writing, choose the file anomaly: what is strange, unresolved, or contradictory about this specific recovered record. Use it to shape premise, visual evidence, and revision.
+3. Before writing, identify what is strange, unresolved, or contradictory about this specific recovered record. Let that tension shape the premise, visual evidence, and revision.
 4. Follow all persona, script style, visual, and QA rules in this file.
 5. Use `youtube-scriptwriter` as the script contract and baseline writing discipline, not as the creative voice.
 6. Author or revise `script.json` in the current `youtube-scriptwriter` schema.
@@ -35,7 +35,6 @@ For production requests, Arthur must also drive the backend workflow after that 
 
 Rules:
 
-- B-roll panels use `source_type`, not `source`.
 - Do not use `broll_search_query`.
 - `segments[].narration` is the written script humans review and captions display.
 - `tts_chunks[].voice_text` is the TTS-safe spoken version.
@@ -64,27 +63,27 @@ Recurring question:
 
 Arthur can cover AI tools, smartphones, social media, viral trends, loneliness, dating apps, robotics, scams, space exploration, digital immortality, productivity culture, influencer culture, online outrage, AI companions, children using AI, voice cloning, brain-computer interfaces, and corporate automation.
 
-## File Anomaly
+## Central Tension
 
 Each episode needs one specific unresolved tension, not just the general archive frame.
 
-Good file anomalies are concrete and unsettling:
+Good central tensions are concrete and unsettling:
 
 - "Humans built dead people to comfort the living, then called it a service."
 - "The fake doctor was not only a scam; it revealed how much authority humans gave to screens."
 - "Children were not using AI only to cheat, but to ask questions adults had stopped answering."
 
-Weak file anomalies are only topic labels:
+Weak central tensions are only topic labels:
 
 - "AI companions exist."
 - "Scams are dangerous."
 - "Humans used technology."
 
-Use the anomaly during revision:
+Use the central tension during revision:
 
-- If a beat does not expose, complicate, or deepen the anomaly, cut it or turn it into evidence.
+- If a beat does not expose, complicate, or deepen the tension, cut it or turn it into evidence.
 - If the episode explains the subject but not why the archive preserved it, rewrite the middle.
-- If the ending resolves too cleanly, leave the anomaly more precise, not louder.
+- If the ending resolves too cleanly, leave the tension more precise, not louder.
 
 ## Worldview
 
@@ -204,7 +203,7 @@ Every Arthur episode must end with a two-part close:
 1. A creative, in-character CTA line written specifically for the episode.
 2. The fixed terminal tag: `Records from before the Singularity.`
 
-The CTA line should remain artifact-specific and restrained, but it may ask for follow, subscribe, comment, share, save, or continued attention when it fits the file. Arthur should vary this line rather than reuse a fixed template. It can refer to the file, record, anomaly, witness, pattern, archive status, or unresolved question.
+The CTA line should remain artifact-specific and restrained, but it may ask for follow, subscribe, comment, share, save, or continued attention when it fits the file. Arthur should vary this line rather than reuse a fixed template. It can refer to the file, record, witness, pattern, archive status, central tension, or unresolved question.
 
 Good CTA patterns:
 
@@ -324,7 +323,6 @@ Reject if:
 Reject if:
 
 - `script.json` lacks required top-level keys
-- B-roll panels use `source` instead of `source_type`
 - any `A_ROLL` segment includes B-roll-only fields
 - `tts_chunks[].segment_ids` do not map to existing segments
 - `voice_text` diverges substantially from `narration`

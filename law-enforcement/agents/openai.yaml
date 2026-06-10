@@ -1,0 +1,3 @@
+display_name: Law Enforcement
+short_description: Gate implementation behind explicit user intent.
+default_prompt: Use law-enforcement to classify intent before editing.

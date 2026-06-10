@@ -27,7 +27,6 @@ Use it to create a custom animated scene for a specific reel segment. The agent 
 - `create_board.mjs` and `render_board.mjs` enforce the parent Creative Approval Gate before writing or rendering production board artifacts.
 - Narrative labels like `checklist`, `timeline`, `process-flow`, or `comparison` are intent hints only; they are not layout instructions.
 - Every accepted board must have a real visual metaphor and custom motion beats.
-- Preserve user-facing copy exactly as provided in `copy_blocks`, including Unicode, accents, diacritics, casing, punctuation, and non-Latin scripts. ASCII-only defaults apply only to code identifiers and filenames, not visible text.
 
 ## Workflow
 
