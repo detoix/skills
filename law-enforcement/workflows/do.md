@@ -17,13 +17,6 @@ Apply the first matching rule to the latest user message.
 
 </step>
 
-<step name="display">
-Show routing before dispatch:
-
-Routing: {route}
-Reason: {one-line reason}
-</step>
-
 <step name="dispatch">
 If route is `implementation`:
 
@@ -43,29 +36,20 @@ If route is `clarify`:
 
 </step>
 
-<step name="internal_discovery_gate">
-During any route that inspects, analyzes, or edits code, if the agent discovers that the requested change would patch around structurally wrong code or a bad pattern:
+<step name="deviation_rules">
+Apply during any route that inspects, analyzes, or edits code:
 
-1. Stop before patching.
-2. Diagnose the structural issue or bad pattern.
-3. Present the decision to the user.
-4. Wait for approval before continuing.
-</step>
+- Structural issue or bad pattern: STOP before patching, diagnose, present decision to user, await approval.
+- Server lifecycle command: STOP before running, state that user runs the app/server, await user-provided results if needed.
+- Unsure: STOP and ask.
 
-<step name="server_lifecycle_gate">
-During any route, if the agent would start, stop, restart, or run the application/server/dev server:
-
-1. Stop before running the command.
-2. Do not start, stop, restart, or run the application/server/dev server.
-3. State that the user runs the app/server.
-4. Ask the user to run it or provide results if needed.
+Priority: STOP gates > implementation route > clarify.
 </step>
 
 </process>
 
 <success_criteria>
 - Latest user intent classified.
-- Routing decision displayed before dispatch.
 - No file-changing tools used by the dispatcher.
 - Implementation proceeds only when the latest user message contains exact phrase `implement` or `do it`.
 - Structural issues discovered during work stop execution before patching.
