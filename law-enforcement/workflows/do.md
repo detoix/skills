@@ -41,6 +41,7 @@ Apply during any route that inspects, analyzes, or edits code:
 
 - Structural issue or bad pattern: STOP before patching, diagnose, present decision to user, await approval.
 - Server lifecycle command: STOP before running, state that user runs the app/server, await user-provided results if needed.
+- Removal/replacement residue: STOP before preserving removed behavior as comments, aliases, compatibility shims, fallback branches, dead code, docs, or tests. Produce a clean removal/replacement, or present the compatibility decision to user and await approval.
 - Unsure: STOP and ask.
 
 Priority: STOP gates > implementation route > clarify.
@@ -54,5 +55,6 @@ Priority: STOP gates > implementation route > clarify.
 - Implementation proceeds only when the latest user message contains exact phrase `implement` or `do it`.
 - Structural issues discovered during work stop execution before patching.
 - App/server lifecycle commands are not run by the agent.
+- Removed or replaced behavior is not preserved as comments, aliases, shims, fallback branches, dead code, docs, or tests without user approval.
 - Ambiguous requests are clarified before implementation.
 </success_criteria>
