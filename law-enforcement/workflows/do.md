@@ -7,7 +7,7 @@ Analyze user intent and enforce workflow gates before file modification.
 <step name="pre_flight_gate">
 Before creating, editing, deleting, moving, formatting, or generating files:
 
-If the latest user message does not contain exact phrase `implement` or `do it` and does not explicitly request file modification:
+If the latest user message does not contain exact phrase `do it` or `fix it` and does not use an explicit workspace-modifying command:
 1. STOP.
 2. Do not edit files.
 3. Do not call file-writing tools.
