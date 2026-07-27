@@ -1,0 +1,4 @@
+interface:
+  display_name: "Demo Scout"
+  short_description: "Surface safe standalone demo opportunities."
+  default_prompt: "Use $demo-scout to assess this completed work for a safe standalone demo opportunity."
