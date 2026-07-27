@@ -1,0 +1,9 @@
+{
+  "name": "tinypng-skill",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "tinify": "^1.8.2"
+  }
+}

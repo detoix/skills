@@ -1,0 +1,4 @@
+interface:
+  display_name: "TinyPNG"
+  short_description: "Compress and convert images with TinyPNG"
+  default_prompt: "Use $tinypng to optimize these images while preserving the requested dimensions and format."
