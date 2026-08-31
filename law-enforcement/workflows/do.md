@@ -1,5 +1,5 @@
 <purpose>
-Analyze user intent and enforce workflow gates before file modification.
+Analyze user intent and enforce workflow gates before file modification and destructive live-state commands.
 </purpose>
 
 <process>
@@ -16,10 +16,11 @@ If the latest user message does not contain exact phrase `do it` or `fix it` and
 </step>
 
 <step name="deviation_rules">
-Apply during any route that inspects, analyzes, or edits code:
+Apply during any route that inspects, analyzes, edits code, or runs commands:
 
 - Code or architecture quality concern: STOP before continuing, diagnose the concern, present decision to user, await approval.
-- Server lifecycle command: STOP before running, state that user runs the app/server, await user-provided results if needed.
+- Server lifecycle command: Run only when the user has explicitly requested or authorized that action in the conversation.
+- Destructive live state: Command that clears or replaces state in a running app (open scene, document, database, session). STOP before running, name exactly what would be lost, await approval.
 - Clean final state: When changing, removing, or replacing behavior, search the touched scope for obsolete names, comments, aliases, compatibility shims, fallback branches, dead code, stale docs/tests, negative instructions, and parallel rules. Remove them cleanly. If preserving residue may be necessary for compatibility, STOP, present the compatibility decision to user, and await approval.
 - Unsure: STOP and ask.
 
