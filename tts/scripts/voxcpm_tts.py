@@ -19,7 +19,7 @@ def _import_runtime():
         from voxcpm import VoxCPM
     except ImportError as exc:
         raise RuntimeError(
-            "VoxCPM2 runtime is not installed. Install it from runtime\\requirements.lock.txt."
+            "VoxCPM2 runtime is not installed. Run scripts/setup_runtime.sh and use the skill's .venv interpreter."
         ) from exc
     return VoxCPM, torch, sf
 

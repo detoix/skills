@@ -18,7 +18,14 @@ YOUTUBE_AUTOPIPELINE_SCRIPTS = Path(__file__).resolve().parents[2] / "youtube-au
 if str(YOUTUBE_AUTOPIPELINE_SCRIPTS) not in sys.path:
     sys.path.insert(0, str(YOUTUBE_AUTOPIPELINE_SCRIPTS))
 
-from production_metrics import end_stage, start_stage
+try:
+    from production_metrics import end_stage, start_stage
+except ImportError:  # stage metrics only exist inside youtube-autopipeline
+    def start_stage(*args: Any, **kwargs: Any) -> None:
+        return None
+
+    def end_stage(*args: Any, **kwargs: Any) -> None:
+        return None
 
 
 DEFAULT_MIN_WORD_RECALL = 0.85

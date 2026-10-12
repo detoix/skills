@@ -9,9 +9,9 @@ Direct narration to fit the text, audience, and timing: choose how each passage 
 
 ## Runtime
 
-Discover available Python environments and verify imports of `voxcpm`, PyTorch, and SoundFile. Use a compatible existing runtime and check its API before choosing generation arguments.
+The skill owns its runtime: `.venv` inside this skill directory, holding `voxcpm`, PyTorch, SoundFile, `wetext`, and WhisperX. Use `.venv/bin/python` (`.venv\Scripts\python.exe` on Windows) for every script here. When `.venv` is missing or an import fails, build it with `scripts/setup_runtime.sh` (needs `uv`); it installs CUDA PyTorch when an NVIDIA GPU is present and CPU PyTorch otherwise, and `TORCH_BACKEND=cpu|cu128|...` overrides that.
 
-Resolve bundled scripts relative to this skill directory. Locate cached `openbmb/VoxCPM2` weights and inspect available hardware; choose the device, optimization, and thread count for that environment. GPU is faster; direct CPU calls support `device="cpu"`, `optimize=False`.
+Resolve bundled scripts relative to this skill directory. Model weights are `openbmb/VoxCPM2` in the Hugging Face cache, downloaded on first use. Inspect available hardware and choose the device, optimization, and thread count for it. GPU is faster; on CPU expect roughly a minute of compute per few seconds of speech, so test on short passages; direct CPU calls support `device="cpu"`, `optimize=False`.
 
 ## Choose the cloning mode
 
@@ -37,18 +37,18 @@ Put English instructions in parentheses immediately before the spoken text; `--c
 
 Choose the progression for the actual text. Test a representative passage for speaker identity, diction, pace, and emotional contrast. Refine the direction or seed for weak segments and retain successful takes. Preserve approved copy; when wording is editable, conversational phrasing can help.
 
-Start with CFG `2.0`, `10` inference steps, denoiser disabled; adjust for observed issues. For repeatable direct API calls, use the installed API's supported seed mechanism, such as a `seed` argument or `torch.manual_seed(seed)` before generation. Prepare digits, dates, abbreviations, and mixed-language tokens using `--normalize` or explicit spoken wording as appropriate.
+Start with CFG `2.0`, `20` inference steps, denoiser disabled; adjust for observed issues. For repeatable direct API calls, use the installed API's supported seed mechanism, such as a `seed` argument or `torch.manual_seed(seed)` before generation. Prepare digits, dates, abbreviations, and mixed-language tokens using `--normalize` or explicit spoken wording as appropriate.
 
 ## Generate
 
-With `TTS_PYTHON` set to the interpreter and `TTS_SKILL` to this skill directory:
+With `TTS_SKILL` set to this skill directory and `TTS_PYTHON` to `$TTS_SKILL/.venv/bin/python`:
 
 ```bash
 "$TTS_PYTHON" "$TTS_SKILL/scripts/voxcpm_tts.py" \
   --text "Mała chwila. Wielka przyjemność." \
   --reference-audio "voice.wav" \
   --control "warm, intimate, gently smiling" \
-  --cfg-value 2 --inference-timesteps 10 --output "close.wav"
+  --cfg-value 2 --inference-timesteps 20 --output "close.wav"
 ```
 
 For a shared reference, batch one utterance per nonempty UTF-8 line, each with its own parenthetical instruction. Batch mode loads the model and reference cache once:
@@ -56,7 +56,7 @@ For a shared reference, batch one utterance per nonempty UTF-8 line, each with i
 ```bash
 "$TTS_PYTHON" "$TTS_SKILL/scripts/voxcpm_tts.py" \
   --input "takes.txt" --output-dir "takes" --reference-audio "voice.wav" \
-  --cfg-value 2 --inference-timesteps 10
+  --cfg-value 2 --inference-timesteps 20
 ```
 
 Outputs `output_001.wav`, etc. follow input-line order. Regenerate individual takes in single-output mode. Preserve native 48 kHz sources and record reference, text, direction, parameters, controlled seed, and duration in the project's existing audio manifest.
@@ -67,7 +67,7 @@ Check words, duration, finite samples, and clipping. Listen when audio inspectio
 
 ASR detects missing/repeated words or spoken instructions, not delivery quality. Check clean takes first: music and short Polish phrases can confuse recognition. Review suspicious results in context.
 
-Use `scripts/tts_pronunciation_qa.py` for `script.json` / `tts_chunks` projects (WhisperX/Whisper, `--language pl` for Polish); otherwise use an available ASR backend such as faster-whisper. Make FFmpeg available on `PATH` when needed.
+Use `scripts/tts_pronunciation_qa.py` for `script.json` / `tts_chunks` projects (WhisperX, `--language pl` for Polish); otherwise transcribe with WhisperX or faster-whisper directly. Both ship in the skill runtime. Make FFmpeg available on `PATH` when needed.
 
 Place phrases at visual beats, cut grouped takes at pauses, and add silence for intentional spacing. Apply music ducking and playback gain in the mix. Direct emotion during generation; pitch/tempo processing is a separate editorial choice. Check boundaries, overlaps, final peaks, and exported media.
 
