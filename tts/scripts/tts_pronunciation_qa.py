@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Pronunciation QA for generated TTS chunks before LatentSync."""
+"""Pronunciation QA for generated TTS chunks."""
 
 from __future__ import annotations
 
@@ -13,19 +13,6 @@ from collections import Counter
 from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any
-
-YOUTUBE_AUTOPIPELINE_SCRIPTS = Path(__file__).resolve().parents[2] / "youtube-autopipeline" / "scripts"
-if str(YOUTUBE_AUTOPIPELINE_SCRIPTS) not in sys.path:
-    sys.path.insert(0, str(YOUTUBE_AUTOPIPELINE_SCRIPTS))
-
-try:
-    from production_metrics import end_stage, start_stage
-except ImportError:  # stage metrics only exist inside youtube-autopipeline
-    def start_stage(*args: Any, **kwargs: Any) -> None:
-        return None
-
-    def end_stage(*args: Any, **kwargs: Any) -> None:
-        return None
 
 
 DEFAULT_MIN_WORD_RECALL = 0.85
@@ -90,7 +77,7 @@ def import_asr_backend() -> tuple[str, Any]:
 
         return "whisper", whisper
     except Exception as exc:
-        raise RuntimeError("No ASR backend available. Install/import WhisperX or whisper before LatentSync QA.") from exc
+        raise RuntimeError("No ASR backend available. Install/import WhisperX or whisper before running pronunciation QA.") from exc
 
 
 def make_whisperx_transcriber(whisperx: Any, language: str, model_name: str, device: str, compute_type: str) -> Any:
@@ -151,7 +138,7 @@ def compare_text(expected: str, actual: str) -> dict[str, Any]:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run ASR pronunciation QA on clean TTS chunks before LatentSync.")
+    parser = argparse.ArgumentParser(description="Run ASR pronunciation QA on clean TTS chunks.")
     parser.add_argument("--project-dir", default=".", help="Project directory.")
     parser.add_argument("--script", help="Path to script.json. Defaults to <project-dir>/script.json.")
     parser.add_argument("--tts-dir", help="Directory with clean TTS chunks. Defaults to <project-dir>/tts/clean.")
@@ -166,12 +153,6 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     project_dir = Path(args.project_dir).resolve()
-    qa_record = start_stage(
-        project_dir,
-        "tts_pronunciation_qa",
-        command=["tts_pronunciation_qa.py"],
-        metadata={"model": args.model, "device": args.device, "compute_type": args.compute_type},
-    )
     script_path = Path(args.script).resolve() if args.script else project_dir / "script.json"
     tts_dir = Path(args.tts_dir).resolve() if args.tts_dir else project_dir / "tts" / "clean"
     output_path = Path(args.output).resolve() if args.output else project_dir / "manifests" / "tts-pronunciation-qa.json"
@@ -244,16 +225,13 @@ def main() -> int:
         write_json(output_path, report)
         if report["status"] != "pass":
             print(f"TTS pronunciation QA failed: {output_path}", file=sys.stderr)
-            end_stage(project_dir, qa_record, status="fail", return_code=1, metadata={"chunks": len(report["chunks"]), "errors": len(report["errors"])})
             return 1
         print(f"TTS pronunciation QA passed: {output_path}")
-        end_stage(project_dir, qa_record, status="pass", return_code=0, metadata={"chunks": len(report["chunks"])})
         return 0
     except Exception as exc:
         report["errors"].append(str(exc))
         write_json(output_path, report)
         print(f"TTS pronunciation QA failed: {exc}", file=sys.stderr)
-        end_stage(project_dir, qa_record, status="error", return_code=1, error=str(exc))
         return 1
 
 
