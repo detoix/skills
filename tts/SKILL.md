@@ -11,7 +11,7 @@ Direct narration to fit the text, audience, and timing: choose how each passage 
 
 The skill owns its runtime: `.venv` inside this skill directory, holding `voxcpm`, PyTorch, SoundFile, `wetext`, and WhisperX. Use `.venv/bin/python` (`.venv\Scripts\python.exe` on Windows) for every script here. When `.venv` is missing or an import fails, build it with `scripts/setup_runtime.sh` (needs `uv`); it installs CUDA PyTorch when an NVIDIA GPU is present and CPU PyTorch otherwise, and `TORCH_BACKEND=cpu|cu128|...` overrides that.
 
-Resolve bundled scripts relative to this skill directory. Model weights are `openbmb/VoxCPM2` in the Hugging Face cache, downloaded on first use. Inspect available hardware and choose the device, optimization, and thread count for it. GPU is faster; on CPU expect roughly a minute of compute per few seconds of speech, so test on short passages; direct CPU calls support `device="cpu"`, `optimize=False`.
+Resolve bundled scripts relative to this skill directory. Model weights are `openbmb/VoxCPM2` in the Hugging Face cache, downloaded on first use. Inspect available hardware and choose the device for it; GPU is faster. Without CUDA, `voxcpm_tts.py` switches to a faster CPU path that renders the same takes: float32 weights (about 14 GB of RAM), a compiled diffusion head, and up to `--rows` lines (default 4) decoded together. Each new batch size compiles once per run, a fixed cost that a very short single line may not earn back (`--no-compile` skips it). Run one voice job at a time: parallel processes compete for cores and memory bandwidth, so put every line in one `--input` file instead. Direct API calls on CPU support `device="cpu"`, `optimize=False`, without these speedups.
 
 ## Choose the cloning mode
 
@@ -37,7 +37,7 @@ Put English instructions in parentheses immediately before the spoken text; `--c
 
 Choose the progression for the actual text. Test a representative passage for speaker identity, diction, pace, and emotional contrast. Refine the direction or seed for weak segments and retain successful takes. Preserve approved copy; when wording is editable, conversational phrasing can help.
 
-Start with CFG `2.0`, `20` inference steps, denoiser disabled; adjust for observed issues. For repeatable direct API calls, use the installed API's supported seed mechanism, such as a `seed` argument or `torch.manual_seed(seed)` before generation. Prepare digits, dates, abbreviations, and mixed-language tokens using `--normalize` or explicit spoken wording as appropriate.
+Start with CFG `2.0`, `20` inference steps, denoiser disabled; adjust for observed issues. Every take is a random draw: on CPU, `--seed S` makes it repeatable (batch line N uses `S + N − 1`; without `--seed` the script picks one and prints it with each saved file). For repeatable direct API calls, use the installed API's supported seed mechanism, such as a `seed` argument or `torch.manual_seed(seed)` before generation. Prepare digits, dates, abbreviations, and mixed-language tokens using `--normalize` or explicit spoken wording as appropriate.
 
 ## Generate
 
@@ -51,7 +51,7 @@ With `TTS_SKILL` set to this skill directory and `TTS_PYTHON` to `$TTS_SKILL/.ve
   --cfg-value 2 --inference-timesteps 20 --output "close.wav"
 ```
 
-For a shared reference, batch one utterance per nonempty UTF-8 line, each with its own parenthetical instruction. Batch mode loads the model and reference cache once:
+For a shared reference, batch one utterance per nonempty UTF-8 line, each with its own parenthetical instruction. Batch mode loads the model and reference cache once; on CPU it decodes `--rows` lines together and saves each as it finishes:
 
 ```bash
 "$TTS_PYTHON" "$TTS_SKILL/scripts/voxcpm_tts.py" \
@@ -59,7 +59,7 @@ For a shared reference, batch one utterance per nonempty UTF-8 line, each with i
   --cfg-value 2 --inference-timesteps 20
 ```
 
-Outputs `output_001.wav`, etc. follow input-line order. Regenerate individual takes in single-output mode. Preserve native 48 kHz sources and record reference, text, direction, parameters, controlled seed, and duration in the project's existing audio manifest.
+Outputs `output_001.wav`, etc. follow input-line order. Regenerate individual takes in single-output mode; `--seed S + N − 1` reproduces batch line N exactly, another seed gives a new take. Preserve native 48 kHz sources and record reference, text, direction, parameters, controlled seed, and duration in the project's existing audio manifest.
 
 ## Verify and assemble
 

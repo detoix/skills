@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import random
 import time
 from pathlib import Path
 
@@ -10,6 +11,7 @@ DEFAULT_DEVICE = "cuda:0"
 DEFAULT_CFG_VALUE = 2.0
 DEFAULT_INFERENCE_TIMESTEPS = 20
 DEFAULT_OUTPUT_PATH = Path("voxcpm_output.wav")
+DEFAULT_ROWS = 4
 
 
 def _import_runtime():
@@ -217,6 +219,56 @@ def run_batch_cached(args: argparse.Namespace) -> None:
     print(f"Cached batch finished: {success_count}/{len(texts)} succeeded in {time.perf_counter() - started:.2f}s")
 
 
+def uses_cpu(torch_module, args: argparse.Namespace) -> bool:
+    return args.device == "cpu" or not torch_module.cuda.is_available()
+
+
+def run_fast(args: argparse.Namespace, texts: list[str], outputs: list[Path]) -> None:
+    """CPU path: float32, compiled diffusion head, several lines in flight (see voxcpm_fast.py)."""
+    import voxcpm_fast
+
+    VoxCPM, torch, sf = _import_runtime()
+    prompt_audio = require_file(args.prompt_audio, "prompt audio")
+    reference_audio = require_file(args.reference_audio, "reference audio")
+    prompt_text = resolve_prompt_text(args)
+    validate_prompt_args(prompt_audio, prompt_text)
+    seed = args.seed if args.seed is not None else random.randrange(2**31)
+
+    started = time.perf_counter()
+    print(f"Loading VoxCPM2 on CPU: float32, rows={args.rows}, compile={not args.no_compile}, seed={seed}")
+    model = VoxCPM.from_pretrained(args.model_id, optimize=False, load_denoiser=args.load_denoiser)
+    voxcpm_fast.prepare(model.tts_model, compile=not args.no_compile)
+    prompt_cache = build_prompt_cache(model, prompt_text, prompt_audio, reference_audio)
+    texts = [maybe_normalize_text(model, build_final_text(text, args.control), args.normalize) for text in texts]
+    print(f"Model and prompt ready in {time.perf_counter() - started:.2f}s")
+
+    with torch.inference_mode():
+        lines = voxcpm_fast.generate_many(
+            model.tts_model,
+            texts,
+            prompt_cache,
+            seed,
+            rows=args.rows,
+            inference_timesteps=args.inference_timesteps,
+            cfg_value=args.cfg_value,
+            min_len=args.min_len,
+            max_len=args.max_len,
+            retry_badcase_max_times=args.retry_badcase_max_times,
+            retry_badcase_ratio_threshold=args.retry_badcase_ratio_threshold,
+        )
+        for index, audio, info in lines:
+            output_path = outputs[index]
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            sf.write(output_path, audio.numpy(), model.tts_model.sample_rate)
+            duration = len(audio) / model.tts_model.sample_rate
+            print(
+                f"Saved: {output_path} ({duration:.2f}s audio, seed {seed + index}, "
+                f"attempts {info['attempts']}, {time.perf_counter() - started:.2f}s elapsed)"
+            )
+
+    print(f"Finished {len(texts)} line(s) in {time.perf_counter() - started:.2f}s")
+
+
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="VoxCPM2 GPU-first speech generator")
     parser.add_argument("--text", help="Text to synthesize in single-output mode")
@@ -235,7 +287,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-len", type=int, default=4096)
     parser.add_argument("--retry-badcase-max-times", type=int, default=3)
     parser.add_argument("--retry-badcase-ratio-threshold", type=float, default=6.0)
-    parser.add_argument("--device", default=DEFAULT_DEVICE, help="Torch device, defaults to cuda:0")
+    parser.add_argument("--device", default=DEFAULT_DEVICE, help="Torch device, defaults to cuda:0; cpu when no CUDA")
+    parser.add_argument("--seed", type=int, help="CPU: noise seed; line N of a batch uses seed + N - 1 (default random)")
+    parser.add_argument("--rows", type=int, default=DEFAULT_ROWS, help="CPU: lines decoded together in batch mode")
+    parser.add_argument("--no-compile", action="store_true", help="CPU: skip compiling the diffusion head")
     parser.add_argument("--optimize", action="store_true", help="Enable upstream optimize mode")
     parser.add_argument("--load-denoiser", action="store_true", help="Load the optional denoiser")
     parser.add_argument("--model-id", default=DEFAULT_MODEL_ID, help="Hugging Face model id")
@@ -244,7 +299,21 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
 def main() -> None:
     args = build_arg_parser().parse_args()
-    if args.input:
+    _, torch, _ = _import_runtime()
+    if uses_cpu(torch, args):
+        if args.input:
+            if not args.output_dir:
+                raise ValueError("--output-dir is required with --input.")
+            texts = read_batch_texts(require_file(args.input, "input file"))
+            if not texts:
+                raise ValueError(f"input file is empty: {args.input}")
+            outputs = [Path(args.output_dir) / f"output_{i:03d}.wav" for i in range(1, len(texts) + 1)]
+            run_fast(args, texts, outputs)
+        else:
+            if not args.text:
+                raise ValueError("--text is required unless --input is used for batch mode.")
+            run_fast(args, [args.text], [Path(args.output)])
+    elif args.input:
         run_batch_cached(args)
     else:
         run_single(args)
