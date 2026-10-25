@@ -5,9 +5,7 @@ import path from "node:path";
 import process from "node:process";
 import crypto from "node:crypto";
 import { pathToFileURL } from "node:url";
-import { createRequire } from "node:module";
-
-const require = createRequire(import.meta.url);
+import { chromium } from "playwright";
 
 const OLD_TEMPLATE_CLASSES = new Set([
   "flow",
@@ -34,14 +32,6 @@ const PLACEHOLDER_PATTERNS = [
   /template mode/i,
   /b-roll board/i,
 ];
-
-function loadPlaywright() {
-  try {
-    return require("playwright");
-  } catch {
-    return require("C:\\Users\\kdeptula\\skills\\playwright-broll-recorder\\node_modules\\playwright");
-  }
-}
 
 function parseArgs(argv) {
   const options = {};
@@ -139,7 +129,6 @@ async function main() {
     if (pattern.test(htmlSource)) failures.push(`Placeholder/starter text detected: ${pattern}`);
   }
 
-  const { chromium } = loadPlaywright();
   const browser = await chromium.launch({ headless: true });
   const page = await browser.newPage({
     viewport: { width: Number(manifest.width), height: Number(manifest.height) },

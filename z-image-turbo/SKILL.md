@@ -5,6 +5,8 @@ description: High-speed, low-VRAM image generation using the 'Z-Image-Turbo' mod
 
 # Z-Image-Turbo
 
+Resolve `<skill-dir>` from this `SKILL.md`. Cross-skill calls use `<skills-root>`, its parent directory; install the named companion skills there before using those calls. Replace path placeholders with resolved locations. Examples below use PowerShell.
+
 This skill provides an agentic interface for the `Tongyi-MAI/Z-Image-Turbo` model, optimized for low-VRAM hardware.
 
 ## Features
@@ -34,7 +36,7 @@ python scripts/generate.py --prompt "A futuristic city in the style of cyberpunk
 For YouTube reel B-roll, use this skill only after the autopipeline has decided that generated visuals are the right source for a segment. Prefer the autopipeline helper first:
 
 ```bash
-python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\z_image_plan.py --project-dir <project-dir> --script <project-dir>\script.json
+python "<skills-root>/youtube-autopipeline/scripts/z_image_plan.py" --project-dir <project-dir> --script <project-dir>\script.json
 ```
 
 Save generated assets inside the active project directory, usually `broll/generated/`, and record them in the project asset manifest with prompt, segment id, acceptance status, and rejection reason. Prefer concrete prompts that produce vertical-safe subjects, clean upper/middle negative space for captions, and no fake logos, credentials, private data, or misleading real-brand screens.

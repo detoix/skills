@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import os
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Iterable
@@ -84,7 +85,14 @@ SUPPLEMENTAL_REPORTS = [
 
 
 def default_base_dir() -> Path:
+    configured = os.environ.get("YOUTUBE_ANALYTICS_HOME")
+    if configured:
+        return Path(configured).expanduser()
     return Path.home() / ".youtube-analytics"
+
+
+def local_path(value: str) -> Path:
+    return Path(value).expanduser()
 
 
 def parse_date(value: str) -> str:
@@ -119,11 +127,24 @@ def load_credentials(client_secrets: Path, token_path: Path):
         creds.refresh(Request())
 
     if not creds or not creds.valid:
-        flow = InstalledAppFlow.from_client_secrets_file(str(client_secrets), SCOPES)
+        if not client_secrets.is_file():
+            raise SystemExit(
+                f"OAuth login requires the existing Desktop app client JSON: {client_secrets}. "
+                "Pass its local path with --client-secrets. Existing Google projects "
+                "and enabled APIs do not need to be recreated."
+            )
+        flow = InstalledAppFlow.from_client_secrets_file(
+            str(client_secrets), SCOPES, autogenerate_code_verifier=True
+        )
         creds = flow.run_local_server(port=0)
 
     ensure_parent(token_path)
-    token_path.write_text(creds.to_json(), encoding="utf-8")
+    # Keep saved authorization private on POSIX; Windows uses directory ACLs.
+    fd = os.open(token_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        handle.write(creds.to_json())
+    if os.name == "posix":
+        token_path.chmod(0o600)
     return creds
 
 
@@ -240,15 +261,15 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--client-secrets",
-        type=Path,
+        type=local_path,
         default=default_base_dir() / "secrets" / "youtube_oauth_client.json",
     )
     parser.add_argument(
         "--token",
-        type=Path,
+        type=local_path,
         default=default_base_dir() / "secrets" / "youtube_token.json",
     )
-    parser.add_argument("--output-dir", type=Path, default=default_base_dir() / "data")
+    parser.add_argument("--output-dir", type=local_path, default=default_base_dir() / "data")
     parser.add_argument("--channel-id", default="MINE")
     parser.add_argument("--start-date", default=(date.today() - timedelta(days=30)).isoformat())
     parser.add_argument("--end-date", default="today")
@@ -257,9 +278,6 @@ def main() -> int:
     parser.add_argument("--skip-metadata", action="store_true")
     parser.add_argument("--skip-supplemental", action="store_true")
     args = parser.parse_args()
-
-    if not args.client_secrets.exists():
-        raise SystemExit(f"OAuth client secrets file not found: {args.client_secrets}")
 
     try:
         from googleapiclient.discovery import build

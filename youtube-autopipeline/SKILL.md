@@ -11,6 +11,8 @@ description: >-
 
 # YouTube Autopipeline
 
+Resolve `<skill-dir>` from this `SKILL.md`. Cross-skill calls use `<skills-root>`, its parent directory; install the named companion skills there before using those calls. Replace path placeholders with resolved locations. Examples below use PowerShell.
+
 This is an orchestration skill. It coordinates production stages, approval
 gates, artifact dependencies, and final readiness. Capability skills own their
 own implementation details and output contracts.
@@ -30,6 +32,8 @@ own implementation details and output contracts.
 When upstream-authored planning artifacts exist, run validation and production
 against those artifacts.
 
+The runtime checks use skill-local `.venv` interpreters for the current OS. Install FFmpeg and ffprobe on `PATH`. Configure an external LatentSync checkout through `LATENTSYNC_ROOT` or `<project-dir>/official-latentsync`; its `.venv` and checkpoint must be available. Resolve `<tts-python>` to the interpreter in the installed `tts` skill's runtime.
+
 ## Format Modes
 
 - **landscape**: `1920x1080`, composer flag `--format landscape`, default
@@ -40,7 +44,7 @@ against those artifacts.
 Composer invocation:
 
 ```powershell
-python C:\Users\kdeptula\skills\moviepy-video-composer\scripts\compose_video.py `
+python "<skills-root>/moviepy-video-composer/scripts/compose_video.py" `
   --project-dir <project-dir> `
   --timeline <project-dir>\timeline.json `
   --audio <project-dir>\final_audio.wav `
@@ -53,7 +57,7 @@ Use `--music NONE` when the project has no background music. Ingest user-supplie
 music with:
 
 ```powershell
-python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\music_intake.py `
+python "<skill-dir>/scripts/music_intake.py" `
   --project-dir <project-dir> `
   --music <local-audio-path>
 ```
@@ -74,7 +78,7 @@ approval artifact produced by the previous gate.
    the full presenter plate library. Then inventory `<project-dir>\source-assets`,
    so the asset manifest includes every usable front/profile presenter clip:
    ```powershell
-   python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\asset_inventory.py `
+   python "<skill-dir>/scripts/asset_inventory.py" `
      --asset-root <project-dir>\source-assets `
      --output <project-dir>\manifests\assets-manifest.json
    ```
@@ -82,14 +86,14 @@ approval artifact produced by the previous gate.
    review when an upstream author is active.
 5. Validate the script and assets:
    ```powershell
-   python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\pipeline_check.py `
+   python "<skill-dir>/scripts/pipeline_check.py" `
      --project-dir <project-dir> `
      --script <project-dir>\script.json `
      --format <landscape-or-vertical> `
      --mode script
    ```
    ```powershell
-   python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\pipeline_check.py `
+   python "<skill-dir>/scripts/pipeline_check.py" `
      --project-dir <project-dir> `
      --asset-manifest <project-dir>\manifests\assets-manifest.json `
      --format <landscape-or-vertical> `
@@ -97,18 +101,18 @@ approval artifact produced by the previous gate.
    ```
 6. Create the blocking creative review request:
    ```powershell
-   python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\request_creative_review.py `
+   python "<skill-dir>/scripts/request_creative_review.py" `
      --project-dir <project-dir>
    ```
 7. After the user replies exactly `approved`, create the approval artifact:
    ```powershell
-   python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\approve_creative_plan.py `
+   python "<skill-dir>/scripts/approve_creative_plan.py" `
      --project-dir <project-dir> `
      --resume-signal approved
    ```
 8. Validate the gate before prototype work:
    ```powershell
-   python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\pipeline_check.py `
+   python "<skill-dir>/scripts/pipeline_check.py" `
      --project-dir <project-dir> `
      --mode creative-gate
    ```
@@ -123,7 +127,7 @@ approval artifact produced by the previous gate.
    approved prototype and final narration path.
 3. Run pronunciation QA:
    ```powershell
-   C:\Users\kdeptula\skills\tts\.venv\Scripts\python.exe C:\Users\kdeptula\skills\tts\scripts\tts_pronunciation_qa.py `
+   & "<tts-python>" "<skills-root>/tts/scripts/tts_pronunciation_qa.py" `
      --project-dir <project-dir> `
      --script <project-dir>\script.json `
      --tts-dir <project-dir>\tts\clean `
@@ -135,7 +139,7 @@ approval artifact produced by the previous gate.
 5. Create `timeline.prototype.source.json`, then materialize generated-image
    placeholders and `timeline.prototype.json`:
    ```powershell
-   python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\build_prototype_timeline.py `
+   python "<skill-dir>/scripts/build_prototype_timeline.py" `
      --project-dir <project-dir> `
      --timeline <project-dir>\timeline.prototype.source.json `
      --script <project-dir>\script.json `
@@ -155,18 +159,18 @@ approval artifact produced by the previous gate.
    assets, TTS chunks, and generated-image placeholders.
 9. Create the review request and portable handoff bundle:
    ```powershell
-   python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\request_prototype_review.py `
+   python "<skill-dir>/scripts/request_prototype_review.py" `
      --project-dir <project-dir>
    ```
 10. Validate prototype review readiness:
     ```powershell
-    python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\pipeline_check.py `
+    python "<skill-dir>/scripts/pipeline_check.py" `
       --project-dir <project-dir> `
       --mode prototype-review-ready
     ```
 11. After the user replies exactly `approved`, create the prototype approval:
     ```powershell
-    python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\approve_prototype.py `
+    python "<skill-dir>/scripts/approve_prototype.py" `
       --project-dir <project-dir> `
       --resume-signal approved
     ```
@@ -175,7 +179,7 @@ approval artifact produced by the previous gate.
 
 1. Validate the approved prototype gate:
    ```powershell
-   python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\pipeline_check.py `
+   python "<skill-dir>/scripts/pipeline_check.py" `
      --project-dir <project-dir> `
      --mode prototype-approved
    ```
@@ -198,7 +202,7 @@ approval artifact produced by the previous gate.
 7. Write `manifests\selected-visuals.json` for final non-presenter visual
    assets, then resolve and validate it:
    ```powershell
-   python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\pipeline_check.py `
+   python "<skill-dir>/scripts/pipeline_check.py" `
      --project-dir <project-dir> `
      --selected-visuals <project-dir>\manifests\selected-visuals.json `
      --mode assets `
@@ -207,7 +211,7 @@ approval artifact produced by the previous gate.
 8. Build `timeline.json` from accepted assets in
    `manifests\selected-visuals.resolved.json`, then validate timeline and audio:
    ```powershell
-   python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\pipeline_check.py `
+   python "<skill-dir>/scripts/pipeline_check.py" `
      --project-dir <project-dir> `
      --timeline <project-dir>\timeline.json `
      --audio <project-dir>\final_audio.wav `
@@ -217,7 +221,7 @@ approval artifact produced by the previous gate.
 9. Render `final_output.mp4` with `moviepy-video-composer`.
 10. Burn captions with `reel-captions`:
     ```powershell
-    python C:\Users\kdeptula\skills\reel-captions\scripts\generate_reel_captions.py `
+    python "<skills-root>/reel-captions/scripts/generate_reel_captions.py" `
       --project-dir <project-dir> `
       --audio <project-dir>\final_audio.wav `
       --video <project-dir>\final_output.mp4 `
@@ -227,7 +231,7 @@ approval artifact produced by the previous gate.
     ```
 11. Run final render QA on the captioned output unless captions are disabled:
     ```powershell
-    python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\final_render_qa.py `
+    python "<skill-dir>/scripts/final_render_qa.py" `
       --project-dir <project-dir> `
       --video <project-dir>\final_output_captioned.mp4 `
       --timeline <project-dir>\timeline.json `

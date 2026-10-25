@@ -111,7 +111,7 @@ def build_plan(script: dict[str, Any], output_dir: Path, style: str, limit: int 
                 },
                 "command": [
                     "python",
-                    "C:\\Users\\kdeptula\\skills\\z-image-turbo\\scripts\\generate.py",
+                    str(Path(__file__).resolve().parents[2] / "z-image-turbo" / "scripts" / "generate.py"),
                     "--prompt",
                     prompt,
                     "--output",

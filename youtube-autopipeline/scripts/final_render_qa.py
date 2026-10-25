@@ -23,13 +23,7 @@ IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
 
 
 def find_tool(name: str) -> str | None:
-    found = shutil.which(name)
-    if found:
-        return found
-    local = Path.home() / "Documents" / "FFmpeg" / "ffmpeg-master-latest-win64-gpl" / "bin" / f"{name}.exe"
-    if local.exists():
-        return str(local)
-    return None
+    return shutil.which(name)
 
 
 def run(command: list[str]) -> subprocess.CompletedProcess[str]:

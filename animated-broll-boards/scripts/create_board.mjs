@@ -4,6 +4,7 @@ import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
+import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 
 const FORMATS = {
@@ -11,7 +12,7 @@ const FORMATS = {
   landscape: { width: 1920, height: 1080 },
 };
 
-const PRODUCTION_GATE = "C:\\Users\\kdeptula\\skills\\youtube-autopipeline\\scripts\\production_gate.py";
+const PRODUCTION_GATE = fileURLToPath(new URL("../../youtube-autopipeline/scripts/production_gate.py", import.meta.url));
 
 const REQUIRED_BRIEF_FIELDS = [
   "intent",

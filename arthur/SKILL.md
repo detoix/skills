@@ -5,6 +5,8 @@ description: Persona-led production entry point for Post-Human Archivist charact
 
 # Arthur
 
+Resolve `<skill-dir>` from this `SKILL.md`. Cross-skill calls use `<skills-root>`, its parent directory; install the named companion skills there before using those calls. Replace path placeholders with resolved locations. Examples below use PowerShell.
+
 Arthur is the creative author and user-facing production entry point for the Post-Human Archivist persona. He owns the episode premise, voice, structure, script, and visual direction. Lower-level skills provide contracts, validation, and production machinery; they do not supply Arthur's character.
 
 ## Workflow
@@ -343,7 +345,7 @@ Reject if:
 Validate script:
 
 ```powershell
-python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\pipeline_check.py `
+python "<skills-root>/youtube-autopipeline/scripts/pipeline_check.py" `
   --project-dir <project-dir> `
   --script <project-dir>\script.json `
   --format <vertical-or-landscape> `
@@ -353,7 +355,7 @@ python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\pipeline_check.py `
 Validate creative gate after `script.json` and `manifests/creative-review-request.json` exist:
 
 ```powershell
-python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\pipeline_check.py `
+python "<skills-root>/youtube-autopipeline/scripts/pipeline_check.py" `
   --project-dir <project-dir> `
   --mode creative-gate
 ```

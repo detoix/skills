@@ -485,12 +485,9 @@ def find_ffprobe() -> str | None:
         return ffprobe
     ffmpeg = shutil.which("ffmpeg")
     if ffmpeg:
-        candidate = Path(ffmpeg).with_name("ffprobe.exe")
+        candidate = Path(ffmpeg).with_name("ffprobe.exe" if os.name == "nt" else "ffprobe")
         if candidate.exists():
             return str(candidate)
-    local = Path.home() / "Documents" / "FFmpeg" / "ffmpeg-master-latest-win64-gpl" / "bin" / "ffprobe.exe"
-    if local.exists():
-        return str(local)
     return None
 
 
@@ -983,14 +980,13 @@ def preflight(project_dir: Path, report: Report, require_pexels: bool) -> None:
         else:
             report.warn("skill-missing", f"optional skill missing: {path}")
 
-    ffmpeg_dir = Path.home() / "Documents" / "FFmpeg" / "ffmpeg-master-latest-win64-gpl" / "bin"
-    ffmpeg = shutil.which("ffmpeg") or str(ffmpeg_dir / "ffmpeg.exe")
-    if Path(ffmpeg).exists():
+    ffmpeg = shutil.which("ffmpeg")
+    if ffmpeg:
         report.info("ffmpeg-found", f"ffmpeg: {ffmpeg}")
     else:
-        report.error("ffmpeg-missing", f"ffmpeg not found; expected {ffmpeg_dir}")
+        report.error("ffmpeg-missing", "ffmpeg not found on PATH")
 
-    composer_python = skills_root / "moviepy-video-composer" / ".venv" / "Scripts" / "python.exe"
+    composer_python = skills_root / "moviepy-video-composer" / ".venv" / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
     if run_python_import(composer_python, "moviepy"):
         report.info("composer-ok", f"moviepy import works in {composer_python}")
     else:
@@ -999,15 +995,9 @@ def preflight(project_dir: Path, report: Report, require_pexels: bool) -> None:
     latentsync_root = os.environ.get("LATENTSYNC_ROOT")
     candidates = []
     if latentsync_root:
-        candidates.append(Path(latentsync_root))
-    candidates.extend(
-        (
-            project_dir / "official-latentsync",
-            Path.home() / "Downloads" / "official-latentsync",
-            Path.home() / "Downloads" / "speech-gen" / "official-latentsync",
-        )
-    )
-    latent_root = next((path for path in candidates if (path / ".venv" / "Scripts" / "python.exe").exists()), None)
+        candidates.append(Path(latentsync_root).expanduser())
+    candidates.append(project_dir / "official-latentsync")
+    latent_root = next((path for path in candidates if (path / ".venv" / ("Scripts/python.exe" if os.name == "nt" else "bin/python")).exists()), None)
     if latent_root:
         checkpoint = latent_root / "checkpoints" / "latentsync_unet.pt"
         if checkpoint.exists():

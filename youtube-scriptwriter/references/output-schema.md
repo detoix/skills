@@ -1,11 +1,13 @@
 # Output Schema
 
+For the validation command below, resolve `<skills-root>` to the parent directory containing the installed `youtube-scriptwriter` and `youtube-autopipeline` skills.
+
 Return one strict JSON object. Do not use Markdown as the automation interface unless the caller explicitly asks for a human-readable rendering after the JSON.
 
 When this output feeds `youtube-autopipeline`, validate the saved `script.json` before generating TTS or media:
 
 ```powershell
-python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\pipeline_check.py `
+python "<skills-root>/youtube-autopipeline/scripts/pipeline_check.py" `
   --project-dir <project-dir> `
   --script <project-dir>\script.json `
   --format <landscape-or-vertical> `

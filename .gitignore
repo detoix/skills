@@ -30,3 +30,5 @@ credentials*.json
 youtube-analytics/data/
 youtube-analytics/**/data/
 
+# Local-only skills (not published yet).
+/paper-theatre/

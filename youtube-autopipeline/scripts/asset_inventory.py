@@ -27,13 +27,7 @@ def sha256_file(path: Path) -> str:
 
 
 def find_tool(name: str) -> str | None:
-    found = shutil.which(name)
-    if found:
-        return found
-    local = Path.home() / "Documents" / "FFmpeg" / "ffmpeg-master-latest-win64-gpl" / "bin" / f"{name}.exe"
-    if local.exists():
-        return str(local)
-    return None
+    return shutil.which(name)
 
 
 def run_json(command: list[str]) -> dict[str, Any] | None:

@@ -12,6 +12,8 @@ description: >-
 
 # Animated B-roll Boards
 
+Resolve `<skill-dir>` from this `SKILL.md`. Cross-skill calls use `<skills-root>`, its parent directory; install the named companion skills there before using those calls. Replace path placeholders with resolved locations. Examples below use PowerShell.
+
 This skill is an art-direction workflow for one specific B-roll subtype: animated HTML/CSS/JS motion boards. It is not a generic B-roll fallback, stock-footage, webpage-recording, generated-image, or manual-media workflow.
 
 Use it to create a custom animated scene for a specific reel segment. The agent must design the visual idea, composition, typography, and motion language, then write dedicated project-local `HTML/CSS/JS`.
@@ -32,7 +34,7 @@ Use it to create a custom animated scene for a specific reel segment. The agent 
 
 1. Initialize the board contract from the approved parent project:
    ```powershell
-   node C:\Users\kdeptula\skills\animated-broll-boards\scripts\create_board.mjs `
+   node "<skill-dir>/scripts/create_board.mjs" `
      --project-dir <project-dir> `
      --segment-id <segment-id>
    ```
@@ -43,13 +45,13 @@ Use it to create a custom animated scene for a specific reel segment. The agent 
 3. Re-run the initializer with the same arguments so `board-manifest.json` records the final `scene_hash`. The initializer must not overwrite an existing `index.html`.
 4. Run QA:
    ```powershell
-   node C:\Users\kdeptula\skills\animated-broll-boards\scripts\qa_board.mjs `
+   node "<skill-dir>/scripts/qa_board.mjs" `
      --project-dir <project-dir> `
      --segment-id <segment-id>
    ```
 5. Render:
    ```powershell
-   node C:\Users\kdeptula\skills\animated-broll-boards\scripts\render_board.mjs `
+   node "<skill-dir>/scripts/render_board.mjs" `
      --project-dir <project-dir> `
      --segment-id <segment-id>
    ```
@@ -97,6 +99,10 @@ QA must fail when:
 - text clips, overlaps, or is too small
 - creative brief lacks `visual_metaphor` or `motion_beats`
 - output is a static still or PNG for an abstract UI/motion board
+
+## Runtime dependencies
+
+Install this skill's dependencies from its `package.json` (`npm ci`) and provide FFmpeg on `PATH`. The guarded production workflow also requires the installed `youtube-autopipeline` and `playwright-broll-recorder` companion skills in the same parent directory. Scripts resolve those companions relative to their own location.
 
 ## Resources
 

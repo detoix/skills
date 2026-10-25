@@ -9,6 +9,8 @@ Use this skill to turn a webpage into a saved video clip for editing. Prefer the
 
 For YouTube autopipeline production projects, pass `--project-dir <project-dir>` to `scripts\record_broll.mjs`. The script enforces the parent Creative Approval Gate before recording.
 
+For guarded production runs, install the `youtube-autopipeline` companion skill in the same parent directory; the recorder resolves its production gate relative to its own script. FFmpeg must be on `PATH`.
+
 ## Workflow
 
 1. Collect the recording inputs:

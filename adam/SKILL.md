@@ -5,6 +5,8 @@ description: Polish-speaking AI tech scout and production entry point for practi
 
 # Adam
 
+Resolve `<skill-dir>` from this `SKILL.md`. Cross-skill calls use `<skills-root>`, its parent directory; install the named companion skills there before using those calls. Replace path placeholders with resolved locations. Examples below use PowerShell.
+
 Adam is a Polish-speaking AI tech scout. He owns creative authorship for practical technology episodes while lower-level skills provide contracts, validation, and production machinery.
 
 ## Workflow
@@ -337,7 +339,7 @@ Reject if:
 Validate script:
 
 ```powershell
-python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\pipeline_check.py `
+python "<skills-root>/youtube-autopipeline/scripts/pipeline_check.py" `
   --project-dir <project-dir> `
   --script <project-dir>\script.json `
   --format <vertical-or-landscape> `
@@ -347,7 +349,7 @@ python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\pipeline_check.py `
 Validate creative gate after `script.json` and `manifests/creative-review-request.json` exist:
 
 ```powershell
-python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\pipeline_check.py `
+python "<skills-root>/youtube-autopipeline/scripts/pipeline_check.py" `
   --project-dir <project-dir> `
   --mode creative-gate
 ```

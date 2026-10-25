@@ -5,6 +5,8 @@ description: Assemble final landscape or vertical videos from a structured JSON 
 
 # MoviePy Video Composer
 
+Resolve `<skill-dir>` from this `SKILL.md`. Cross-skill calls use `<skills-root>`, its parent directory; install the named companion skills there before using those calls. Replace path placeholders with resolved locations. Examples below use PowerShell.
+
 Use this skill to build a final edited video from local assets and a structured edit list. Prefer the bundled Python script instead of rewriting composition logic from scratch.
 
 For YouTube autopipeline production projects, `scripts\compose_video.py` enforces the parent Creative Approval Gate before final composition. `scripts\render_still_motion.py` also enforces the gate when rendering stills into motion clips.
@@ -25,7 +27,7 @@ Both formats use [scripts/compose_video.py](scripts/compose_video.py).
    - referenced local media assets
 2. Validate the timeline contract before rendering when the project comes from `youtube-autopipeline`:
    ```powershell
-   python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\pipeline_check.py `
+   python "<skills-root>/youtube-autopipeline/scripts/pipeline_check.py" `
      --project-dir C:\project `
      --timeline C:\project\timeline.json `
      --audio C:\project\final_audio.wav `
@@ -52,7 +54,7 @@ Both formats use [scripts/compose_video.py](scripts/compose_video.py).
 ## Use The Script
 
 ```powershell
-python C:\Users\kdeptula\skills\moviepy-video-composer\scripts\compose_video.py `
+python "<skill-dir>/scripts/compose_video.py" `
   --project-dir C:\project `
   --timeline C:\project\timeline.json `
   --audio C:\project\final_audio.mp3 `

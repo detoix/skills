@@ -5,6 +5,8 @@ description: Script contract and baseline spoken-writing discipline for YouTube 
 
 # YouTube Scriptwriter
 
+Resolve `<skill-dir>` from this `SKILL.md`. Cross-skill calls use `<skills-root>`, its parent directory; install the named companion skills there before using those calls. Replace path placeholders with resolved locations. Examples below use PowerShell.
+
 This skill defines the script contract and baseline writing rules for automated YouTube production. It is not the creative authority when a persona skill is active.
 
 ## Role
@@ -104,7 +106,7 @@ For Polish examples and language-specific guidance, read `references/humanize-gu
 When the output feeds `youtube-autopipeline`, validate the saved script:
 
 ```powershell
-python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\pipeline_check.py `
+python "<skills-root>/youtube-autopipeline/scripts/pipeline_check.py" `
   --project-dir <project-dir> `
   --script <project-dir>\script.json `
   --format <vertical-or-landscape> `

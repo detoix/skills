@@ -5,11 +5,14 @@ description: High-fidelity lip-syncing for videos using LatentSync. Use when you
 
 # LatentSync Lip-Syncing
 
+Resolve `<skill-dir>` from this `SKILL.md`. Cross-skill calls use `<skills-root>`, its parent directory; install the named companion skills there before using those calls. Replace path placeholders with resolved locations. Examples below use PowerShell.
+
 High-quality synchronization of facial movements using the LatentSync pipeline.
 
 ## Prerequisites
-- **FFmpeg**: Must be in PATH. Local path: `%USERPROFILE%\Documents\FFmpeg\ffmpeg-master-latest-win64-gpl\bin`
-- **Environment**: Use the local venv in `official-latentsync`.
+- **FFmpeg and ffprobe**: Must be available on `PATH`.
+- **Environment**: An external LatentSync checkout with its dependencies and checkpoints is required. Resolve `<latentsync-root>` to that checkout and `<latentsync-python>` to its Python interpreter; do not assume a download directory. For autopipeline preflight, set `LATENTSYNC_ROOT` to the checkout or place it at `<project-dir>/official-latentsync`.
+- **Runner capabilities**: Batch jobs and affine-cache operations below require a checkout providing `scripts.inference` with `--jobs_json`/`--reuse_affine_cache` and `scripts.precompute_affine_cache`. These extensions are not bundled here; verify their availability before using those operations.
 
 ## Workflow
 
@@ -18,7 +21,7 @@ For YouTube autopipeline projects, run LatentSync only through the guarded produ
 is checked immediately before inference. Replace `<command...>` with the normal LatentSync command:
 
 ```powershell
-python C:\Users\kdeptula\skills\youtube-autopipeline\scripts\guarded_production_command.py `
+python "<skills-root>/youtube-autopipeline/scripts/guarded_production_command.py" `
   --project-dir <project-dir> `
   -- <command...>
 ```
@@ -31,17 +34,17 @@ For user-provided reusable avatar assets, use the skill-local persistent affine 
 project folder:
 
 ```text
-C:\Users\kdeptula\skills\latentsync\.cache\affine
+"<skill-dir>/.cache/affine"
 ```
 
 
 To precompute persistent affine cache for all reusable avatar videos in an asset folder, run:
 
 ```powershell
-cd C:\Users\kdeptula\Downloads\speech-gen\official-latentsync
-.\.venv\Scripts\python.exe -m scripts.precompute_affine_cache `
+cd "<latentsync-root>"
+& "<latentsync-python>" -m scripts.precompute_affine_cache `
     --asset-root "<asset-root>" `
-    --report-json "C:\Users\kdeptula\skills\latentsync\.cache\affine\precompute-report.json"
+    --report-json "<skill-dir>/.cache/affine/precompute-report.json"
 ```
 
 This precomputes face alignment data only. It must not synthesize dummy audio or run full lip-sync.
@@ -51,16 +54,16 @@ Set `inference_steps` per job, not globally:
 - Use `15` for PiP/circular presenter overlays on B-roll where the presenter is not a stack panel.
 - Do not rely on one batch-level `--inference_steps` value when `jobs_json` contains mixed presenter layouts.
 
-Batch job file shape:
+Batch job file shape (replace paths and compute `video_sha256` from each actual source video):
 
 ```json
 [
   {
     "job_id": "S04_aroll_full_presenter",
     "video_path": "C:/path/project/source-assets/presenter-front.mp4",
-    "source_video_path": "C:/Users/kdeptula/Videos/avatar/front-9x16_2.mp4",
-    "video_sha256": "7ff8f11da8e99bd719598acb86aa1e7e20286c7537da2be3f8e9bf17f1006409",
-    "affine_cache_dir": "C:/Users/kdeptula/skills/latentsync/.cache/affine",
+    "source_video_path": "<asset-root>/presenter-front.mp4",
+    "video_sha256": "<sha256-of-source-video>",
+    "affine_cache_dir": "<skill-dir>/.cache/affine",
     "audio_path": "C:/path/project/tts/clean/T04.wav",
     "video_out_path": "C:/path/project/synced/front/S04.mp4",
     "inference_steps": 25,
@@ -70,9 +73,9 @@ Batch job file shape:
   {
     "job_id": "S05_broll_pip_overlay",
     "video_path": "C:/path/project/source-assets/presenter-profile.mp4",
-    "source_video_path": "C:/Users/kdeptula/Videos/avatar/profile-9x16_1.mp4",
-    "video_sha256": "2c29ef7fb29216879b4a8ca77a9f1b5f6d6f344f4f987b797bfc28d98b312345",
-    "affine_cache_dir": "C:/Users/kdeptula/skills/latentsync/.cache/affine",
+    "source_video_path": "<asset-root>/presenter-profile.mp4",
+    "video_sha256": "<sha256-of-source-video>",
+    "affine_cache_dir": "<skill-dir>/.cache/affine",
     "audio_path": "C:/path/project/tts/clean/T05.wav",
     "video_out_path": "C:/path/project/synced/profile/S05.mp4",
     "inference_steps": 15,
@@ -86,8 +89,8 @@ For best cache reuse, group jobs by identical `video_path` and run longer audio 
 group. Use `--reuse_affine_cache` only for sequential batch jobs, never for parallel LatentSync runs.
 
 ```powershell
-cd C:\Users\kdeptula\Downloads\speech-gen\official-latentsync
-.\.venv\Scripts\python.exe -m scripts.inference `
+cd "<latentsync-root>"
+& "<latentsync-python>" -m scripts.inference `
     --unet_config_path "configs/unet/stage2.yaml" `
     --inference_ckpt_path "checkpoints/latentsync_unet.pt" `
     --jobs_json "<project-dir>\manifests\latentsync-jobs.json" `
@@ -95,15 +98,15 @@ cd C:\Users\kdeptula\Downloads\speech-gen\official-latentsync
     --inference_steps 25 `
     --guidance_scale 1.5 `
     --reuse_affine_cache `
-    --affine_cache_dir "C:\Users\kdeptula\skills\latentsync\.cache\affine"
+    --affine_cache_dir "<skill-dir>/.cache/affine"
 ```
 
 For standalone non-autopipeline single-clip work, execute the same runner from the `official-latentsync` directory using
 its local virtual environment.
 
 ```powershell
-cd official-latentsync
-.\.venv\Scripts\python.exe -m scripts.inference `
+cd "<latentsync-root>"
+& "<latentsync-python>" -m scripts.inference `
     --unet_config_path "configs/unet/stage2.yaml" `
     --inference_ckpt_path "checkpoints/latentsync_unet.pt" `
     --video_path "../input.mov" `
@@ -130,4 +133,3 @@ Do not assume LatentSync succeeded because inference printed progress. After eve
 ## References
 - **Models**: `checkpoints/latentsync_unet.pt` and Whisper checkpoints.
 - **Configs**: `configs/unet/stage2.yaml`.
-- **Experiment data**: `C:\Users\kdeptula\Videos\ai-videos\_perf_experiments\latentsync-res-compare\` — baseline and patched benchmark results, comparison frames.

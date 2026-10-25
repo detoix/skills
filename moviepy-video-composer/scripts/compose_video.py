@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import concurrent.futures
 import json
+import os
 import shutil
 import subprocess
 import tempfile
@@ -543,12 +544,9 @@ def require_ffprobe() -> str:
         return ffprobe_path
     ffmpeg_path = shutil.which("ffmpeg")
     if ffmpeg_path:
-        candidate = Path(ffmpeg_path).with_name("ffprobe.exe")
+        candidate = Path(ffmpeg_path).with_name("ffprobe.exe" if os.name == "nt" else "ffprobe")
         if candidate.exists():
             return str(candidate)
-    local = Path.home() / "Documents" / "FFmpeg" / "ffmpeg-master-latest-win64-gpl" / "bin" / "ffprobe.exe"
-    if local.exists():
-        return str(local)
     raise RuntimeError("ffprobe is required to validate narration and soundtrack audio streams.")
 
 

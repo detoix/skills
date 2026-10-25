@@ -4,7 +4,6 @@ from __future__ import annotations
 import argparse
 import json
 import math
-import os
 import shutil
 import subprocess
 import sys
@@ -23,11 +22,6 @@ def media_tool(name: str) -> str:
     found = shutil.which(name)
     if found:
         return found
-    userprofile = os.environ.get("USERPROFILE")
-    if userprofile:
-        candidate = Path(userprofile) / "Documents" / "FFmpeg" / "ffmpeg-master-latest-win64-gpl" / "bin" / f"{name}.exe"
-        if candidate.exists():
-            return str(candidate)
     return name
 
 

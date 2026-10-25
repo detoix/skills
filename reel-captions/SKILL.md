@@ -5,6 +5,8 @@ description: Generate and hard-burn modern word-by-word captions for reels, shor
 
 # Reel Captions
 
+Resolve `<skill-dir>` from this `SKILL.md`. Cross-skill calls use `<skills-root>`, its parent directory; install the named companion skills there before using those calls. Replace path placeholders with resolved locations. Examples below use PowerShell.
+
 Use this skill to add modern short-form captions to a rendered reel. The default workflow preserves the approved transcript and uses alignment only for timing.
 
 ## Workflow
@@ -16,7 +18,7 @@ Use this skill to add modern short-form captions to a rendered reel. The default
    - when using `script.json`, a timing manifest at `<project-dir>\manifests\final-audio-manifest.json`
 2. Generate word timings and ASS captions:
    ```powershell
-   & "<caption-python>" C:\Users\kdeptula\skills\reel-captions\scripts\generate_reel_captions.py `
+   & "<caption-python>" "<skill-dir>/scripts/generate_reel_captions.py" `
      --project-dir <project-dir> `
      --audio <project-dir>\final_audio.wav `
      --video <project-dir>\final_output.mp4 `
@@ -38,14 +40,14 @@ Production reels require a Python environment with `whisperx`, `torch`, and FFmp
 Check the selected runtime before production alignment:
 
 ```powershell
-& "<caption-python>" C:\Users\kdeptula\skills\reel-captions\scripts\check_caption_runtime.py
+& "<caption-python>" "<skill-dir>/scripts/check_caption_runtime.py"
 ```
 
 If WhisperX is missing, install it explicitly into the selected runtime. If installation fails, stop and report the captioning blocker instead of falling back to synthetic timings:
 
 ```powershell
-& C:\Users\kdeptula\skills\reel-captions\scripts\install_caption_runtime.ps1 `
-  -Python "$env:USERPROFILE\Downloads\speech-gen\venv\Scripts\python.exe"
+& "<skill-dir>/scripts/install_caption_runtime.ps1" `
+  -Python "<caption-python>"
 ```
 
 WhisperX default behavior:

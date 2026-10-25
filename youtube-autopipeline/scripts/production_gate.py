@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import math
 import re
 import shutil
@@ -185,12 +186,9 @@ def find_ffprobe() -> str | None:
         return ffprobe
     ffmpeg = shutil.which("ffmpeg")
     if ffmpeg:
-        candidate = Path(ffmpeg).with_name("ffprobe.exe")
+        candidate = Path(ffmpeg).with_name("ffprobe.exe" if os.name == "nt" else "ffprobe")
         if candidate.exists():
             return str(candidate)
-    local = Path.home() / "Documents" / "FFmpeg" / "ffmpeg-master-latest-win64-gpl" / "bin" / "ffprobe.exe"
-    if local.exists():
-        return str(local)
     return None
 
 

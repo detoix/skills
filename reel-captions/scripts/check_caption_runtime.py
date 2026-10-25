@@ -3,21 +3,14 @@ from __future__ import annotations
 
 import importlib.util
 import json
-import os
 import shutil
 import sys
-from pathlib import Path
 
 
 def media_tool(name: str) -> str | None:
     found = shutil.which(name)
     if found:
         return found
-    userprofile = os.environ.get("USERPROFILE")
-    if userprofile:
-        candidate = Path(userprofile) / "Documents" / "FFmpeg" / "ffmpeg-master-latest-win64-gpl" / "bin" / f"{name}.exe"
-        if candidate.exists():
-            return str(candidate)
     return None
 
 

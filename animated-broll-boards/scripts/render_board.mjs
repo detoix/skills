@@ -3,11 +3,11 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawn } from "node:child_process";
 
-const RECORDER = "C:\\Users\\kdeptula\\skills\\playwright-broll-recorder\\scripts\\record_broll.mjs";
-const PRODUCTION_GATE = "C:\\Users\\kdeptula\\skills\\youtube-autopipeline\\scripts\\production_gate.py";
+const RECORDER = fileURLToPath(new URL("../../playwright-broll-recorder/scripts/record_broll.mjs", import.meta.url));
+const PRODUCTION_GATE = fileURLToPath(new URL("../../youtube-autopipeline/scripts/production_gate.py", import.meta.url));
 
 function parseArgs(argv) {
   const options = {};
@@ -72,11 +72,6 @@ function runNode(args) {
   });
 }
 
-function ffmpegPath() {
-  const known = path.join(process.env.USERPROFILE || "", "Documents", "FFmpeg", "ffmpeg-master-latest-win64-gpl", "bin", "ffmpeg.exe");
-  return known || "ffmpeg";
-}
-
 function runCommand(command, args) {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, { stdio: "inherit", windowsHide: true });
@@ -136,7 +131,7 @@ async function main() {
     "120",
   ]);
 
-  await runCommand(ffmpegPath(), [
+  await runCommand("ffmpeg", [
     "-y",
     "-v",
     "error",

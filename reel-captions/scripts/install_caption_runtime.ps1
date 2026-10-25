@@ -1,5 +1,6 @@
 param(
-  [string]$Python = "$env:USERPROFILE\Downloads\speech-gen\venv\Scripts\python.exe"
+  [Parameter(Mandatory = $true)]
+  [string]$Python
 )
 
 if (!(Test-Path -LiteralPath $Python)) {
@@ -12,4 +13,5 @@ if ($LASTEXITCODE -ne 0) { throw "pip upgrade failed" }
 & $Python -m pip install whisperx
 if ($LASTEXITCODE -ne 0) { throw "whisperx install failed" }
 
-& $Python "C:\Users\kdeptula\skills\reel-captions\scripts\check_caption_runtime.py"
+& $Python (Join-Path $PSScriptRoot "check_caption_runtime.py")
+if ($LASTEXITCODE -ne 0) { throw "Caption runtime check failed" }

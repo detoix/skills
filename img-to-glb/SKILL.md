@@ -6,7 +6,7 @@ description: Generate a 3D GLB model from an image using local Hunyuan3D-2.1. Us
 # Image to GLB (Hunyuan3D-2.1)
 
 Converts an image to a `.glb` 3D model using the local Hunyuan3D-2.1 installation.
-Generation takes ~5 minutes — always run in **foreground** so progress is visible.
+Generation time depends on hardware and settings. Run in the foreground so progress is visible.
 
 ## Step 1 — Get a name
 
@@ -17,37 +17,22 @@ This becomes the filename: `<name>.png` (input copy) and `<name>_3d.glb` (output
 
 **If the user provided a file path** — use it directly, skip to step 3.
 
-**If the user pasted an image in the chat** — try saving from clipboard via PowerShell:
-
-```bash
-powershell -Command "
-  Add-Type -AssemblyName System.Windows.Forms;
-  Add-Type -AssemblyName System.Drawing;
-  \$img = [System.Windows.Forms.Clipboard]::GetImage();
-  if (\$img -eq \$null) { Write-Error 'No image in clipboard'; exit 1 };
-  \$img.Save('%USERPROFILE%\\Downloads\\modele-blender\\NAME.png', [System.Drawing.Imaging.ImageFormat]::Png);
-  Write-Host 'Saved'
-"
-```
-
-Replace `NAME` with the name from step 1.
-
-If clipboard is empty (returns error), ask the user to save the image to disk and provide the path.
+**If the user pasted an image in the chat** — use its available attachment path, or save it into the current project's working directory using a supported file tool. If the attachment is not accessible, ask the user for a local file path.
 
 ## Step 3 — Run img_to_glb.py
 
-Script: `%USERPROFILE%/Downloads/modele-blender/Hunyuan3D-2.1/img_to_glb.py`
-Python: `%USERPROFILE%/Downloads/modele-blender/venv/Scripts/python`
-Must run with CWD = `%USERPROFILE%/Downloads/modele-blender/Hunyuan3D-2.1` (required for imports).
+This skill contains instructions only. It requires an external Hunyuan3D-2.1 installation providing the custom `img_to_glb.py` runner; that runner is not bundled in this repository. Resolve `<hunyuan-root>` to the existing checkout and `<hunyuan-python>` to its configured Python interpreter. Verify the script exists and inspect its `--help` before using the options below. If it is unavailable, report the missing prerequisite rather than assuming a local installation.
 
-```bash
-cd "%USERPROFILE%/Downloads/modele-blender/Hunyuan3D-2.1" && \
-  "%USERPROFILE%/Downloads/modele-blender/venv/Scripts/python" img_to_glb.py "<absolute_image_path>" [--steps N] [--cpu]
+Run from the checkout directory so its imports resolve. Example for PowerShell:
+
+```powershell
+Set-Location "<hunyuan-root>"
+& "<hunyuan-python>" ./img_to_glb.py "<absolute_image_path>"
 ```
 
 ### Options
-- `--steps N` — number of diffusion inference steps (default: 50). More steps = more detail but slower. 100 steps ≈ 4.5 min on RTX 4050.
-- `--cpu` — run on CPU instead of GPU (~30 min)
+- `--steps N` — number of diffusion inference steps (default: 50). More steps = more detail but slower. Measure runtime on the available hardware.
+- `--cpu` — run on CPU instead of GPU (slower; requires runner support)
 
 **Ask the user** if they want to change the step count. If not specified, omit the flag (uses default of 50).
 
@@ -62,6 +47,6 @@ Tell the user the output path and file size.
 
 ## Notes
 
-- GPU: RTX 4050 Laptop 6GB VRAM — INT8 quantization is already in the script, do not change it
-- If CUDA OOM: suggest rerunning with `--cpu` flag (works but takes ~30 min)
+- Inspect available GPU memory and the external runner's quantization settings before generation.
+- If CUDA OOM: suggest rerunning with `--cpu` flag if supported by the installed runner
 - HuggingFace model weights (~6GB) are cached after first run

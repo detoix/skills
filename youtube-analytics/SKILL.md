@@ -1,78 +1,73 @@
 ---
 name: youtube-analytics
-description: Pull, refresh, and analyze read-only YouTube channel analytics locally using OAuth, YouTube Analytics API, and YouTube Data API exports. Use when Codex needs to set up recurring YouTube Studio analytics access, fetch Shorts/channel/video metrics, generate local CSV/JSON datasets, protect OAuth credentials and refresh tokens, or create growth reports from exported YouTube performance data.
+description: Fetch and analyze read-only YouTube channel analytics using local Google OAuth credentials, the YouTube Analytics API, and the YouTube Data API. Use for channel/video metrics, local CSV/JSON exports, OAuth authorization, and growth reports.
 ---
 
-# Youtube Analytics
+# YouTube Analytics
 
-## Operating Rules
+## Paths and runtime
 
-- Never request, store, print, commit, or transmit Google account passwords, cookies, 2FA codes, OAuth refresh tokens, or client secrets.
-- Keep OAuth client JSON, token JSON, and exported analytics under ignored paths.
-- This installation stores local secrets in `C:\Users\kdeptula\skills\youtube-analytics\secrets\`.
-- This installation stores exported analytics in `C:\Users\kdeptula\skills\youtube-analytics\data\`.
-- Before writing secrets into any repository, verify `.gitignore` covers the exact directory and filename patterns.
-- Use read-only scopes unless the user explicitly requests write operations:
-  - `https://www.googleapis.com/auth/yt-analytics.readonly`
-  - `https://www.googleapis.com/auth/youtube.readonly`
+Resolve `scripts/` relative to this skill's directory, not the conversation's working directory. Run the examples below from that directory using an available Python interpreter (`python` or `python3`). If a virtual environment is used, select its interpreter for the current operating system; do not assume a particular username, drive, checkout location, or installed environment.
 
-## Workflow
+The export script resolves storage independently of the skill's installation location:
 
-1. Confirm the user created a Google OAuth **Desktop app** client.
-2. Place the downloaded OAuth client JSON in `secrets\youtube_oauth_client.json`.
-3. Use `.venv\Scripts\python.exe` for API pulls when the local venv exists.
-4. Run `scripts\youtube_analytics_pull.py --client-secrets <path>` once to complete browser OAuth.
-5. Re-run the same command for recurring refreshes; the script reuses `secrets\youtube_token.json`.
-6. Run `scripts\youtube_growth_report.py --analytics-csv <csv>` to produce a first-pass local report.
+- Base directory: `Path.home() / ".youtube-analytics"` by default; override with `YOUTUBE_ANALYTICS_HOME`.
+- OAuth client: `<base>/secrets/youtube_oauth_client.json`.
+- Saved authorization: `<base>/secrets/youtube_token.json`.
+- Exports: `<base>/data/`.
 
-## Scripts
+`Path.home()` resolves the current user's home on Windows, macOS, and Linux. `--client-secrets`, `--token`, and `--output-dir` override their individual paths; `~` is expanded. A custom `YOUTUBE_ANALYTICS_HOME` should be an absolute path so scheduled runs do not depend on their working directory.
 
-### Export Analytics
+Keep machine-specific paths and account/channel identifiers in local runtime configuration, never in this skill's instructions or source.
 
-```powershell
-C:\Users\kdeptula\skills\youtube-analytics\.venv\Scripts\python.exe C:\Users\kdeptula\skills\youtube-analytics\scripts\youtube_analytics_pull.py `
-  --client-secrets C:\Users\kdeptula\skills\youtube-analytics\secrets\youtube_oauth_client.json `
-  --token C:\Users\kdeptula\skills\youtube-analytics\secrets\youtube_token.json `
-  --output-dir C:\Users\kdeptula\skills\youtube-analytics\data `
-  --start-date 2026-05-01 `
-  --end-date today
+## Authorization
+
+Reuse existing credentials first. A valid saved token or one that can be refreshed is sufficient; the client JSON is only needed for interactive OAuth login. Reauthorizing an existing Google app does not require creating a new Cloud project, reenabling its APIs, or creating another client.
+
+When login is needed:
+
+1. Locate the user's existing OAuth **Desktop app** client JSON. Ask for its local path, not its contents.
+2. Install dependencies with `python -m pip install -r scripts/requirements.txt` in the selected environment if needed.
+3. Run the export script with `--client-secrets "<local-client-json>"`, or place the client JSON at its default private storage path. The OAuth flow opens the system browser; the user selects the Google account/channel and grants read-only access.
+4. The script saves authorization at the resolved token path and refreshes it on subsequent runs. Report where authorization was saved without displaying its contents.
+
+Do not infer that an OAuth login includes all channels managed by a Google account. To identify the channel(s) exposed by the current authorization, use YouTube Data API `channels.list(part="snippet", mine=True)` with the same credentials. `--channel-id` selects a report target; it does not grant access to another channel.
+
+Keep OAuth client JSON, saved tokens, and analytics private and outside version control. If storage is inside a repository, verify ignore rules cover those exact paths before writing. Restrict local secret files to the current user where supported. Never display, paste, log, commit, or send credentials to unrelated services. Use Google credentials only in the intended OAuth/API exchange; the user enters passwords and verification codes directly in Google.
+
+The scripts request only these scopes:
+
+- `https://www.googleapis.com/auth/yt-analytics.readonly`
+- `https://www.googleapis.com/auth/youtube.readonly`
+
+## Export and analyze
+
+With existing authorization, export the most recent 30 days:
+
+```text
+python scripts/youtube_analytics_pull.py
 ```
 
-Default outputs:
+For first-time login with an existing downloaded client:
 
-- `C:\Users\kdeptula\skills\youtube-analytics\data\analytics_by_video.csv`
-- `C:\Users\kdeptula\skills\youtube-analytics\data\analytics_by_day.csv`
-- `C:\Users\kdeptula\skills\youtube-analytics\data\video_metadata.csv`
+```text
+python scripts/youtube_analytics_pull.py --client-secrets "<local-client-json>"
+```
 
 Useful options:
 
-- `--output-dir <dir>`: write data elsewhere.
-- `--token <path>`: use a specific token file.
-- `--channel-id <id>`: query a specific authorized channel; default is `MINE`.
-- `--metrics <csv>`: override Analytics API metrics.
-- `--skip-metadata`: skip Data API metadata enrichment.
+- `--start-date YYYY-MM-DD` and `--end-date today`: reporting period.
+- `--channel-id <authorized-channel-id>`: report target; defaults to `MINE`.
+- `--metrics <csv>`: override the Analytics metrics.
+- `--skip-metadata` or `--skip-supplemental`: omit those API reports.
+- `--output-dir "<export-directory>"`: write exports elsewhere.
 
-### Generate Report
+Default outputs include `analytics_by_video.csv`, `analytics_by_day.csv`, `video_metadata.csv`, supplemental CSVs, and `manifest.json` in the resolved export directory. Generate a local report using those resolved paths:
 
-```powershell
-python C:\Users\kdeptula\skills\youtube-analytics\scripts\youtube_growth_report.py `
-  --analytics-csv C:\Users\kdeptula\skills\youtube-analytics\data\analytics_by_video.csv `
-  --metadata-csv C:\Users\kdeptula\skills\youtube-analytics\data\video_metadata.csv
+```text
+python scripts/youtube_growth_report.py --analytics-csv "<export-directory>/analytics_by_video.csv" --metadata-csv "<export-directory>/video_metadata.csv"
 ```
 
-## Recurring Use
+For growth advice, inspect the latest exports and distinguish measured findings from subjective strategy recommendations.
 
-For recurring automation, schedule the export script, not Codex itself. Use Windows Task Scheduler or a Codex automation only after the first OAuth token exists. Do not schedule jobs that require interactive OAuth approval.
-
-Recommended recurring command:
-
-```powershell
-C:\Users\kdeptula\skills\youtube-analytics\.venv\Scripts\python.exe C:\Users\kdeptula\skills\youtube-analytics\scripts\youtube_analytics_pull.py `
-  --client-secrets C:\Users\kdeptula\skills\youtube-analytics\secrets\youtube_oauth_client.json `
-  --token C:\Users\kdeptula\skills\youtube-analytics\secrets\youtube_token.json `
-  --output-dir C:\Users\kdeptula\skills\youtube-analytics\data `
-  --start-date 2026-05-01 `
-  --end-date today
-```
-
-When a user asks for channel growth advice, inspect the latest CSV files first, then derive recommendations from measured retention, views, engagement, publish timing, and topic patterns. Clearly separate measured findings from subjective content strategy judgment.
+Schedule recurring exports only when requested and after noninteractive token refresh works. Use the current host's scheduler or available automation tools, an explicit interpreter/script location resolved on that host, and the same configured storage paths. Scheduled runs must not require browser consent.

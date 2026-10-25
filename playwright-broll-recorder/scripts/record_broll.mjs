@@ -4,10 +4,11 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
+import { fileURLToPath } from "node:url";
 import { spawn, spawnSync } from "node:child_process";
 import { chromium } from "playwright";
 
-const PRODUCTION_GATE = "C:\\Users\\kdeptula\\skills\\youtube-autopipeline\\scripts\\production_gate.py";
+const PRODUCTION_GATE = fileURLToPath(new URL("../../youtube-autopipeline/scripts/production_gate.py", import.meta.url));
 const TIMINGS_RELATIVE_PATH = path.join("manifests", "production-timings.jsonl");
 const PREPARE_NETWORKIDLE_TIMEOUT_MS = 10000;
 const RECORD_NETWORKIDLE_TIMEOUT_MS = 5000;
@@ -449,10 +450,6 @@ async function preparePage(browser, options, projectDir) {
 }
 
 function findFfmpeg() {
-  const local = path.join(os.homedir(), "Documents", "FFmpeg", "ffmpeg-master-latest-win64-gpl", "bin", "ffmpeg.exe");
-  if (spawnSync(local, ["-version"], { encoding: "utf8", timeout: 2000, windowsHide: true }).status === 0) {
-    return local;
-  }
   const found = spawnSync("ffmpeg", ["-version"], { encoding: "utf8", timeout: 2000, windowsHide: true });
   if (!found.error && found.status === 0) {
     return "ffmpeg";
