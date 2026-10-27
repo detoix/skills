@@ -23,7 +23,8 @@ reels); the model speaks 30 languages and nothing in the skill is Polish-only.
 - Linux (tested) or macOS (CPU path, untested); on Windows, use WSL. [uv](https://docs.astral.sh/uv/) and FFmpeg.
 - An NVIDIA GPU, or a CPU with about 14 GB of free RAM. On an 8-core laptop CPU a minute of speech takes about
   ten minutes; a C++ compiler lets the CPU path compile, without one it runs slower.
-- About 5 GB for the model weights, downloaded from Hugging Face on first use.
+- About 5 GB for the VoxCPM2 weights and about 0.5 GB for Whisper `small` (used by the checks), both
+  downloaded from Hugging Face on first use.
 
 ## Install
 
