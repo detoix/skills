@@ -104,12 +104,14 @@ def run_single(args: argparse.Namespace) -> Path:
     reference_audio = require_file(args.reference_audio, "reference audio")
     prompt_text = resolve_prompt_text(args)
     validate_prompt_args(prompt_audio, prompt_text)
+    seed = args.seed if args.seed is not None else random.randrange(2**31)
 
     model = None
     try:
         model = load_model(VoxCPM, torch, args)
         target_text = build_final_text(args.text, args.control)
         with torch.inference_mode():
+            torch.manual_seed(seed)
             wav = model.generate(
                 text=target_text,
                 prompt_wav_path=str(prompt_audio) if prompt_audio else None,
@@ -133,7 +135,7 @@ def run_single(args: argparse.Namespace) -> Path:
     output_path = Path(args.output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     sf.write(output_path, wav, model.tts_model.sample_rate)
-    print(f"Saved VoxCPM2 audio to {output_path}")
+    print(f"Saved VoxCPM2 audio to {output_path} (seed {seed})")
     return output_path
 
 
@@ -171,6 +173,7 @@ def run_batch_cached(args: argparse.Namespace) -> None:
 
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
+    seed = args.seed if args.seed is not None else random.randrange(2**31)
 
     started = time.perf_counter()
     model = load_model(VoxCPM, torch, args)
@@ -185,6 +188,7 @@ def run_batch_cached(args: argparse.Namespace) -> None:
             item_started = time.perf_counter()
             target_text = maybe_normalize_text(model, build_final_text(text, args.control), args.normalize)
             output_file = output_dir / f"output_{index:03d}.wav"
+            torch.manual_seed(seed + index - 1)
             try:
                 # VoxCPM exposes prompt-cache construction but not a public batch API that reuses it.
                 generated = model.tts_model._generate_with_prompt_cache(
@@ -204,7 +208,7 @@ def run_batch_cached(args: argparse.Namespace) -> None:
                     sf.write(output_file, audio, model.tts_model.sample_rate)
                     duration = len(audio) / model.tts_model.sample_rate
                     print(
-                        f"Saved: {output_file} ({duration:.2f}s audio, "
+                        f"Saved: {output_file} ({duration:.2f}s audio, seed {seed + index - 1}, "
                         f"{time.perf_counter() - item_started:.2f}s render)"
                     )
                     success_count += 1
@@ -288,7 +292,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--retry-badcase-max-times", type=int, default=3)
     parser.add_argument("--retry-badcase-ratio-threshold", type=float, default=6.0)
     parser.add_argument("--device", default=DEFAULT_DEVICE, help="Torch device, defaults to cuda:0; cpu when no CUDA")
-    parser.add_argument("--seed", type=int, help="CPU: noise seed; line N of a batch uses seed + N - 1 (default random)")
+    parser.add_argument("--seed", type=int, help="Noise seed; line N of a batch uses seed + N - 1 (default random)")
     parser.add_argument("--rows", type=int, default=DEFAULT_ROWS, help="CPU: lines decoded together in batch mode")
     parser.add_argument("--no-compile", action="store_true", help="CPU: skip compiling the diffusion head")
     parser.add_argument("--optimize", action="store_true", help="Enable upstream optimize mode")
