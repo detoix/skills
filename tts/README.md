@@ -15,14 +15,18 @@ reels); the model speaks 30 languages and nothing in the skill is Polish-only.
 - **Settings that hold up:** cfg 2.0, 20 steps, no denoiser, a seed per take so a good take can be reproduced.
 - **A faster CPU path:** float32, a compiled diffusion head and several lines decoded together
   (`scripts/voxcpm_fast.py`); same takes as the upstream sampler.
+- **Intel GPU acceleration:** an optional OpenVINO diffusion head with CPU orchestration.
+  Automatic selection prefers a compatible Intel GPU over CPU for both single lines and batches.
+  GPU runtime failures fall back to CPU.
 - **Checks:** ASR transcription, and per-word Whisper confidence to choose between takes of one line
   (`scripts/word_confidence.py`).
 
 ## Requirements
 
 - Linux (tested) or macOS (CPU path, untested); on Windows, use WSL. [uv](https://docs.astral.sh/uv/) and FFmpeg.
-- An NVIDIA GPU, or a CPU with about 14 GB of free RAM. On an 8-core laptop CPU a minute of speech takes about
-  ten minutes; a C++ compiler lets the CPU path compile, without one it runs slower.
+- An NVIDIA GPU, or a CPU with about 14 GB of free RAM. A compatible Intel GPU with a working OpenCL driver
+  can run the diffusion head; the rest still runs on CPU. A C++ compiler enables the
+  compiled CPU path and its fallback.
 - About 5 GB for the VoxCPM2 weights and about 0.5 GB for Whisper `small` (used by the checks), both
   downloaded from Hugging Face on first use.
 
@@ -43,6 +47,16 @@ Then ask the agent for a voiceover; it reads `SKILL.md` and drives the scripts. 
 
 `lines.txt` holds one line per take, each with its own instruction in parentheses. Every option is in
 `SKILL.md` and `--help`.
+
+The default `--device auto` chooses CUDA first, then OpenVINO on an available Intel GPU,
+then CPU. Intel GPU execution is preferred over CPU for single lines as well as batches. The installer detects Intel GPU hardware on Linux; `OPENVINO=1 scripts/setup_runtime.sh` installs
+the optional runtime explicitly, and `OPENVINO=0` skips it. Install Intel's GPU OpenCL driver separately.
+Use `--device cpu` to force CPU or `--device openvino` to request the Intel GPU path explicitly.
+
+OpenVINO exports are generated locally and cached outside the skill folder; first use includes export and
+compilation time. FP16 execution can change a take, so keep the backend and precision with its seed and
+review a representative sample. Performance depends on the device and batch size; no universal speedup
+is assumed. Do not publish model caches, reference voices, generated recordings or local benchmark logs.
 
 ## Responsible use
 

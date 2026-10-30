@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Create or refresh the skill-local runtime at <skill>/.venv.
-# TORCH_BACKEND picks the PyTorch build; default is CUDA when an NVIDIA GPU is present, else cpu.
+# TORCH_BACKEND picks PyTorch; OPENVINO=auto|1|0 controls the optional Intel GPU backend.
 set -euo pipefail
 
 SKILL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -17,6 +17,24 @@ fi
 uv pip install --python "$VENV/bin/python" \
   --torch-backend "$TORCH_BACKEND" \
   "voxcpm==2.0.3" "wetext==0.1.2" "whisperx==3.8.5" torch torchaudio soundfile
+
+TTS_INSTALL_OPENVINO=0
+case "${OPENVINO:-auto}" in
+  1) TTS_INSTALL_OPENVINO=1 ;;
+  0) ;;
+  auto)
+    for TTS_GPU_VENDOR in /sys/class/drm/renderD*/device/vendor; do
+      if [ -r "$TTS_GPU_VENDOR" ] && [ "$(cat "$TTS_GPU_VENDOR")" = "0x8086" ]; then
+        TTS_INSTALL_OPENVINO=1
+        break
+      fi
+    done
+    ;;
+  *) echo 'OPENVINO must be auto, 1, or 0.' >&2; exit 1 ;;
+esac
+if [ "$TTS_INSTALL_OPENVINO" = 1 ]; then
+  uv pip install --python "$VENV/bin/python" "openvino==2026.4.1"
+fi
 
 "$VENV/bin/python" -c "
 import voxcpm, whisperx, soundfile, torch
