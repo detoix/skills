@@ -1,0 +1,4 @@
+interface:
+  display_name: "YuE Music"
+  short_description: "Generate local music, underscores and jingles"
+  default_prompt: "Use $yue-music to generate music in the current project, matching the requested style, vocals, and duration."

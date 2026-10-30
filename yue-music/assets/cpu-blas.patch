@@ -1,0 +1,96 @@
+--- a/src/backend.h
++++ b/src/backend.h
+@@ -16,6 +16,7 @@
+     ggml_backend_t backend;
+     ggml_backend_t cpu_backend;
+     bool           has_gpu;
++    ggml_backend_t blas_backend;
+ };
+ 
+ // Cached backend state (shared across all modules in the same binary)
+@@ -99,6 +100,7 @@
+ // Device named by --device, NULL for the best available one. Inline so
+ // every translation unit of the binary sees the one main sets.
+ inline const char * g_backend_device = NULL;
++inline bool g_backend_enable_blas = false;
+ 
+ // Install the log callback and load every backend, once per process.
+ static void backend_load(void) {
+@@ -115,6 +117,13 @@
+ // name matches none.
+ static bool backend_set_device(const char * name) {
+     backend_load();
++    g_backend_enable_blas = strcmp(name, "CPU-BLAS") == 0;
++    if (g_backend_enable_blas) {
++        name = "CPU";
++    } else if (strcmp(name, "BLAS") == 0) {
++        fprintf(stderr, "Use --device CPU-BLAS for the BLAS accelerator with CPU fallback\n");
++        return false;
++    }
+     if (!ggml_backend_dev_by_name(name)) {
+         fprintf(stderr, "--device %s not found. Available:", name);
+         for (size_t i = 0; i < ggml_backend_dev_count(); i++) {
+@@ -160,6 +169,23 @@
+         exit(1);
+     }
+     bp.has_gpu = !best_is_cpu;
++    if (g_backend_enable_blas && best_is_cpu) {
++        bp.blas_backend = ggml_backend_init_by_name("BLAS", nullptr);
++        if (!bp.blas_backend) {
++            fprintf(stderr, "[Load] FATAL: requested BLAS backend unavailable\n");
++            exit(1);
++        }
++        ggml_backend_dev_t dev = ggml_backend_get_device(bp.blas_backend);
++        ggml_backend_reg_t reg = dev ? ggml_backend_dev_backend_reg(dev) : NULL;
++        auto set_threads = reg ? (ggml_backend_set_n_threads_t)
++            ggml_backend_reg_get_proc_address(reg, "ggml_backend_set_n_threads") : nullptr;
++        if (!set_threads) {
++            fprintf(stderr, "[Load] FATAL: BLAS backend has no thread-count setter\n");
++            exit(1);
++        }
++        set_threads(bp.blas_backend, n_threads);
++        fprintf(stderr, "[Load] BLAS CPU accelerator enabled, %d threads, CPU fallback, has_gpu=false\n", n_threads);
++    }
+     fprintf(stderr, "[Load] %s backend: %s (CPU threads: %d)\n", label, ggml_backend_name(bp.backend), n_threads);
+ 
+     g_backend_cache = bp;
+@@ -174,6 +200,9 @@
+     }
+     g_backend_refs--;
+     if (g_backend_refs == 0) {
++        if (g_backend_cache.blas_backend) {
++            ggml_backend_free(g_backend_cache.blas_backend);
++        }
+         if (backend && backend != cpu_backend) {
+             ggml_backend_free(backend);
+         }
+@@ -190,15 +219,20 @@
+ // Pinned memory lets the scheduler keep more ops on GPU instead of
+ // falling back to CPU with plain malloc.
+ static ggml_backend_sched_t backend_sched_new(BackendPair bp, int max_nodes) {
+-    ggml_backend_t             backends[2] = { bp.backend, bp.cpu_backend };
+-    ggml_backend_buffer_type_t bufts[2]    = { NULL, NULL };
+-    int                        n           = (bp.backend == bp.cpu_backend) ? 1 : 2;
+-
+-    bufts[0] = ggml_backend_get_default_buffer_type(bp.backend);
+-    if (n == 2) {
+-        ggml_backend_dev_t         gpu_dev   = ggml_backend_get_device(bp.backend);
+-        ggml_backend_buffer_type_t host_buft = gpu_dev ? ggml_backend_dev_host_buffer_type(gpu_dev) : NULL;
+-        bufts[1] = host_buft ? host_buft : ggml_backend_get_default_buffer_type(bp.cpu_backend);
++    ggml_backend_t backends[3] = {};
++    ggml_backend_buffer_type_t bufts[3] = {};
++    int n = 0;
++    if (bp.blas_backend) {
++        backends[n] = bp.blas_backend;
++        bufts[n++] = ggml_backend_get_default_buffer_type(bp.blas_backend);
++    }
++    backends[n] = bp.backend;
++    bufts[n++] = ggml_backend_get_default_buffer_type(bp.backend);
++    if (bp.backend != bp.cpu_backend) {
++        backends[n] = bp.cpu_backend;
++        ggml_backend_dev_t dev = ggml_backend_get_device(bp.backend);
++        auto host = dev ? ggml_backend_dev_host_buffer_type(dev) : NULL;
++        bufts[n++] = host ? host : ggml_backend_get_default_buffer_type(bp.cpu_backend);
+     }
+ 
+     ggml_backend_sched_t sched = ggml_backend_sched_new(backends, bufts, n, max_nodes, false, true);

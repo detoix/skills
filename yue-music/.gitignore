@@ -1,0 +1,29 @@
+# Local runtimes, compiled artifacts, and Python caches.
+/.runtime/
+/.runtime-*/
+/build/
+__pycache__/
+*.pyc
+*.exe
+*.dll
+*.so
+*.so.*
+*.dylib
+*.lib
+*.obj
+*.o
+*.pdb
+# Downloaded weights, generated audio, and private run records.
+*.gguf
+*.wav
+*.mp3
+*.flac
+*.vae
+*.tokens.csv
+*.log
+run-info.json
+quality-check.json
+request-input.json
+audio.json
+.env
+.env.*

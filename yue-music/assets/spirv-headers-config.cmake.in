@@ -1,0 +1,14 @@
+# Generated only in the build tree when an SDK supplies headers without a config.
+set(_yue_spirv_headers_include "@YUE_SPIRV_HEADERS_INCLUDE@")
+if(NOT EXISTS "${_yue_spirv_headers_include}/spirv/unified1/spirv.hpp")
+    set(SPIRV-Headers_FOUND FALSE)
+    set(SPIRV-Headers_NOT_FOUND_MESSAGE "The configured Vulkan SDK SPIR-V header path no longer exists.")
+    return()
+endif()
+if(NOT TARGET SPIRV-Headers::SPIRV-Headers)
+    add_library(SPIRV-Headers::SPIRV-Headers INTERFACE IMPORTED GLOBAL)
+    set_target_properties(SPIRV-Headers::SPIRV-Headers PROPERTIES
+        INTERFACE_INCLUDE_DIRECTORIES "${_yue_spirv_headers_include}")
+endif()
+set(SPIRV-Headers_FOUND TRUE)
+unset(_yue_spirv_headers_include)

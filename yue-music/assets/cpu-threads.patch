@@ -1,0 +1,21 @@
+diff --git a/src/backend.h b/src/backend.h
+index a9c4404..cf84d93 100644
+--- a/src/backend.h
++++ b/src/backend.h
+@@ -26,6 +26,16 @@ static int         g_backend_refs  = 0;
+ // Used for GGML CPU thread count: GEMM shares SIMD units across hyperthreads,
+ // so one thread per physical core is optimal.
+ static int backend_cpu_n_threads(void) {
++    // Local override: allow the launcher to limit CPU use explicitly.
++    const char * requested = std::getenv("YUE_THREADS");
++    if (requested && *requested) {
++        char * end = nullptr;
++        long threads = std::strtol(requested, &end, 10);
++        if (end && *end == '\0' && threads >= 1 && threads <= 256) {
++            return (int) threads;
++        }
++        fprintf(stderr, "[CPU] Ignoring invalid YUE_THREADS; using physical-core estimate\n");
++    }
+     int n = (int) std::thread::hardware_concurrency() / 2;
+     return n > 0 ? n : 1;
+ }

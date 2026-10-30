@@ -1,0 +1,16 @@
+{
+  "repo": "Serveurperso/YuE2-GGUF",
+  "revision": "e630f2b8f6aedf8254c3186438633c1b5eeaf80a",
+  "files": [
+    {
+      "name": "YuE2-3B-Q8_0.gguf",
+      "size": 3810232064,
+      "sha256": "41121ce97786d7795a325bcf123ca196956c03bb252c9e75384cfc1f2fc19e6b"
+    },
+    {
+      "name": "YuE2-Vae-F32.gguf",
+      "size": 530497344,
+      "sha256": "93e49dfb1970e89ad64cacb17cf13b5d05f6bb30ef7ed3adae3050bcb728638a"
+    }
+  ]
+}
