@@ -14,6 +14,41 @@ import yue
 
 
 class LauncherTests(unittest.TestCase):
+    def test_attention_selection_keeps_full_request_and_dry_run_side_effect_free(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            request = {"style": "dance", "lyrics": "[Verse]\nStay with me",
+                       "semantic_tokens": [1, 2, 3, 4], "abc": "X:1\nK:C\nC D E F|",
+                       "steps": 32, "seed": 17, "lm_seed": 23, "duration": 200}
+            source = base / "replay.json"
+            source.write_text(json.dumps(request), encoding="utf-8")
+            for device, option, expected in (("Vulkan0", "auto", "tiled-gemm"),
+                                              ("CPU", "auto", "flash"),
+                                              ("CUDA0", "auto", "flash"),
+                                              ("Vulkan0", "flash", "flash")):
+                result = subprocess.run(
+                    [sys.executable, str(SCRIPTS / "yue.py"), "replay", "--request", str(source),
+                     "--device", device, "--nar-attention", option, "--nar-query-tile", "128",
+                     "--out-dir", str(base / "take"), "--dry-run"],
+                    capture_output=True, text=True, check=True,
+                )
+                data = json.loads(result.stdout)
+                self.assertEqual(data["nar_attention"], expected)
+                self.assertEqual(data["nar_query_tile"], 128)
+                self.assertEqual(data["request"], {**request, "output_format": "wav24"})
+                self.assertFalse((base / "take").exists())
+
+    def test_invalid_query_tile_fails_before_creating_output(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            out = Path(temporary) / "take"
+            result = subprocess.run(
+                [sys.executable, str(SCRIPTS / "yue.py"), "generate", "--style", "dance",
+                 "--nar-query-tile", "129", "--out-dir", str(out), "--dry-run"],
+                capture_output=True, text=True,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertFalse(out.exists())
+
     def test_model_selection_does_not_require_other_backbones(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
