@@ -19,18 +19,17 @@ from runtime_support import (IS_WINDOWS, binary_path, collect_build_artifacts, l
 SKILL = Path(__file__).resolve().parent.parent
 ENGINE_REPO = "https://github.com/ServeurpersoCom/yue2.cpp.git"
 ENGINE_REV = "8af01740686824ffd4a1839a457954f42e2a8ce7"
-MODEL = "YuE2-3B-Q8_0.gguf"
 VAE = "YuE2-Vae-F32.gguf"
 BINARIES = ("yue-synth", "yue-plan", "yue-server")
 INSTALLER_VERSION = 3
 
 
 def read_json(path):
-    return json.loads(Path(path).read_text(encoding="utf-8"))
+    return json.loads(Path(path).read_text(encoding="utf-8-sig"))
 
 
 def write_json(path, data):
-    Path(path).write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    Path(path).write_text(json.dumps(data, indent=2, ensure_ascii=True) + "\n", encoding="utf-8")
 
 
 def run(command, **kwargs):
@@ -38,9 +37,23 @@ def run(command, **kwargs):
     return subprocess.run(list(map(str, command)), check=True, **kwargs)
 
 
-def verify_models(root, full=False):
+def model_files(root, model=None):
     manifest = read_json(SKILL / "assets/models.json")
-    for entry in manifest["files"]:
+    backbones = [entry for entry in manifest["files"] if entry["name"] != VAE]
+    if model is None:
+        installed = [entry for entry in backbones if (root / "models" / entry["name"]).is_file()]
+        if len(installed) != 1:
+            raise ValueError("Select --model before the subcommand: " + ", ".join(entry["name"] for entry in backbones))
+        selected = installed[0]
+    else:
+        selected = next((entry for entry in backbones if entry["name"] == model), None)
+        if selected is None:
+            raise ValueError(f"Unknown model: {model}. See assets/models.json.")
+    return [selected, next(entry for entry in manifest["files"] if entry["name"] == VAE)]
+
+
+def verify_models(root, full=False, model=None):
+    for entry in model_files(root, model):
         path = root / "models" / entry["name"]
         if not path.is_file() or path.stat().st_size != entry["size"]:
             raise ValueError(f"Missing or incomplete model: {entry['name']}. Run setup.")
@@ -57,9 +70,9 @@ def verify_models(root, full=False):
                 print("SHA-256 OK:", entry["name"], flush=True)
 
 
-def check(root, full=False, binaries_only=False):
+def check(root, full=False, binaries_only=False, model=None):
     if not binaries_only:
-        verify_models(root, full)
+        verify_models(root, full, model)
     for name in BINARIES:
         path = binary_path(root, name)
         if not path.is_file() or (not IS_WINDOWS and not os.access(path, os.X_OK)):
@@ -72,18 +85,18 @@ def check(root, full=False, binaries_only=False):
     print(message, "No model inference was performed.")
 
 
-def ensure_models(root):
+def ensure_models(root, model=None):
     models = root / "models"
     models.mkdir(exist_ok=True)
     manifest = read_json(SKILL / "assets/models.json")
     base = f"https://huggingface.co/{manifest['repo']}/resolve/{manifest['revision']}"
-    for entry in manifest["files"]:
+    for entry in model_files(root, model):
         target = models / entry["name"]
         if not target.exists() or target.stat().st_size != entry["size"]:
             run(["curl", "--fail", "--location", "--retry", "3", "--continue-at", "-", "--output", target, f"{base}/{entry['name']}"])
     if not (models / "LICENSE").is_file():
         run(["curl", "--fail", "--location", "--retry", "3", "--output", models / "LICENSE", f"{base}/LICENSE"])
-    verify_models(root, full=True)
+    verify_models(root, full=True, model=model)
 
 
 def setup(args, root):
@@ -111,8 +124,8 @@ def setup(args, root):
     if reuse:
         with lock(root):
             if not args.build_only:
-                ensure_models(root)
-            check(root, binaries_only=args.build_only)
+                ensure_models(root, model=getattr(args, "model", None))
+            check(root, binaries_only=args.build_only, model=getattr(args, "model", None))
         return
     with lock(root):
         engine = root / "engine"
@@ -135,7 +148,7 @@ def setup(args, root):
                     raise ValueError(f"Bundled patch {name} does not match this checkout; preserve it and inspect its diff.")
 
         if not args.build_only:
-            ensure_models(root)
+            ensure_models(root, model=getattr(args, "model", None))
 
         profile = f"{args.backend}-{'mkl' if mkl else args.blas_vendor if args.blas == 'on' else 'native'}"
         build = root / "build" / profile
@@ -169,7 +182,7 @@ def setup(args, root):
             destination.rename(backup)
         try:
             pending.rename(destination)
-            check(root, binaries_only=args.build_only)
+            check(root, binaries_only=args.build_only, model=getattr(args, "model", None))
         except BaseException:
             if destination.exists():
                 shutil.rmtree(destination)
@@ -189,7 +202,10 @@ def request_data(args, replay):
                    "output_format": "wav24", "lm_batch_size": 1, "synth_batch_size": 1}
     if not isinstance(request, dict):
         raise ValueError("Request must be a JSON object.")
-    if args.lyrics is not None:
+    lyrics_file = getattr(args, "lyrics_file", None)
+    if lyrics_file is not None:
+        request["lyrics"] = lyrics_file.read_text(encoding="utf-8-sig")
+    elif args.lyrics is not None:
         request["lyrics"] = args.lyrics
     for field in ("duration", "steps"):
         value = getattr(args, field)
@@ -241,17 +257,18 @@ def generate(args, root, replay=False):
     if args.dry_run:
         print(json.dumps({"runtime": str(root), "out_dir": str(out), "request": request,
                           "threads": args.threads, "device": args.device, "max_seq": args.max_seq,
-                          "clamp_fp16": args.clamp_fp16,
+                          "clamp_fp16": args.clamp_fp16, "model": args.model,
                           "adapters_dir": str(adapters_dir) if adapters_dir else None}, indent=2))
         return
     if out.exists() and any(out.iterdir()):
         raise ValueError("Output directory is not empty. Choose a new take directory.")
-    check(root)
+    model = model_files(root, args.model)[0]["name"]
+    check(root, model=model)
     with lock(root):
         out.mkdir(parents=True, exist_ok=True)
         write_json(out / "request-input.json", request)
         command = [str(binary_path(root, "yue-synth")), "--device", args.device,
-                   "--model", str(root / "models" / MODEL), "--vae", str(root / "models" / VAE),
+                   "--model", str(root / "models" / model), "--vae", str(root / "models" / VAE),
                    "--request", str(out / "request-input.json"), "--out", str(out / "audio.wav"),
                    "--score", str(out / "score.abc"), "--tokens", str(out / "semantic.tokens.csv"),
                    "--latent", str(out / "acoustic.vae")]
@@ -288,7 +305,7 @@ def generate(args, root, replay=False):
         finally:
             write_json(out / "run-info.json", {"status": status, "returncode": returncode,
                        "wall_seconds": round(time.monotonic() - start, 3), "threads": args.threads,
-                       "device": args.device, "request": request, "clamp_fp16": args.clamp_fp16,
+                       "device": args.device, "model": model, "request": request, "clamp_fp16": args.clamp_fp16,
                        "adapters_dir": str(adapters_dir) if adapters_dir else None,
                        "engine_revision": ENGINE_REV, "model_revision": read_json(SKILL / "assets/models.json")["revision"],
                        "listening_review": "not performed"})
@@ -303,6 +320,7 @@ def generate(args, root, replay=False):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--runtime", type=Path, default=None, help="Override the skill's ignored .runtime directory")
+    parser.add_argument("--model", help="Backbone filename from assets/models.json; may be omitted when exactly one is installed")
     commands = parser.add_subparsers(dest="command", required=True)
     install = commands.add_parser("setup", help="Download and build; never generate audio")
     install.add_argument("--backend", choices=("cpu", "cuda", "vulkan"), default="cpu")
@@ -321,7 +339,10 @@ def main():
         sources.add_argument("--request", type=Path)
         if name == "generate":
             sources.add_argument("--style")
-        sub.add_argument("--lyrics")
+        lyrics = sub.add_mutually_exclusive_group()
+        lyrics.add_argument("--lyrics")
+        if name == "generate":
+            lyrics.add_argument("--lyrics-file", type=Path, help="Read lyrics directly from a UTF-8 text file")
         sub.add_argument("--duration", type=float)
         sub.add_argument("--steps", type=int)
         sub.add_argument("--seed", type=int)
@@ -345,7 +366,7 @@ def main():
             os.nice(19)
         setup(args, root)
     elif args.command == "check":
-        check(root, args.hash, args.binaries_only)
+        check(root, args.hash, args.binaries_only, model=args.model)
     else:
         generate(args, root, args.command == "replay")
 

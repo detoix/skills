@@ -9,9 +9,55 @@ import unittest
 
 
 SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
+sys.path.insert(0, str(SCRIPTS))
+import yue
 
 
 class LauncherTests(unittest.TestCase):
+    def test_model_selection_does_not_require_other_backbones(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            models = root / "models"
+            models.mkdir()
+            manifest = yue.read_json(yue.SKILL / "assets/models.json")
+            names = [entry["name"] for entry in manifest["files"] if entry["name"] != yue.VAE]
+            for name in names:
+                self.assertEqual([entry["name"] for entry in yue.model_files(root, name)], [name, yue.VAE])
+            with self.assertRaisesRegex(ValueError, "Select --model"):
+                yue.model_files(root)
+            (models / names[0]).touch()
+            self.assertEqual(yue.model_files(root)[0]["name"], names[0])
+            (models / names[1]).touch()
+            with self.assertRaisesRegex(ValueError, "Select --model"):
+                yue.model_files(root)
+            with self.assertRaisesRegex(ValueError, "Unknown model"):
+                yue.model_files(root, "missing.gguf")
+
+    def test_json_artifacts_preserve_unicode_with_legacy_shell_decoding(self):
+        data = {"lyrics": "Zażółć gęślą jaźń. 日本語"}
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "request.json"
+            yue.write_json(path, data)
+            self.assertEqual(json.loads(path.read_bytes().decode("cp1250")), data)
+            self.assertEqual(yue.read_json(path), data)
+
+    def test_lyrics_file_overrides_request_without_shell_text_conversion(self):
+        lyrics = "[Verse]\nZażółć gęślą jaźń.\n日本語\n"
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            text = base / "tekst żółć.txt"
+            text.write_bytes(b"\xef\xbb\xbf" + lyrics.replace("\n", "\r\n").encode("utf-8"))
+            request = base / "request.json"
+            request.write_text(json.dumps({"style": "rock", "lyrics": "incorrect text"}), encoding="utf-8-sig")
+            out = base / "take"
+            result = subprocess.run(
+                [sys.executable, str(SCRIPTS / "yue.py"), "generate", "--request", str(request),
+                 "--lyrics-file", str(text), "--out-dir", str(out), "--dry-run"],
+                capture_output=True, text=True, encoding="utf-8", check=True,
+            )
+            self.assertEqual(json.loads(result.stdout)["request"]["lyrics"], lyrics)
+            self.assertFalse(out.exists())
+
     def test_dry_run_from_unicode_path_has_no_output(self):
         with tempfile.TemporaryDirectory() as temporary:
             skill = Path(temporary) / "Music żółć" / "yue-music"

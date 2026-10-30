@@ -79,7 +79,7 @@ class SetupTests(unittest.TestCase):
                 patch.object(yue, "ensure_models") as models, patch.object(yue, "check") as checked, \
                 patch.object(yue, "run") as native_commands:
             yue.setup(self.args(), self.root)
-        models.assert_called_once_with(self.root)
+        models.assert_called_once_with(self.root, model=None)
         checked.assert_called_once()
         native_commands.assert_not_called()
         self.assert_original_installation(metadata)

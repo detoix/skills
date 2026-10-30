@@ -20,12 +20,12 @@ For text-only requests, let YuE2 compose the score. Preserve a user's supplied s
 }
 ```
 
-This example describes a neutral texture. Change its musical direction for the actual brief. Duration is a cap, not guaranteed score length. Set `YUE_RUNTIME` to the configured runtime directory (normally `"$YUE_SKILL/.runtime"`) and run the native planner, using the same verified device and thread limits as synthesis:
+This example describes a neutral texture. Change its musical direction for the actual brief. Duration is a cap, not guaranteed score length. Set `YUE_RUNTIME` to the configured runtime directory (normally `"$YUE_SKILL/.runtime"`) and `YUE_MODEL` to the selected backbone filename, then run the native planner, using the same verified device and thread limits as synthesis:
 
 ```bash
 YUE_THREADS=2 OMP_NUM_THREADS=2 OMP_THREAD_LIMIT=2 \
   "$YUE_RUNTIME/bin/yue-plan" \
-  --model "$YUE_RUNTIME/models/YuE2-3B-Q8_0.gguf" \
+  --model "$YUE_RUNTIME/models/$YUE_MODEL" \
   --request "audio/plan-request.json" --device CPU \
   --out "audio/original.abc"
 ```

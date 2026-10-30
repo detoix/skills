@@ -3,6 +3,11 @@
   "revision": "e630f2b8f6aedf8254c3186438633c1b5eeaf80a",
   "files": [
     {
+      "name": "YuE2-3B-BF16.gguf",
+      "size": 7166072352,
+      "sha256": "668ca9ffa4622449916aae5068b5737363e7ec186a824cd3d7a1a8a95269f166"
+    },
+    {
       "name": "YuE2-3B-Q8_0.gguf",
       "size": 3810232064,
       "sha256": "41121ce97786d7795a325bcf123ca196956c03bb252c9e75384cfc1f2fc19e6b"

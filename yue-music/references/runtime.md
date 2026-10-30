@@ -14,10 +14,12 @@ Set `YUE_SKILL` to the skill's actual directory. Native prerequisites are Git, C
 
 The agent should install missing dependencies and continue setup, rather than requiring the user to assemble a separate project or find model links. Native package installation may require the platform's normal administrator permissions. No Python packages or other skills are needed by the bundled scripts.
 
+For a fresh installation, set `YUE_MODEL` to a backbone filename from [assets/models.json](../assets/models.json) and pass `--model FILENAME` before `setup`. Subsequent commands can omit it when exactly one backbone is installed; otherwise pass the intended filename explicitly.
+
 For a dependency-minimal CPU build:
 
 ```bash
-python3 "$YUE_SKILL/scripts/yue.py" setup --jobs 2
+python3 "$YUE_SKILL/scripts/yue.py" --model "$YUE_MODEL" setup --jobs 2
 python3 "$YUE_SKILL/scripts/yue.py" check --hash
 ```
 
@@ -27,7 +29,7 @@ GGML's native CPU kernels need no BLAS installation. For accelerated alternative
 
 The installer stops on download, checksum, patch, or compilation failure and preserves diagnostics. Download retries are bounded. Completed, valid model files are reused. `setup --rebuild` rebuilds the pinned source; it does not replace another revision or silently discard source changes. A different installation directory can be selected with `--runtime` before the subcommand. Installation directories must be writable.
 
-Pinned source: [ServeurpersoCom/yue2.cpp](https://github.com/ServeurpersoCom/yue2.cpp), revision `8af01740686824ffd4a1839a457954f42e2a8ce7`. Its Git submodule identifies the required GGML revision. The two required downloads and SHA-256 values are in [assets/models.json](../assets/models.json), pointing to the public [YuE2 GGUF model repository](https://huggingface.co/Serveurperso/YuE2-GGUF). The generator and VAE are sufficient for text-to-music. Transcription/cover models are separate capabilities and are not downloaded by this basic workflow.
+Pinned source: [ServeurpersoCom/yue2.cpp](https://github.com/ServeurpersoCom/yue2.cpp), revision `8af01740686824ffd4a1839a457954f42e2a8ce7`. Its Git submodule identifies the required GGML revision. The available backbones, required VAE, and SHA-256 values are in [assets/models.json](../assets/models.json), pointing to the public [YuE2 GGUF model repository](https://huggingface.co/Serveurperso/YuE2-GGUF). The generator and VAE are sufficient for text-to-music. Transcription/cover models are separate capabilities and are not downloaded by this basic workflow.
 
 The public source, base models, and optional adapters have separate licenses. Keep their licenses with the private runtime. Read current authoritative terms when publication or commercialization matters; do not infer weight or adapter terms from the code license or extend a base-model grant to a separate contributor's weights.
 

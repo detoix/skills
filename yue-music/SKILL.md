@@ -17,13 +17,15 @@ Check an existing installation without loading a model:
 python3 "$YUE_SKILL/scripts/yue.py" check
 ```
 
-For a fresh installation or backend change, read [references/runtime.md](references/runtime.md). Inspect the platform, memory, disk space, hardware devices, and native tools, install missing dependencies, then run `setup`. The installer downloads the pinned engine and two required models, verifies SHA-256, applies the backend patches, and builds the runtime. CPU needs no NVIDIA GPU; Vulkan can use supported Intel or AMD hardware. For native Windows, follow [references/windows.md](references/windows.md). Verify the selected device in the actual generation log.
+For a fresh installation or backend change, read [references/runtime.md](references/runtime.md). Inspect the platform, memory, disk space, hardware devices, and native tools, install missing dependencies, then run `setup`. Select a backbone filename from `assets/models.json` with `--model FILENAME` before the subcommand; this flag applies to setup, check, generation, and replay. It may be omitted when exactly one backbone is installed. The installer downloads the pinned engine, selected backbone, and VAE, verifies SHA-256, applies the backend patches, and builds the runtime. CPU needs no NVIDIA GPU; Vulkan can use supported Intel or AMD hardware. For native Windows, follow [references/windows.md](references/windows.md). Verify the selected device in the actual generation log.
 
 `setup` installs without generating audio. `check` and `--dry-run` also perform no inference. Honor requests to prepare only, defer generation, or limit CPU use. Reuse a valid installation instead of downloading another copy.
 
 ## Direct and generate a take
 
 Infer instrumentation, mood, pace, duration, and space for narration from the brief. Write concise comma-separated style tags. Distinguish an attention-grabbing theme from a background texture: for neutral ambient underscore, sustained sound, stable harmony, restrained dynamics, and smooth timbral change suit a different role from prominent melodies, ostinatos, beats, or dramatic sections.
+
+For lyrics stored in a file, pass `generate --lyrics-file path/to/lyrics.txt` to read UTF-8 directly in Python instead of passing text through shell decoding. JSON artifacts escape non-ASCII characters without changing the decoded lyrics. Before inference, compare the dry-run lyrics with the source text, including diacritics; a valid JSON file alone does not prove the words are intact.
 
 For instrumental output, read [references/instrumental.md](references/instrumental.md) before generating. Prefer a model-planned score with Vocal notes transferred into Ins, then render fresh semantics with the converted score. The bundled score-helper wrapper installs and verifies its pinned standard-library tools automatically. `[Instrumental]` and negative vocal tags alone do not ensure silence from voices. Check any adapter's own license before using it.
 
