@@ -37,7 +37,7 @@ python3 "$YUE_SKILL/scripts/yue.py" generate \
   --out-dir "audio/take-01"
 ```
 
-`--dry-run` validates and prints the request without creating output, downloading anything, or loading weights. Set `--device` explicitly for a verified backend; see the runtime reference for `Vulkan0`, `CPU-BLAS`, `--clamp-fp16`, and adapters. The launcher uses low priority and bounds CPU threads; run one generation per runtime at a time.
+`--dry-run` validates and prints the request without creating output, downloading anything, or loading weights. Set `--device` explicitly for a verified backend; see the runtime reference for `Vulkan0`, `CPU-BLAS`, `--clamp-fp16`, and adapters. The launcher uses low priority and bounds CPU threads; run one generation per runtime at a time. Vulkan synthesis selects query-tiled GEMM automatically; use `--nar-attention flash` for the flash-attention reference. See the runtime reference for the full-key behavior, rebuild procedure and comparison controls.
 
 Read the [runtime reference](references/runtime.md) for context budgets, formats, seeds, and equivalent-work performance comparisons. Duration is an upper budget; hitting it can produce an abrupt ending. Longer material and more synthesis steps need a measured estimate. Choose sample length for musical judgment; shortening the requested work is not a backend speedup.
 

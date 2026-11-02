@@ -1,7 +1,0 @@
---- a/src/nar.h
-+++ b/src/nar.h
-@@ -301,3 +301,3 @@
-     float                scale = 1.0f / sqrtf((float) D);
--    struct ggml_tensor * attn  = use_flash_attn ? ggml_flash_attn_ext(ctx, q, k_full, v_full, mask, scale, 0.0f, 0.0f) :
-+    struct ggml_tensor * attn  = use_flash_attn ? ggml_flash_attn_ext(ctx, q, k_full, v_full, nullptr, scale, 0.0f, 0.0f) :
-                                                   qwen3_attn_f32(ctx, q, k_full, v_full, mask, scale);

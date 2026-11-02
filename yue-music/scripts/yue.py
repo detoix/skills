@@ -21,7 +21,19 @@ ENGINE_REPO = "https://github.com/ServeurpersoCom/yue2.cpp.git"
 ENGINE_REV = "8af01740686824ffd4a1839a457954f42e2a8ce7"
 VAE = "YuE2-Vae-F32.gguf"
 BINARIES = ("yue-synth", "yue-plan", "yue-server")
-INSTALLER_VERSION = 3
+INSTALLER_VERSION = 4
+PATCHES = ("cpu-threads.patch", "cpu-blas.patch", "nar-attention.patch")
+
+
+def patch_fingerprints():
+    return {name: hashlib.sha256((SKILL / "assets" / name).read_bytes()).hexdigest() for name in PATCHES}
+
+
+def synthesis_settings(args):
+    mode = args.nar_attention
+    if mode == "auto":
+        mode = "tiled-gemm" if args.device.lower().startswith("vulkan") else "flash"
+    return {"nar_attention": mode, "nar_query_tile": args.nar_query_tile}
 
 
 def read_json(path):
@@ -137,7 +149,7 @@ def setup(args, root):
         if revision != ENGINE_REV:
             raise ValueError("Existing engine has a different revision. Use a new --runtime directory to preserve it.")
         run(["git", "-C", engine, "submodule", "update", "--init", "--depth", "1"])
-        for name in ("cpu-threads.patch", "cpu-blas.patch", "nar-unmasked-attention.patch"):
+        for name in PATCHES:
             patch = SKILL / "assets" / name
             applicable = subprocess.run(["git", "-C", str(engine), "apply", "--check", str(patch)], capture_output=True)
             if applicable.returncode == 0:
@@ -233,6 +245,7 @@ def request_data(args, replay):
 
 def generate(args, root, replay=False):
     request = request_data(args, replay)
+    synthesis = synthesis_settings(args)
     adapters = request.get("adapters", [])
     if not isinstance(adapters, list):
         raise ValueError("Request adapters must be an array of objects with name and scale.")
@@ -257,7 +270,7 @@ def generate(args, root, replay=False):
     if args.dry_run:
         print(json.dumps({"runtime": str(root), "out_dir": str(out), "request": request,
                           "threads": args.threads, "device": args.device, "max_seq": args.max_seq,
-                          "clamp_fp16": args.clamp_fp16, "model": args.model,
+                          "clamp_fp16": args.clamp_fp16, "model": args.model, **synthesis,
                           "adapters_dir": str(adapters_dir) if adapters_dir else None}, indent=2))
         return
     if out.exists() and any(out.iterdir()):
@@ -287,7 +300,10 @@ def generate(args, root, replay=False):
         returncode = None
         try:
             with (out / "generation.log").open("w", encoding="utf-8") as log:
-                process = subprocess.Popen(command, env=runtime_env(root, args.threads), stdout=subprocess.PIPE,
+                env = runtime_env(root, args.threads)
+                env["YUE_NAR_ATTENTION"] = synthesis["nar_attention"]
+                env["YUE_NAR_QUERY_TILE"] = str(synthesis["nar_query_tile"])
+                process = subprocess.Popen(command, env=env, stdout=subprocess.PIPE,
                                            stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace",
                                            **process_options())
                 try:
@@ -306,6 +322,7 @@ def generate(args, root, replay=False):
             write_json(out / "run-info.json", {"status": status, "returncode": returncode,
                        "wall_seconds": round(time.monotonic() - start, 3), "threads": args.threads,
                        "device": args.device, "model": model, "request": request, "clamp_fp16": args.clamp_fp16,
+                       **synthesis, "runtime_patches": patch_fingerprints(), "max_seq": args.max_seq,
                        "adapters_dir": str(adapters_dir) if adapters_dir else None,
                        "engine_revision": ENGINE_REV, "model_revision": read_json(SKILL / "assets/models.json")["revision"],
                        "listening_review": "not performed"})
@@ -350,6 +367,10 @@ def main():
         sub.add_argument("--device", default="CPU")
         sub.add_argument("--clamp-fp16", action="store_true", help="Clamp hidden states to FP16 range")
         sub.add_argument("--adapters-dir", type=Path, help="Directory containing named LoRA adapter files or folders")
+        sub.add_argument("--nar-attention", choices=("auto", "flash", "tiled-gemm"), default="auto",
+                         help="NAR attention: auto uses tiled GEMM on Vulkan, flash elsewhere; AR attention is unchanged")
+        sub.add_argument("--nar-query-tile", type=int, choices=(128, 256, 512), default=256,
+                         help="Query rows per tiled GEMM block; all keys remain visible")
         sub.add_argument("--max-seq", type=int)
         sub.add_argument("--out-dir", required=True, type=Path)
         sub.add_argument("--dry-run", action="store_true")

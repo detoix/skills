@@ -1,0 +1,118 @@
+--- a/src/nar.h
++++ b/src/nar.h
+@@ -225,6 +225,81 @@
+     return ggml_add(ctx, ggml_mul_mat(ctx, w, x), b);
+ }
+ 
++// Tile queries only; every row still attends all keys.
++// No temporal chunking, key truncation, or change to the ODE schedule.
++static int nar_gemm_query_tile() {
++    static const int tile = []() {
++        const char * requested = std::getenv("YUE_NAR_QUERY_TILE");
++        if (!requested || !*requested) {
++            return 256;
++        }
++        char * end = nullptr;
++        const long value = std::strtol(requested, &end, 10);
++        if (end && *end == '\0' && (value == 128 || value == 256 || value == 512)) {
++            return (int) value;
++        }
++        fprintf(stderr, "[NAR] Invalid YUE_NAR_QUERY_TILE; using 256\n");
++        return 256;
++    }();
++    return tile;
++}
++
++static bool nar_gemm_graph_fits(const Qwen3LMConfig & c, int N, int tile) {
++    // Each tile adds at most 8 nodes/layer including view, layout, and concat.
++    // Reserve 2048 nodes for the remaining graph.
++    // Fall back before construction rather than overflowing the fixed arena.
++    if (N < 1 || tile < 1 || c.n_layers < 1) {
++        return false;
++    }
++    const int64_t tiles = ((int64_t) N + tile - 1) / tile;
++    const int64_t estimated_nodes = 2048 + (int64_t) c.n_layers * (8 * tiles + 2);
++    return estimated_nodes < YUE2_NAR_GRAPH_NODES;
++}
++
++static bool nar_use_tiled_gemm(bool use_flash_attn, int variations,
++                               const Qwen3LMConfig & c, int queries, int tile) {
++    const char * mode = std::getenv("YUE_NAR_ATTENTION");
++    return mode && std::strcmp(mode, "tiled-gemm") == 0 && use_flash_attn && variations == 1 &&
++           nar_gemm_graph_fits(c, queries, tile);
++}
++
++static struct ggml_tensor * nar_attn_tiled_gemm(struct ggml_context * ctx,
++                                                struct ggml_tensor *  q, // [D,N,Nh,1] F32
++                                                struct ggml_tensor *  k, // [D,K,Nkv,1] F16
++                                                struct ggml_tensor *  v, // [D,K,Nkv,1] F16
++                                                int                   tile,
++                                                float                 scale) {
++    GGML_ASSERT(q->ne[3] == 1 && k->ne[3] == 1 && v->ne[3] == 1);
++    GGML_ASSERT(q->type == GGML_TYPE_F32 && k->type == GGML_TYPE_F16 && v->type == GGML_TYPE_F16);
++    GGML_ASSERT(q->ne[0] == k->ne[0] && k->ne[0] == v->ne[0]);
++    GGML_ASSERT(q->ne[2] % k->ne[2] == 0 && k->ne[1] == v->ne[1]);
++    const int64_t D = q->ne[0];
++    const int64_t N = q->ne[1];
++    const int64_t Nh = q->ne[2];
++    // One contiguous F16 transpose per layer/evaluation, shared by all tiles.
++    struct ggml_tensor * vt = ggml_cont(ctx, ggml_transpose(ctx, v));
++    struct ggml_tensor * result = nullptr;
++    for (int64_t start = 0; start < N; start += tile) {
++        const int64_t rows = N - start < tile ? N - start : tile;
++        struct ggml_tensor * qt = ggml_cont(ctx, ggml_view_4d(ctx, q, D, rows, Nh, 1,
++                                                              q->nb[1], q->nb[2], q->nb[3],
++                                                              (size_t) start * q->nb[1]));
++        struct ggml_tensor * scores = ggml_mul_mat(ctx, k, qt);
++        ggml_prec_set_acc(scores, GGML_PREC_F32);
++        GGML_ASSERT(scores->ne[0] == k->ne[1] && scores->ne[1] == rows && scores->ne[2] == Nh);
++        // Softmax spans every key for each query and each query head.
++        struct ggml_tensor * probabilities = ggml_soft_max_ext(ctx, scores, nullptr, scale, 0.0f);
++        struct ggml_tensor * values = ggml_mul_mat(ctx, vt, probabilities);
++        ggml_prec_set_acc(values, GGML_PREC_F32);
++        // GQA broadcasts each KV head over its group of query heads.
++        struct ggml_tensor * out = ggml_cont(ctx, ggml_permute(ctx, values, 0, 2, 1, 3));
++        GGML_ASSERT(out->ne[0] == D && out->ne[1] == Nh && out->ne[2] == rows && out->ne[3] == 1);
++        result = result ? ggml_concat(ctx, result, out, 2) : out;
++    }
++    GGML_ASSERT(result && result->ne[0] == D && result->ne[1] == Nh && result->ne[2] == N);
++    return result;
++}
++
+ // NAR attention: fresh Q/K/V for the latent block of every variation,
+ // concatenated with the AR prefix window of the cache, which every variation
+ // reads. The graph only reads the cache, so there is no write to order against
+@@ -299,10 +374,16 @@
+     struct ggml_tensor * v_full = ggml_concat(ctx, v_ar, v, 1);
+ 
+     float                scale = 1.0f / sqrtf((float) D);
+-    struct ggml_tensor * attn  = use_flash_attn ? ggml_flash_attn_ext(ctx, q, k_full, v_full, mask, scale, 0.0f, 0.0f) :
+-                                                  qwen3_attn_f32(ctx, q, k_full, v_full, mask, scale);
+-    if (use_flash_attn) {
+-        ggml_prec_set_acc(attn, GGML_PREC_F32);
++    struct ggml_tensor * attn;
++    const int query_tile = nar_gemm_query_tile();
++    if (nar_use_tiled_gemm(use_flash_attn, M, c, N, query_tile)) {
++        attn = nar_attn_tiled_gemm(ctx, q, k_full, v_full, query_tile, scale);
++    } else {
++        attn = use_flash_attn ? ggml_flash_attn_ext(ctx, q, k_full, v_full, nullptr, scale, 0.0f, 0.0f) :
++                               qwen3_attn_f32(ctx, q, k_full, v_full, mask, scale);
++        if (use_flash_attn) {
++            ggml_prec_set_acc(attn, GGML_PREC_F32);
++        }
+     }
+ 
+     attn = ggml_reshape_3d(ctx, attn, Nh * D, N, M);
+@@ -440,6 +521,12 @@
+     if (new_key) {
+         fprintf(stderr, "[NAR] Graph: %d nodes, T_lat=%d, variations=%d, prefix=%d, set=%d\n", ggml_graph_n_nodes(gf),
+                 T_lat, M, ar_len, kv_set);
++        const int tile = nar_gemm_query_tile();
++        const bool tiled = nar_use_tiled_gemm(n->use_flash_attn, M, c, N, tile);
++        fprintf(stderr, "[NAR] Attention: %s, query_tile=%d, all_keys=%d\n",
++                tiled ? "query-tiled GEMM F16-KV/F32-acc" :
++                (n->use_flash_attn ? "flash attention" : "original no-FA fallback"),
++                tile, ar_len + N);
+     }
+     return true;
+ }
