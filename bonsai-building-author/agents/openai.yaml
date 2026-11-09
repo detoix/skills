@@ -1,0 +1,10 @@
+interface:
+  display_name: "Bonsai Building Author"
+  short_description: "Build reliable IFC and polished GLB from code"
+  default_prompt: "Use $bonsai-building-author to create a concise building-as-code script and produce validated IFC, Blender, and Three.js GLB deliverables."
+
+dependencies:
+  tools:
+    - type: "mcp"
+      value: "bonsai-mcp"
+      description: "Bonsai MCP access to Blender, Bonsai, and IfcOpenShell"
