@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="{{LANG}}">
+<head>
+<meta charset="utf-8">
+<title>{{TITLE}} — thumbnail</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #14151b; }
+  body { display: flex; align-items: center; justify-content: center; }
+  canvas { max-width: 100%; max-height: 100%; aspect-ratio: 16 / 9; }
+</style>
+</head>
+<body>
+<canvas id="c" data-title="{{TITLE}}"></canvas>
+<script type="module">
+// The YouTube thumbnail: one still, drawn with the film's own engine, figures, palette and maps. One per film, no A/B variants.
+// Render: node tools/render.mjs --page thumb.html --stills 0 --stills-dir out/thumb --prefix thumb
+// then scale to 1280×720 JPEG → out/thumb.jpg.
+// A thumbnail reads at phone size: one figure or one map, a few big words that add to the title, strong contrast.
+import { W, H, INK, makeTextures, loadImages, chip } from './engine.js';
+import { COL, grain } from './stage.js';
+import { cut, paper, backdrop, bandPts } from './kit.js';
+
+const canvas = document.getElementById('c');
+canvas.width = W; canvas.height = H;
+const ctx = canvas.getContext('2d');
+await document.fonts.load('800 72px Ubuntu');   // the film's FONT (engine.js)
+const img = await loadImages([]);              // the cut-outs the thumbnail uses: film/fig/<name>.png
+const tex = makeTextures();
+
+const words = (text, x, y, size, fill, color = INK, rot = -2) => chip(ctx, text, { x, y, size, fill, color, rot, seed: 7, lift: 1.6 });
+
+function thumbnail() {
+  backdrop(ctx, '#8a6440', tex, 0.6);
+  paper(ctx, bandPts(820, 8, 700, 7), { fill: COL.olive, rim: 4, lift: 1 });
+  // cut(ctx, img.<figure>, { x: 1060, y: 1000, w: 1400, lift: 1.6 });
+  // or a map: import { mapView } from './geo.js'; const m = mapView(tex, { lon, lat, zoom, x: 960, y: 540, w: 1960, h: 1120 }); m.draw(ctx);
+  words(canvas.dataset.title, 960, 200, 120, COL.gold);
+}
+
+window.__draw = () => { ctx.setTransform(1, 0, 0, 1, 0, 0); thumbnail(); grain(ctx, 0, tex); };
+window.__ready = true;
+</script>
+</body>
+</html>

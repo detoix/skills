@@ -1,0 +1,9 @@
+raw/
+audio/takes*/
+audio/retakes*/
+audio/test*/
+film/audio/
+out/*.mp4
+out/stills/
+logs/
+__pycache__/

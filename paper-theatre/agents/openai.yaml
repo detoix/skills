@@ -1,0 +1,4 @@
+interface:
+  display_name: "Paper theatre"
+  short_description: "Explainer films in a hand-cut cardboard theatre style, any topic and language"
+  default_prompt: "Use $paper-theatre to make an explainer film in the paper-theatre style, stage by stage with approval gates."

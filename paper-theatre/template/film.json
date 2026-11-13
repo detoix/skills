@@ -1,0 +1,54 @@
+{
+ "title": "{{TITLE}}",
+ "slug": "{{SLUG}}",
+ "language": "{{LANG}}",
+ "description": "",
+ "chapters_heading": "Chapters:",
+ "voice_library": "",
+ "voice_moods": {},
+ "spoken": {},
+ "gaps": {},
+ "figures": {
+  "max_side": {},
+  "big": []
+ },
+ "music_mix": {
+  "bed_break_db": -12.0,
+  "break_fade_seconds": 0.25
+ },
+ "music": {
+  "package": "",
+  "palette": "A",
+  "borrow": {},
+  "variant_every": {},
+  "variants_safe": [],
+  "voice_over_bed_db": 18.0,
+  "pause_db": 5.0,
+  "title_db": -3.0,
+  "transition_db": -5.0,
+  "breath_db": -7.0,
+  "outro_db": -3.0,
+  "transitions": [
+   1,
+   2,
+   3,
+   4,
+   5,
+   6,
+   7,
+   8
+  ],
+  "breaths": {},
+  "plan": {}
+ },
+ "map": {
+  "box": [
+   -12.0,
+   34.0,
+   45.0,
+   71.0
+  ],
+  "country": null,
+  "rivers": []
+ }
+}

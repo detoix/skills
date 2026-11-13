@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="{{LANG}}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{TITLE}}</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #14151b; color: #e9e6df; font: 14px/1.3 Ubuntu, system-ui, sans-serif; }
+  #stage { position: fixed; inset: 0 0 58px 0; display: flex; align-items: center; justify-content: center; }
+  canvas { max-height: 100%; width: 100%; aspect-ratio: 16 / 9; object-fit: contain; background: #000; }
+  #bar { position: fixed; left: 0; right: 0; bottom: 0; height: 58px; display: flex; gap: 12px; align-items: center; padding: 0 14px; background: #1f2129; box-sizing: border-box; }
+  #bar button { font: inherit; padding: 8px 14px; border-radius: 8px; border: 0; background: #ffd43b; color: #2a2019; font-weight: 700; cursor: pointer; min-width: 72px; }
+  #bar input[type=range] { flex: 1; }
+  #time { font-variant-numeric: tabular-nums; min-width: 96px; text-align: right; }
+</style>
+</head>
+<body>
+<div id="stage"><canvas id="c"></canvas></div>
+<div id="bar">
+  <button id="play">Play</button>
+  <input id="seek" type="range" min="0" max="1" step="0.001" value="0">
+  <span id="time">0.00 / 0.00</span>
+</div>
+<script type="module">
+import { W, H, FPS, makeTextures, loadImages } from './engine.js';
+import { createFilm, FIGURES } from './film.js';
+
+const q = new URLSearchParams(location.search);
+const canvas = document.getElementById('c');
+canvas.width = W; canvas.height = H;
+const ctx = canvas.getContext('2d');
+
+const tl = await (await fetch('timeline.json', { cache: 'no-store' })).json();
+await document.fonts.load('800 72px Ubuntu');
+const img = await loadImages(FIGURES);
+const reel = createFilm(tl, img, makeTextures());
+const frames = Math.round(tl.duration * FPS);
+
+// render API used by tools/render.mjs
+window.__info = { fps: FPS, frames, duration: tl.duration, width: W, height: H };
+window.__draw = (t) => reel.draw(ctx, t);
+window.__frame = (i, type = 'image/png', quality = 0.95) => { reel.draw(ctx, i / FPS); return canvas.toDataURL(type, quality); };
+
+// preview player
+const play = document.getElementById('play'), seek = document.getElementById('seek'), time = document.getElementById('time');
+const audio = new Audio();
+let hasAudio = false;
+audio.addEventListener('canplaythrough', () => { hasAudio = true; }, { once: true });
+audio.src = 'audio/mix.wav';
+seek.max = tl.duration;
+let t = Math.min(tl.duration, parseFloat(q.get('t') || '0')), playing = false, clock0 = 0;
+const show = () => {
+  reel.draw(ctx, Math.floor(t * FPS + 1e-4) / FPS);
+  seek.value = t; time.textContent = `${t.toFixed(2)} / ${tl.duration.toFixed(2)}`;
+};
+const stop = () => { playing = false; audio.pause(); play.textContent = 'Play'; };
+const tick = () => {
+  if (!playing) return;
+  t = hasAudio ? audio.currentTime : (performance.now() - clock0) / 1000;
+  if (t >= tl.duration) { t = tl.duration; show(); stop(); return; }
+  show(); requestAnimationFrame(tick);
+};
+const start = () => {
+  if (t >= tl.duration - 0.05) t = 0;
+  playing = true; play.textContent = 'Pause';
+  if (hasAudio) { audio.currentTime = t; audio.play(); }
+  clock0 = performance.now() - t * 1000;
+  requestAnimationFrame(tick);
+};
+play.onclick = () => (playing ? stop() : start());
+seek.oninput = () => { t = parseFloat(seek.value); if (hasAudio) audio.currentTime = t; clock0 = performance.now() - t * 1000; show(); };
+addEventListener('keydown', (e) => { if (e.code === 'Space') { e.preventDefault(); play.click(); } });
+show();
+window.__ready = true;
+</script>
+</body>
+</html>
