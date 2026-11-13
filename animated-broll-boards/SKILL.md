@@ -40,7 +40,6 @@ Use it to create a custom animated scene for a specific reel segment. The agent 
    ```
 2. Replace the generated `index.html` shell with a custom scene.
    - Use bespoke HTML/CSS/JS for that segment.
-   - Use motion primitives such as line drawing, masking, stagger, parallax, count-up, path movement, morphing, scroll-free camera moves, or state transitions.
    - Keep text readable at phone scale.
 3. Re-run the initializer with the same arguments so `board-manifest.json` records the final `scene_hash`. The initializer must not overwrite an existing `index.html`.
 4. Run QA:
@@ -83,7 +82,6 @@ Use it to create a custom animated scene for a specific reel segment. The agent 
 
 - The board must look like a finished modern motion-design shot, not a dashboard template.
 - Use topic-specific metaphor and composition, not generic card stacks.
-- Prefer real visual systems: blueprints transforming into modules, production lanes, dependency paths, editorial proof marks, signal/risk interfaces, material flows, kinetic headline reveals.
 - Use strong hierarchy, modern spacing, responsive-safe dimensions, and controlled easing.
 - Avoid 2000s traits: bevels, clipart, heavy outlines, random gradients, generic rounded cards, tiny copy, fake app chrome, weak spacing.
 
@@ -109,4 +107,3 @@ Install this skill's dependencies from its `package.json` (`npm ci`) and provide
 - Contract initializer: [scripts/create_board.mjs](scripts/create_board.mjs)
 - Renderer: [scripts/render_board.mjs](scripts/render_board.mjs)
 - QA: [scripts/qa_board.mjs](scripts/qa_board.mjs)
-- Art-direction references: [references/presets.md](references/presets.md), [references/components.md](references/components.md)
