@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Pull read-only YouTube Analytics and Data API exports to local CSV files."""
+"""Export YouTube viewing metrics, metadata, and thumbnail reach to local CSV files."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ import argparse
 import csv
 import json
 import os
+import tempfile
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Iterable
@@ -88,7 +89,7 @@ def default_base_dir() -> Path:
     configured = os.environ.get("YOUTUBE_ANALYTICS_HOME")
     if configured:
         return Path(configured).expanduser()
-    return Path.home() / ".youtube-analytics"
+    return Path.home() / ".youtube"
 
 
 def local_path(value: str) -> Path:
@@ -108,7 +109,28 @@ def ensure_parent(path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
 
 
-def load_credentials(client_secrets: Path, token_path: Path):
+def save_credentials(token_path: Path, serialized: str) -> None:
+    token_path = token_path.resolve()
+    ensure_parent(token_path)
+    temp_path = None
+    try:
+        # Use the same directory for atomic replacement and inherit its Windows ACL.
+        # NamedTemporaryFile creates the file with mode 0600 on POSIX.
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", dir=token_path.parent,
+            prefix=".youtube-token-", suffix=".json", delete=False,
+        ) as handle:
+            temp_path = Path(handle.name)
+            handle.write(serialized)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temp_path, token_path)
+    finally:
+        if temp_path is not None:
+            temp_path.unlink(missing_ok=True)
+
+
+def load_credentials(client_secrets: Path, token_path: Path, *, allow_login: bool = True):
     try:
         from google.auth.transport.requests import Request
         from google.oauth2.credentials import Credentials
@@ -121,12 +143,19 @@ def load_credentials(client_secrets: Path, token_path: Path):
 
     creds = None
     if token_path.exists():
-        creds = Credentials.from_authorized_user_file(str(token_path), SCOPES)
+        creds = Credentials.from_authorized_user_file(str(token_path))
 
+    needs_save = False
     if creds and creds.expired and creds.refresh_token:
         creds.refresh(Request())
+        needs_save = True
 
-    if not creds or not creds.valid:
+    if not creds or not creds.valid or not creds.has_scopes(SCOPES):
+        if not allow_login:
+            raise SystemExit(
+                "No usable saved authorization with youtube.readonly and yt-analytics.readonly. "
+                "Pass an existing valid token with --token; browser OAuth is disabled."
+            )
         if not client_secrets.is_file():
             raise SystemExit(
                 f"OAuth login requires the existing Desktop app client JSON: {client_secrets}. "
@@ -137,14 +166,10 @@ def load_credentials(client_secrets: Path, token_path: Path):
             str(client_secrets), SCOPES, autogenerate_code_verifier=True
         )
         creds = flow.run_local_server(port=0)
+        needs_save = True
 
-    ensure_parent(token_path)
-    # Keep saved authorization private on POSIX; Windows uses directory ACLs.
-    fd = os.open(token_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "w", encoding="utf-8") as handle:
-        handle.write(creds.to_json())
-    if os.name == "posix":
-        token_path.chmod(0o600)
+    if needs_save:
+        save_credentials(token_path, creds.to_json())
     return creds
 
 
@@ -258,6 +283,8 @@ def fetch_video_metadata(youtube, video_ids: list[str]) -> list[dict[str, object
 
 
 def main() -> int:
+    from youtube_reach_pull import REPORT_TYPES
+
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--client-secrets",
@@ -277,6 +304,11 @@ def main() -> int:
     parser.add_argument("--max-results", type=int, default=200)
     parser.add_argument("--skip-metadata", action="store_true")
     parser.add_argument("--skip-supplemental", action="store_true")
+    parser.add_argument("--no-browser-login", action="store_true")
+    parser.add_argument("--skip-reach", action="store_true", help="Skip Reporting API reach export.")
+    parser.add_argument("--create-reach-job", action="store_true", help="Create a reach report job if none exists (one-time Reporting setup).")
+    parser.add_argument("--reach-report-type", choices=REPORT_TYPES, default=REPORT_TYPES[0])
+    parser.add_argument("--reach-cache-dir", type=local_path, default=default_base_dir() / "reporting")
     args = parser.parse_args()
 
     try:
@@ -289,7 +321,11 @@ def main() -> int:
 
     start_date = parse_date(args.start_date)
     end_date = parse_date(args.end_date)
-    creds = load_credentials(args.client_secrets, args.token)
+    if start_date > end_date:
+        parser.error("--start-date must not follow --end-date")
+    if args.skip_reach and args.create_reach_job:
+        parser.error("--skip-reach and --create-reach-job cannot be combined")
+    creds = load_credentials(args.client_secrets, args.token, allow_login=not args.no_browser_login)
     analytics = build("youtubeAnalytics", "v2", credentials=creds)
     youtube = build("youtube", "v3", credentials=creds)
 
@@ -345,6 +381,20 @@ def main() -> int:
             max_results=args.max_results,
         )
 
+    reach = {"status": "skipped"}
+    if not args.skip_reach:
+        from google.auth.transport.requests import AuthorizedSession
+        from youtube_reach_pull import export_reach
+
+        with AuthorizedSession(creds) as session:
+            reach = export_reach(
+                build("youtubereporting", "v1", credentials=creds), youtube, session,
+                channel_id=args.channel_id, start_date=start_date, end_date=end_date,
+                output_dir=args.output_dir, cache_dir=args.reach_cache_dir,
+                report_type=args.reach_report_type, create_job=args.create_reach_job,
+            )
+        print(f"Thumbnail reach: {reach['status']}. {reach.get('message', '')}".rstrip())
+
     manifest = {
         "start_date": start_date,
         "end_date": end_date,
@@ -352,7 +402,9 @@ def main() -> int:
         "metrics": args.metrics.split(","),
         "analytics_by_video_rows": len(video_rows),
         "analytics_by_day_rows": len(day_rows),
+        "analytics_available_through": max((str(row["day"]) for row in day_rows), default=None),
         "supplemental_reports": supplemental_reports,
+        "reach": reach,
     }
     ensure_parent(args.output_dir / "manifest.json")
     (args.output_dir / "manifest.json").write_text(

@@ -21,11 +21,13 @@ models/
 # Local OAuth/API secrets and cached channel data.
 secrets/
 **/secrets/
-.youtube-analytics/
-**/.youtube-analytics/
+.youtube/
+**/.youtube/
 *client_secret*.json
 *oauth*client*.json
 *token*.json
 credentials*.json
-youtube-analytics/data/
-youtube-analytics/**/data/
+youtube/data/
+youtube/**/data/
+youtube/reporting/
+youtube/**/reporting/

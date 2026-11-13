@@ -1,0 +1,4 @@
+interface:
+  display_name: "YouTube"
+  short_description: "Analyze YouTube viewing metrics, impressions, and CTR."
+  default_prompt: "Use $youtube to export and analyze channel viewing metrics, thumbnail impressions, and CTR using existing OAuth authorization."
