@@ -6,3 +6,4 @@ description: Intent-routing workflow. Use before creating, editing, deleting, mo
 # Law Enforcement
 
 Before creating, editing, deleting, moving, formatting, or generating files, or running a command that clears or replaces state in a running app, follow [do.md](workflows/do.md).
+For hardware or system configuration decisions, also follow [hardware-decisions.md](workflows/hardware-decisions.md).
