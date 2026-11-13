@@ -7,19 +7,21 @@ reels); the model speaks 30 languages and nothing in the skill is Polish-only.
 
 ## What it adds to VoxCPM2
 
-- **Direction per phrase.** An English delivery instruction in parentheses before each line:
-  `(whispering, intimate)Szeptem, jakbym zdradzał ci sekret.`
-- **The first-word fix.** After an English instruction, the first word of another language can come out with
-  English rules (Polish „Co” read „Ko”). The skill checks every take for it and retakes with a throw-away
-  warm-up word, cut off afterwards by `scripts/cut_warmup.py`.
-- **Settings that hold up:** cfg 2.0, 20 steps, no denoiser, a seed per take so a good take can be reproduced.
+- **Two-stage cloning.** Direct an 8–15-second mood sample, choose it by ear, then read the final
+  script from that sample and its exact transcript. Final takes use the sample's expression and pace.
+- **A reusable voice library.** `scripts/narrate.py --plan` checks the script against approved samples
+  without loading the model or generating audio. Make a sample only for a missing mood; keep it for
+  future scripts. Whole-script narration loads the model once and groups lines by mood.
+- **Settings that hold up:** CFG 2.0, 20 steps for mood samples, 30 for final takes, no denoiser;
+  provenance records each take's actual seed, reference, sample, backend and precision.
 - **A faster CPU path:** float32, a compiled diffusion head and several lines decoded together
   (`scripts/voxcpm_fast.py`); same takes as the upstream sampler.
 - **Intel GPU acceleration:** an optional OpenVINO diffusion head with CPU orchestration.
   Automatic selection prefers a compatible Intel GPU over CPU for both single lines and batches.
   GPU runtime failures fall back to CPU.
-- **Checks:** ASR transcription, and per-word Whisper confidence to choose between takes of one line
-  (`scripts/word_confidence.py`).
+- **Checks:** word-by-word free ASR comparison, with conservative Polish phonetic equivalences and
+  explicit review of every unresolved word edit (`scripts/tts_pronunciation_qa.py`), plus per-word
+  Whisper confidence to rank takes (`scripts/word_confidence.py`).
 
 ## Requirements
 
@@ -41,12 +43,18 @@ mkdir -p ~/.claude/skills && cp -r skills/tts ~/.claude/skills/tts
 Then ask the agent for a voiceover; it reads `SKILL.md` and drives the scripts. To run them yourself:
 
 ```bash
-~/.claude/skills/tts/.venv/bin/python ~/.claude/skills/tts/scripts/voxcpm_tts.py \
-  --input lines.txt --output-dir takes --reference-audio voice.wav --seed 1000
+TTS_SKILL=~/.claude/skills/tts
+"$TTS_SKILL/.venv/bin/python" "$TTS_SKILL/scripts/narrate.py" \
+  --lines lines.json --library voices --plan
+"$TTS_SKILL/.venv/bin/python" "$TTS_SKILL/scripts/narrate.py" \
+  --lines lines.json --library voices --out takes --provenance provenance.json --seed 1000
 ```
 
-`lines.txt` holds one line per take, each with its own instruction in parentheses. Every option is in
-`SKILL.md` and `--help`.
+`lines.json` is a list of `{"id", "say", "direction", "mood"}` objects (`mood` is optional).
+The library holds `voice.wav`, approved mood samples and transcripts in `bank/bank.json`, and optional
+mood-selection rules in `bank/rules.json`. `--plan` exits with 2 when the reference or any required
+sample is missing or unusable. Follow `SKILL.md` to create and approve a missing mood; narration does
+not generate mood samples itself. Every option is in `SKILL.md` and `--help`.
 
 The default `--device auto` chooses CUDA first, then OpenVINO on an available Intel GPU,
 then CPU. Intel GPU execution is preferred over CPU for single lines as well as batches. The installer detects Intel GPU hardware on Linux; `OPENVINO=1 scripts/setup_runtime.sh` installs

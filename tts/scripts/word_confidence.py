@@ -19,6 +19,7 @@ import json
 from pathlib import Path
 
 import numpy as np
+from tts_pronunciation_qa import compare_text
 
 LOW, BAD = 0.5, 0.2
 
@@ -82,12 +83,15 @@ def main() -> int:
         words = score(model, tok, x16, text)
         segs, _ = model.transcribe(x16, language=args.language, beam_size=5, condition_on_previous_text=False)
         heard = " ".join(s.text.strip() for s in segs)
-        report[f] = {"words": words, "heard": heard}
+        checked = compare_text(text, heard, args.language)
+        report[f] = {"words": words, "heard": heard, **checked}
         marked = " ".join(
             w["word"] if w["p"] >= LOW else f"[{w['word']} {w['p']:.2f}]" if w["p"] >= BAD else f"[[{w['word']} {w['p']:.2f}]]"
             for w in words
         )
         print(f"{Path(f).name}: first '{words[0]['word']}' {words[0]['p']:.2f}\n   {marked}\n   heard: {heard}")
+        for difference in checked["word_differences"]:
+            print(f"   REVIEW word {difference['expected_index']}: {difference['expected']!r} -> {difference['actual']!r} ({difference['kind']})")
     if args.json:
         Path(args.json).write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
     return 0

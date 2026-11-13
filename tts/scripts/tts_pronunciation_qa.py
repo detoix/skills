@@ -9,14 +9,9 @@ import re
 import string
 import sys
 import unicodedata
-from collections import Counter
 from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any
-
-
-DEFAULT_MIN_WORD_RECALL = 0.85
-DEFAULT_MIN_SEQUENCE_RATIO = 0.78
 
 
 def load_json(path: Path) -> Any:
@@ -45,9 +40,9 @@ def tokenize(text: str) -> list[str]:
     return normalized.split() if normalized else []
 
 
-def resolve_audio_path(tts_dir: Path, chunk: dict[str, Any], index: int, sorted_wavs: list[Path]) -> Path | None:
+def resolve_audio_path(tts_dir: Path, chunk: dict[str, Any], index: int) -> Path | None:
     candidates: list[Path] = []
-    chunk_id = str(chunk.get("chunk_id") or "").strip()
+    chunk_id = str(chunk.get("chunk_id") or chunk.get("id") or "").strip()
     if chunk_id:
         candidates.extend(
             [
@@ -57,11 +52,10 @@ def resolve_audio_path(tts_dir: Path, chunk: dict[str, Any], index: int, sorted_
             ]
         )
     candidates.append(tts_dir / f"T{index + 1:02d}.wav")
+    candidates.append(tts_dir / f"output_{index + 1:03d}.wav")
     for candidate in candidates:
         if candidate.exists():
             return candidate
-    if index < len(sorted_wavs):
-        return sorted_wavs[index]
     return None
 
 
@@ -110,30 +104,71 @@ def make_whisper_transcriber(whisper: Any, language: str, model_name: str) -> An
     return transcribe
 
 
-def compare_text(expected: str, actual: str) -> dict[str, Any]:
+def pronunciation_key(word: str, language: str) -> str:
+    """Conservative Polish spelling equivalences, not a full phoneme converter.
+
+    Keep c/k, s/sz, n/ń and other articulation differences distinct. Nasal
+    vowels split only before stops/affricates; final ą stays nasal.
+    """
+    word = unicodedata.normalize("NFC", word).casefold()
+    if language != "pl":
+        return word
+    word = word.replace("ó", "u").replace("ch", "h")
+    word = re.sub(r"([ąę])(?=ć|dź|ci|dzi)", lambda m: "oń" if m[1] == "ą" else "eń", word)
+    word = re.sub(r"([ąę])(?=[pb])", lambda m: "om" if m[1] == "ą" else "em", word)
+    word = re.sub(r"([ąę])(?=[tdkgc])", lambda m: "on" if m[1] == "ą" else "en", word)
+    word = re.sub(r"([ąę])(?=[lł])", lambda m: "o" if m[1] == "ą" else "e", word)
+    word = re.sub(r"ę$", "e", word)
+    word = re.sub(r"n(?=ć|dź|ci|dzi)", "ń", word)
+    # Single symbols keep affricates intact when devoicing a final cluster.
+    for spelling, symbol in (("dż", "J"), ("dź", "Q"), ("dz", "D"), ("cz", "C"), ("sz", "S")):
+        word = word.replace(spelling, symbol)
+    devoicing = str.maketrans({"b": "p", "d": "t", "g": "k", "w": "f", "z": "s", "ż": "S", "ź": "ś", "J": "C", "Q": "ć", "D": "c"})
+    return re.sub(r"[bdgwzżźJQDptkfsścćCSh]+$", lambda m: m[0].translate(devoicing), word)
+
+
+def compare_text(expected: str, actual: str, language: str = "pl") -> dict[str, Any]:
+    """Report every unresolved word edit, even in an otherwise identical line.
+
+    A mismatch is a request to review the audio, not proof of bad speech.
+    Forced-alignment probabilities and sentence similarity cannot waive it.
+    """
     expected_tokens = tokenize(expected)
     actual_tokens = tokenize(actual)
-    expected_counter = Counter(expected_tokens)
-    actual_counter = Counter(actual_tokens)
-    missing_counter = expected_counter - actual_counter
-    extra_counter = actual_counter - expected_counter
-    missing = list(missing_counter.elements())
-    extra = list(extra_counter.elements())
-    recall = 1.0
-    if expected_tokens:
-        recall = 1.0 - (sum(missing_counter.values()) / len(expected_tokens))
-    ratio = SequenceMatcher(None, expected_tokens, actual_tokens).ratio() if expected_tokens or actual_tokens else 1.0
-    passed = recall >= DEFAULT_MIN_WORD_RECALL and ratio >= DEFAULT_MIN_SEQUENCE_RATIO
+    expected_keys = [pronunciation_key(w, language) for w in expected_tokens]
+    actual_keys = [pronunciation_key(w, language) for w in actual_tokens]
+    alignment = []
+    differences = []
+    matcher = SequenceMatcher(None, expected_keys, actual_keys, autojunk=False)
+    for tag, i, end_i, j, end_j in matcher.get_opcodes():
+        if tag == "equal":
+            for a, b in zip(range(i, end_i), range(j, end_j)):
+                alignment.append({"kind": "exact" if expected_tokens[a] == actual_tokens[b] else "phonetic",
+                                  "expected_index": a + 1, "actual_index": b + 1,
+                                  "expected": expected_tokens[a], "actual": actual_tokens[b]})
+        elif (tag == "replace" and "".join(expected_keys[i:end_i]) == "".join(actual_keys[j:end_j])):
+            alignment.append({"kind": "word_boundary", "expected_index": i + 1, "actual_index": j + 1,
+                              "expected": " ".join(expected_tokens[i:end_i]), "actual": " ".join(actual_tokens[j:end_j])})
+        else:
+            for offset in range(max(end_i - i, end_j - j)):
+                a, b = i + offset, j + offset
+                entry = {"kind": "replace" if a < end_i and b < end_j else "missing" if a < end_i else "extra",
+                         "expected_index": a + 1 if a < end_i else None,
+                         "actual_index": b + 1 if b < end_j else None,
+                         "expected": expected_tokens[a] if a < end_i else "",
+                         "actual": actual_tokens[b] if b < end_j else ""}
+                alignment.append(entry)
+                differences.append(entry)
     return {
         "expected_normalized": " ".join(expected_tokens),
         "actual_normalized": " ".join(actual_tokens),
         "expected_word_count": len(expected_tokens),
         "actual_word_count": len(actual_tokens),
-        "word_recall": round(recall, 4),
-        "sequence_ratio": round(ratio, 4),
-        "missing_words": missing,
-        "extra_words": extra,
-        "passed": passed,
+        "word_alignment": alignment,
+        "word_differences": differences,
+        "missing_words": [d["expected"] for d in differences if d["expected"]],
+        "extra_words": [d["actual"] for d in differences if d["actual"]],
+        "passed": not differences,
     }
 
 
@@ -161,21 +196,21 @@ def main() -> int:
         "script": str(script_path),
         "tts_dir": str(tts_dir),
         "output": str(output_path),
-        "status": "fail",
+        "status": "error",
         "chunks": [],
         "errors": [],
     }
 
     try:
         script = load_json(script_path)
-        chunks = script.get("tts_chunks") if isinstance(script, dict) else None
+        chunks = script if isinstance(script, list) else script.get("tts_chunks") if isinstance(script, dict) else None
         if not isinstance(chunks, list) or not chunks:
-            raise ValueError("script.json must contain a non-empty tts_chunks array")
-        language = args.language or str(script.get("metadata", {}).get("language") or "").strip()
+            raise ValueError("script must be a non-empty narration list or contain a tts_chunks array")
+        metadata = script.get("metadata", {}) if isinstance(script, dict) else {}
+        language = args.language or str(metadata.get("language") or "").strip()
         if not language:
             raise ValueError("language is required via --language or metadata.language")
 
-        sorted_wavs = sorted(tts_dir.glob("*.wav"))
         backend_name, backend = import_asr_backend()
         if backend_name == "whisperx":
             transcribe = make_whisperx_transcriber(backend, language, args.model, args.device, args.compute_type)
@@ -183,10 +218,7 @@ def main() -> int:
             transcribe = make_whisper_transcriber(backend, language, args.model)
         report["language"] = language
         report["backend"] = backend_name
-        report["thresholds"] = {
-            "min_word_recall": DEFAULT_MIN_WORD_RECALL,
-            "min_sequence_ratio": DEFAULT_MIN_SEQUENCE_RATIO,
-        }
+        report["policy"] = "Every unresolved word edit requires audio review; ASR is not proof of a pronunciation error."
 
         any_failed = False
         for index, chunk in enumerate(chunks):
@@ -194,11 +226,11 @@ def main() -> int:
                 report["errors"].append(f"tts_chunks[{index}] must be an object")
                 any_failed = True
                 continue
-            chunk_id = str(chunk.get("chunk_id") or f"T{index + 1:02d}")
-            expected = str(chunk.get("voice_text") or "").strip()
-            audio_path = resolve_audio_path(tts_dir, chunk, index, sorted_wavs)
+            chunk_id = str(chunk.get("chunk_id") or chunk.get("id") or f"T{index + 1:02d}")
+            expected = str(chunk.get("check_text") or chunk.get("voice_text") or chunk.get("say") or "").strip()
+            audio_path = resolve_audio_path(tts_dir, chunk, index)
             if not expected:
-                report["errors"].append(f"{chunk_id}: missing voice_text")
+                report["errors"].append(f"{chunk_id}: missing check_text, voice_text or say")
                 any_failed = True
                 continue
             if audio_path is None:
@@ -208,7 +240,7 @@ def main() -> int:
 
             actual = transcribe(audio_path)
 
-            comparison = compare_text(expected, actual)
+            comparison = compare_text(expected, actual, language)
             if not comparison["passed"]:
                 any_failed = True
             report["chunks"].append(
@@ -221,18 +253,19 @@ def main() -> int:
                 }
             )
 
-        report["status"] = "fail" if any_failed or report["errors"] else "pass"
+        report["status"] = "error" if report["errors"] else "review" if any_failed else "pass"
         write_json(output_path, report)
         if report["status"] != "pass":
-            print(f"TTS pronunciation QA failed: {output_path}", file=sys.stderr)
-            return 1
+            print(f"TTS pronunciation QA {report['status']}: {output_path}", file=sys.stderr)
+            return 2 if report["errors"] else 1
         print(f"TTS pronunciation QA passed: {output_path}")
         return 0
     except Exception as exc:
         report["errors"].append(str(exc))
+        report["status"] = "error"
         write_json(output_path, report)
-        print(f"TTS pronunciation QA failed: {exc}", file=sys.stderr)
-        return 1
+        print(f"TTS pronunciation QA error: {exc}", file=sys.stderr)
+        return 2
 
 
 if __name__ == "__main__":
