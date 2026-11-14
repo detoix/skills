@@ -1,0 +1,4 @@
+interface:
+  display_name: "Compress Images Locally"
+  short_description: "Compress, resize and convert images locally"
+  default_prompt: "Use $compress-image to optimize these images locally while preserving the requested dimensions and format."
