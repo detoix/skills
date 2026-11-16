@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """Narration → timeline → sound design → final mix.
 
-Run with the project's audio interpreter (numpy, soundfile, scipy, faster-whisper):
+Run with the project's audio interpreter (numpy, soundfile, scipy, NeMo):
     python3 tools/build_audio.py --scenes 1
 
 1. trims and level-matches every narration take (no pitch, tempo or EQ changes)
-2. reads word timings back with Whisper, checks them against the script and maps them onto the
-   caption tokens (a number shown as digits covers all the words it is spoken as)
+2. reads the word timings of the raw takes through tools/asr.py (cached per file hash, shared with
+   tools/check_takes.py), maps them through the trim and pause edits, checks them against the script and
+   maps them onto the caption tokens (a number shown as digits covers all the words it is spoken as)
 3. lays the narration out on a timeline  → film/timeline.json, film/audio/vo.wav
 4. asks film/film.js for its sound cues (same anchors as the picture)
 5. synthesises effects and separate bed/foreground music buses → film/audio/mix.wav
@@ -85,27 +86,41 @@ def trim(x):
     return y
 
 
-def tidy_pauses(x, cap=0.62, keep=0.5):
-    """Skraca zbyt długie pauzy wewnątrz nagrania do `keep` s, przenikając w ciszy. Słów nie rusza."""
+def tidy_pauses(x, cap=0.62, keep=0.5, with_map=False):
+    """Skraca zbyt długie pauzy wewnątrz nagrania do `keep` s, przenikając w ciszy. Słów nie rusza.
+    with_map: zwraca też listę odcinków (początek i koniec na wejściu, początek na wyjściu, w sekundach),
+    żeby przeliczyć czasy słów rozpoznane w surowym nagraniu."""
     env = envelope(x, 480)
     quiet = env < env.max() * 10 ** (-34 / 20)
     edges = np.flatnonzero(np.diff(np.r_[0, quiet.astype(int), 0]))
-    parts, pos = [], 0
+    parts, pos, cut_bs = [], 0, []
     fade = int(0.012 * SR)
     for a, b in zip(edges[::2], edges[1::2]):
         if a == 0 or b >= len(x) or (b - a) / SR <= cap:
             continue
         cut_a, cut_b = a + int(keep * SR / 2), b - int(keep * SR / 2)
         parts.append(x[pos:cut_a].copy())
+        cut_bs.append(cut_b)
         pos = cut_b
     if not parts:
-        return x
+        return (x, [(0.0, len(x) / SR, 0.0)]) if with_map else x
     parts.append(x[pos:].copy())
     out = parts[0]
     ramp = np.linspace(0, 1, fade, dtype="float32")
     for p in parts[1:]:
         out = np.concatenate([out[:-fade], out[-fade:] * (1 - ramp) + p[:fade] * ramp, p[fade:]])
-    return out
+    if not with_map:
+        return out
+    seg, in_a, out_a = [], 0, 0
+    for k, p in enumerate(parts):
+        if k:
+            out_a -= fade
+        seg.append((in_a / SR, (in_a + len(p)) / SR, out_a / SR))
+        out_a += len(p)
+        in_a += len(p)
+        if k < len(parts) - 1:
+            in_a = cut_bs[k]
+    return out, seg
 
 
 def level(x, target):
@@ -121,13 +136,27 @@ def norm_word(w):
     return re.sub(r"[^a-z0-9]", "", "".join(c for c in w if not unicodedata.combining(c)))
 
 
-def word_times(model, x, text):
-    """Whisper word timings mapped onto the script's own words."""
+def map_time(t, seg):
+    """Czas w przyciętym nagraniu → czas po skróceniu pauz (odcinki z tidy_pauses(with_map=True))."""
+    for a, b, o in seg:
+        if t < a:          # w wyciętej ciszy: na początek następnego odcinka
+            return o
+        if t <= b:
+            return o + (t - a)
+    a, b, o = seg[-1]
+    return o + (b - a)
+
+
+class Heard:
+    __slots__ = ("word", "start", "end")
+
+    def __init__(self, word, start, end):
+        self.word, self.start, self.end = word, start, end
+
+
+def word_times(heard, text, dur):
+    """Recognised word timings (already on the edited take's clock) mapped onto the script's own words."""
     words = text.split()
-    dur = len(x) / SR
-    x16 = signal.resample_poly(x, 1, 3).astype("float32")
-    segs, _ = model.transcribe(x16, language=CFG["language"], word_timestamps=True, beam_size=5, condition_on_previous_text=False)
-    heard = [w for s in segs for w in (s.words or [])]
     heard_text = " ".join(w.word.strip() for w in heard)
     a, b = [norm_word(w) for w in words], [norm_word(w.word) for w in heard]
     ratio = difflib.SequenceMatcher(None, " ".join(a), " ".join(b), autojunk=False).ratio()
@@ -271,13 +300,18 @@ def selected_provenance(path, line, records):
     return {"sha256": digest, "provenance": provenance}
 
 
-def build_voice(model, scenes, takes_dir):
+def build_voice(scenes, takes_dir):
     narr = [l for l in json.loads((ROOT / "audio/narration.json").read_text(encoding="utf-8"))]
     index = {l["id"]: k + 1 for k, l in enumerate(narr)}
     use = [l for l in narr if l["scene"] in scenes]
     provenance_path = ROOT / "audio/provenance.json"
     provenance = json.loads(provenance_path.read_text()).get("takes", {}) if provenance_path.exists() else {}
     t, lines, clips, manifest = LEAD, [], [], []
+    import asr
+    existing = [takes_dir / f"output_{index[l['id']]:03d}.wav" for l in use]
+    existing = [p for p in existing if p.exists()]
+    asr_results, asr_stats = asr.transcribe(existing) if existing else ([], None)
+    by_path = {Path(r["path"]): r for r in asr_results}
     for n, l in enumerate(use):
         path = takes_dir / f"output_{index[l['id']]:03d}.wav"
         provisional = not path.exists()
@@ -300,9 +334,15 @@ def build_voice(model, scenes, takes_dir):
             trim_interval, raw_duration = [v / SR for v in bounds], len(raw) / SR
             source_info = selected_provenance(path, l, provenance)
             x = trim(raw)
-            x = tidy_pauses(x, CFG.get("pause_cap", 0.62), CFG.get("pause_keep", 0.5))
+            x, seg = tidy_pauses(x, CFG.get("pause_cap", 0.62), CFG.get("pause_keep", 0.5), with_map=True)
             x, gain = level(x, VOICE_RMS)
-            times, heard, ratio = word_times(model, x, l["say"])
+            r = by_path[path]
+            off = bounds[0] / SR
+            dur_x = len(x) / SR
+            heard_words = [Heard(w["w"], min(map_time(max(w["s"] - off, 0.0), seg), dur_x), min(map_time(max(w["e"] - off, 0.0), seg), dur_x))
+                           for w in r["words"]]
+            times, heard, ratio = word_times(heard_words, l["say"], dur_x)
+            source_info["asr"] = {"cache_sha256": r["sha256"], "cached": r["cached"]}
         tokens = spans_to_tokens(l["spans"], times)
         if n:
             first_of_scene = use[n - 1]["scene"] != l["scene"]
@@ -336,6 +376,7 @@ def build_voice(model, scenes, takes_dir):
     (ROOT / "audio/manifest.json").write_text(json.dumps({
         "generation": "See matching per-take provenance; unverified settings remain unknown",
         "processing": "trim silence, long inner pauses shortened",
+        "asr": asr_stats,
         "takes": manifest,
     }, ensure_ascii=False, indent=1), encoding="utf-8")
     return tl, vo[: int(total * SR)]
@@ -414,20 +455,18 @@ def main():
     ap.add_argument("--scenes", default="1", help="comma-separated scene numbers, or 'all'")
     ap.add_argument("--takes", default="audio/takes")
     ap.add_argument("--out", default=None, help="mix path (default film/audio/mix.wav)")
-    ap.add_argument("--reuse", action="store_true", help="reuse film/timeline.json and film/audio/vo.wav (no Whisper)")
+    ap.add_argument("--reuse", action="store_true", help="reuse film/timeline.json and film/audio/vo.wav (no recognition)")
     args = ap.parse_args()
     narr = json.loads((ROOT / "audio/narration.json").read_text(encoding="utf-8"))
     scenes = sorted({l["scene"] for l in narr}) if args.scenes == "all" else [int(s) for s in args.scenes.split(",")]
     OUT.mkdir(parents=True, exist_ok=True)
-    from faster_whisper import WhisperModel
 
     t0 = time.perf_counter()
     if args.reuse:
         tl = json.loads((ROOT / "film/timeline.json").read_text(encoding="utf-8"))
         vo, _ = sf.read(OUT / "vo.wav", dtype="float32")
     else:
-        model = WhisperModel("small", device="cpu", compute_type="int8", local_files_only=True)
-        tl, vo = build_voice(model, scenes, ROOT / args.takes)
+        tl, vo = build_voice(scenes, ROOT / args.takes)
     t1 = time.perf_counter()
     total = tl["duration"]
     n = len(vo)
@@ -476,7 +515,7 @@ def main():
     (ROOT / "audio/cues.json").write_text(json.dumps(cue_list, indent=1))
     t2 = time.perf_counter()
     print(f"\nduration {total:.2f}s  cues {len(cue_list)}  mix peak {db(np.abs(mix).max()):.1f} dBFS  rms {db(np.sqrt(np.mean(mix ** 2))):.1f} dBFS")
-    print(f"timing: whisper alignment {t1 - t0:.1f}s, sound design + mix {t2 - t1:.1f}s")
+    print(f"timing: voice + word timings {t1 - t0:.1f}s, sound design + mix {t2 - t1:.1f}s")
 
 
 if __name__ == "__main__":

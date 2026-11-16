@@ -28,7 +28,7 @@ At stages marked as a gate, show the result and wait for the user's word. New li
 2. **Project.** `scripts/new_film.sh <dir> "<Title>" <slug> <language> "<palette>"` copies `template/` and fills in the names. The palette describes the subject's own visual world. Adapt the supplied visual defaults to the agreed direction; the template's decoration is not a requirement.
 3. **Script → gate.** Write `script.md` following [references/script.md](references/script.md), fact-check it, then `python3 tools/script.py` → `audio/narration.json`.
 4. **Music preflight.** Plan the film's music moods from the script and check them against the channel's music library ([references/audio.md](references/audio.md)). Only what is missing gets made, with the `yue-music` skill; the user approves it by ear and it stays in the library for later films. When nothing is missing, nothing is generated. This check runs independently of the voice plan and takes.
-5. **Voice → gate.** Delegate the voice preflight and narration to the `tts` skill, passing the script, voice library and output locations. It reuses approved moods and makes a mood only when it is missing; the user approves a new one by ear. Check the result as in [references/audio.md](references/audio.md). This check runs independently of music; `tts` owns its library format, model, settings and execution.
+5. **Voice → gate.** Delegate the voice preflight and narration to the `tts` skill, passing the script, voice library and output locations. It reuses approved moods and makes a mood only when it is missing; the user approves a new one by ear. Check the takes with `tools/check_takes.py` as in [references/audio.md](references/audio.md). This check runs independently of music; `tts` owns its library format, model, settings and execution.
 6. **Cut-outs.** References for everything real (`research/ref/`, `prompts/refs.json`) → imagegen prompts (`prompts/_style.txt` + one file per set, referenced assets with their reference) → `raw/` → contact sheets against the references (`tools/raw_sheet.py`) → `tools/prep_figures.py` → `film/fig/`. See [references/visuals.md](references/visuals.md).
 7. **Pilot → gate.** Scene 1 with sound (`tools/build_audio.py --scenes 1`), rendered (`tools/render.mjs --to <end>`). Typography, palette, transitions in picture and sound, instrumentation, pace and the balance of voice, bed and foreground music get approved here, before the other scenes.
 8. **All scenes.** `film/scenes/sN.js`, control stills at the busy moments, full sound, the layout check, full render. See [references/render.md](references/render.md).
@@ -51,7 +51,7 @@ Rules:
 - Picture and sound share the same anchors: each scene exports `soundCues(tl)` for the actions it shows.
 - One TTS job at a time with all ready lines in one batch; regenerate only lines the user flagged or the checks failed, and say beforehand what will run, for how long, and whether it is read-only.
 - Record the actual selected audio file, SHA-256, spoken text, direction, source and known generation parameters per line in the audio manifest. Match provenance to the current file hash; unknown values stay unknown. Never infer a seed from line order.
-- Keep free ASR hypotheses separate from expected-text alignment. Number checks retain literal spoken words and point to the exact version and time in the full film; ASR probabilities only guide listening.
+- Keep the recogniser's literal text separate from the expected text. Number checks keep what was recognised and point to the exact version and time in the full film; recognition only guides listening.
 - Measure and look before showing: levels for audio, stills for picture. Do not send what has not been checked.
 
 ## Style
@@ -81,6 +81,6 @@ Revise before the gate if:
 ## Production checks
 
 - Words that also exist in English and foreign names go through `film.json` → `spoken` with a phonetic spelling.
-- One Whisper size (`small` or larger) for timing and checks; `base` raises false alarms.
+- One recogniser, Parakeet TDT 0.6B v3 (`tools/asr.py`), for the take check and the word timings: the check fills `audio/asr_cache/` and the timing reads it, so every take is recognised once.
 - Music uses separate bed and foreground buses. Keep the bed restrained throughout and lower it further during scored breaks (the end screen is played out, not a break); duck foreground music for actual speech while preserving it in intentional silent breaks. Use passage-level holds inside speech and timeline-aware fades at breaks; inspect every transition. See the audio reference. Look up professional practice before changing audio craft.
 - Time a 10 s render section with the candidate encoder and worker count before a full render.

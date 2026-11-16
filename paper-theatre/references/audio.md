@@ -5,17 +5,18 @@
 1. Point `film.json` → `voice_library` at the channel's voice library; `voice_moods` names a mood for lines whose direction does not settle it.
 2. After `python3 tools/script.py`, ask the `tts` skill to plan `audio/narration.json` against the library. That only reads the library. For a mood it reports missing, it makes candidates, the user chooses by ear and the choice joins the library for later films. A channel with no library starts one the same way, with a reference the user picked by ear.
 3. Have the `tts` skill narrate `audio/narration.json` into `audio/takes/`, with provenance in `audio/provenance.json`, in one run for the whole film. Wrap long jobs in `tools/clock.py run`. Pass these inputs and outputs to the skill; read its instructions for invocation.
-4. Check every take with the `tts` skill and listen to the openings. Use the number-check procedure below for numerical expressions; expected-text alignment is not a free transcription.
+4. Check every take with `tools/check_takes.py`: word by word against the spoken text, report in `audio/check.json`. Listen to the openings and to every flagged line. Use the number-check procedure below for numerical expressions.
 
 ## Retakes
 
-- Have the `tts` skill narrate only the lines the user flagged into `audio/retakes_X`, in one run, and compare them with the current takes; the user hears both in its comparison file.
+- Have the `tts` skill narrate only the lines the user flagged into `audio/retakes_X`, in one run. `tools/check_takes.py --takes audio/retakes_X --against audio/takes` checks them next to the takes they would replace and writes `audio/retakes_X/comparison.wav` (old, then new, per line) for the user to hear.
 - Copy accepted takes into `audio/takes/output_NNN.wav`, keeping the old ones as `output_NNN_vK.wav`, record the choice in a JSON next to them.
 
 ## Timeline and mix (`tools/build_audio.py`)
 
-- Run the project's audio tools in a Python environment with `numpy`, `soundfile`, `scipy` and `faster-whisper`, with FFmpeg and Node on `PATH`. This environment belongs to the film tools.
-- Trims and levels every take, reads word times with Whisper `small`, lays lines out with `film.json` → `gaps` (pause before a line; 2.5–3 s breaths after strong lines), scene gaps, the title tail and the 14 s end screen → `film/timeline.json`, `film/audio/vo.wav`.
+- Run the project's audio tools in a Python environment with `numpy`, `soundfile`, `scipy` and NVIDIA NeMo (`nemo_toolkit[asr]` with PyTorch; a GPU is used when present), with FFmpeg and Node on `PATH`. The first recognition downloads the model from Hugging Face. This environment belongs to the film tools.
+- Recognition (`tools/asr.py`, Parakeet TDT 0.6B v3) is cached per take in `audio/asr_cache/`: an entry is keyed by the file's SHA-256, the model settings, the film language and the tool version, so a retake or a changed setting is recognised again and nothing else is. Word times are stored against the raw file, so trim and pause settings can change without new recognition. The take check fills the cache and the timing reads it.
+- Trims and levels every take, maps its cached word times through the trim and pause edits (a take not yet recognised is recognised here), lays lines out with `film.json` → `gaps` (pause before a line; 2.5–3 s breaths after strong lines), scene gaps, the title tail and the 14 s end screen → `film/timeline.json`, `film/audio/vo.wav`.
 - Asks `film/film.js` for the sound cues, synthesises the effects, lays out the music from the library (`tools/music.py`), mixes to -14 LUFS with the true peak held at -2 dBTP → `film/audio/mix.wav` (+ music stems).
 - Missing takes become provisional silence of the expected length, so scenes can be built before the voice exists.
 - `--reuse` keeps the timeline and voice and only rebuilds effects and music.
@@ -23,8 +24,8 @@
 ## Number and pronunciation checks
 
 - Keep three distinct records: the written caption text, the intended spoken text and the literal free ASR hypothesis. Never substitute expected words for the recognised result or convert recognised number words back to digits in a pronunciation report.
-- For numerical passages, use free transcription without the expected text as a prompt. Suppress tokens containing decimal digits so the recogniser can return number words; preserve omissions, foreign words and Roman numerals exactly as returned. A spelling constraint is not proof of correct pronunciation.
-- Label native probabilities of freely recognised words separately from scores obtained by aligning the expected text. Use the latter only to compare recordings of the same line under the same model and settings. Neither score is a calibrated pronunciation verdict; high confidence does not compensate for omitted words.
+- For numerical passages, use free transcription without the expected text as a prompt. The recogniser writes numbers in digits: the check matches them to their caption span and flags them, because digits do not show whether the spoken form and its inflection are right; listen to every flagged number. Preserve omissions, foreign words and Roman numerals exactly as returned. A spelling match is not proof of correct pronunciation.
+- The word differences (substitutions, omissions, insertions, the first word) choose what to hear first; they are not a pronunciation verdict. Compare takes of one line only through the same tool and settings.
 - Report the intended phrase, literal hypothesis, missing words and flagged probabilities with the version and timestamps of the full film. Account for source trimming and line placement; provide surrounding context in the complete mix rather than only isolated take times.
 - Inspect acoustic onsets after pauses. Word alignment and interpolated timings can start a caption or action inside silence; correct and review the affected anchors before deriving captions and scene cues.
 - Confirm suspected errors by listening. Keep the report tied to the selected audio hashes and rebuild its times after an edit changes the timeline.
