@@ -19,11 +19,13 @@ reels); the model speaks 30 languages and nothing in the skill is Polish-only.
 - **Intel GPU acceleration:** an optional OpenVINO diffusion head with CPU orchestration.
   Automatic selection prefers a compatible Intel GPU over CPU for both single lines and batches.
   GPU runtime failures fall back to CPU.
+- **Native Vulkan inference.** The GGUF runtime supports voice design and continuation cloning,
+  with optional two-line diffusion batching for whole-script narration.
 - **Checks:** word-by-word free ASR comparison, with conservative Polish phonetic equivalences and
   explicit review of every unresolved word edit (`scripts/tts_pronunciation_qa.py`), plus per-word
   Whisper confidence to rank takes (`scripts/word_confidence.py`).
 
-## Requirements
+## Python runtime requirements
 
 - Linux (tested) or macOS (CPU path, untested); on Windows, use WSL. [uv](https://docs.astral.sh/uv/) and FFmpeg.
 - An NVIDIA GPU, or a CPU with about 14 GB of free RAM. A compatible Intel GPU with a working OpenCL driver
@@ -33,6 +35,8 @@ reels); the model speaks 30 languages and nothing in the skill is Polish-only.
   downloaded from Hugging Face on first use.
 
 ## Install
+
+For native GGUF inference, see the [Vulkan runtime guide](references/native-vulkan.md).
 
 ```bash
 git clone https://github.com/detoix/skills.git
@@ -56,7 +60,7 @@ mood-selection rules in `bank/rules.json`. `--plan` exits with 2 when the refere
 sample is missing or unusable. Follow `SKILL.md` to create and approve a missing mood; narration does
 not generate mood samples itself. Every option is in `SKILL.md` and `--help`.
 
-The default `--device auto` chooses CUDA first, then OpenVINO on an available Intel GPU,
+In the Python runtime, `--device auto` chooses CUDA first, then OpenVINO on an available Intel GPU,
 then CPU. Intel GPU execution is preferred over CPU for single lines as well as batches. The installer detects Intel GPU hardware on Linux; `OPENVINO=1 scripts/setup_runtime.sh` installs
 the optional runtime explicitly, and `OPENVINO=0` skips it. Install Intel's GPU OpenCL driver separately.
 Use `--device cpu` to force CPU or `--device openvino` to request the Intel GPU path explicitly.

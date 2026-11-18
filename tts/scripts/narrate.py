@@ -167,16 +167,27 @@ def main(argv=None):
     ap.add_argument("--ids", default="")
     ap.add_argument("--mood", default="", help="use this mood for every chosen line")
     ap.add_argument("--seed", type=int, default=5000)
-    ap.add_argument("--device", default="auto", help="auto, cpu, openvino, cuda[:N]")
-    ap.add_argument("--openvino-device", default="GPU")
+    ap.add_argument("--device", help="Python device (auto, cpu, openvino, cuda[:N])")
+    ap.add_argument("--openvino-device")
     ap.add_argument("--openvino-cache-dir")
-    ap.add_argument("--rows", type=int, default=ROWS)
+    ap.add_argument("--rows", type=int)
     ap.add_argument("--no-compile", action="store_true")
+    ap.add_argument("--engine", choices=("python", "native"), default=None)
+    ap.add_argument("--native-config", type=Path, default=Path(__file__).resolve().parent.parent / ".runtime/narrate.json")
     ap.add_argument("--add-mood")
     ap.add_argument("--sample")
     ap.add_argument("--text")
     ap.add_argument("--direction", default="")
     a = ap.parse_args(argv)
+    python_options = a.no_compile or any(value is not None for value in (
+        a.device, a.openvino_device, a.openvino_cache_dir, a.rows,
+    ))
+    if a.device is None:
+        a.device = "auto"
+    if a.openvino_device is None:
+        a.openvino_device = "GPU"
+    if a.rows is None:
+        a.rows = ROWS
     root = Path(a.library)
     if a.add_mood:
         if a.plan:
@@ -222,7 +233,15 @@ def main(argv=None):
         return 0
     if not a.out:
         ap.error("--out is required")
-    generate(a, root, bank, groups, {l["id"]: i + 1 for i, l in enumerate(lines)})
+    index = {l["id"]: i + 1 for i, l in enumerate(lines)}
+    engine = a.engine or ("native" if not python_options and a.native_config.is_file() else "python")
+    if engine == "native":
+        if python_options:
+            ap.error("--device, --openvino-device, --openvino-cache-dir, --rows and --no-compile configure the Python backend")
+        from native_narration import generate as generate_native
+        generate_native(a, root, bank, groups, index)
+    else:
+        generate(a, root, bank, groups, index)
     return 0
 
 

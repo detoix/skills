@@ -9,7 +9,9 @@ Direct narration to fit the text, audience, and timing: choose how each passage 
 
 ## Runtime
 
-The skill owns its runtime: `.venv` inside this skill directory, holding `voxcpm`, PyTorch, SoundFile, `wetext`, and WhisperX. Use `.venv/bin/python` for every script here. The runtime targets Linux and macOS; on Windows, run the skill inside WSL. When `.venv` is missing or an import fails, build it with `scripts/setup_runtime.sh` (needs `uv`); it installs CUDA PyTorch when an NVIDIA GPU is present and CPU PyTorch otherwise, and `TORCH_BACKEND=cpu|cu128|...` overrides that. The installer adds the optional OpenVINO runtime when it detects an Intel GPU on Linux; `OPENVINO=1` enables installation explicitly and `OPENVINO=0` skips it. Intel GPU execution also requires a working Intel OpenCL driver; the installer does not change system drivers.
+The [native Vulkan runtime](references/native-vulkan.md) supports GGUF voice design and continuation cloning. The Python synthesis commands use `voxcpm_tts.py`.
+
+The skill owns its runtime: `.venv` inside this skill directory, holding `voxcpm`, PyTorch, SoundFile, `wetext`, and WhisperX. Use `.venv/bin/python` for the Python synthesis backend; native narration and audio QA can use the lighter film-tools environment described below. The runtime targets Linux and macOS; on Windows, run the skill inside WSL. When `.venv` is missing or an import fails, build it with `scripts/setup_runtime.sh` (needs `uv`); it installs CUDA PyTorch when an NVIDIA GPU is present and CPU PyTorch otherwise, and `TORCH_BACKEND=cpu|cu128|...` overrides that. The installer adds the optional OpenVINO runtime when it detects an Intel GPU on Linux; `OPENVINO=1` enables installation explicitly and `OPENVINO=0` skips it. Intel GPU execution also requires a working Intel OpenCL driver; the installer does not change system drivers.
 
 Resolve bundled scripts relative to this skill directory. Model weights are `openbmb/VoxCPM2` in the Hugging Face cache, downloaded on first use. Leave `--device auto` as the default: prefer CUDA when available, then OpenVINO on a compatible Intel GPU, then CPU. Prefer the Intel GPU over CPU for both single lines and batches, including `--rows 1`. `--device cpu` forces CPU, `--device openvino` explicitly requests the Intel GPU path, and `--device cuda:N` selects a CUDA device. `--openvino-device GPU.0` can choose an Intel GPU when several are present.
 
@@ -76,6 +78,8 @@ Outputs `output_001.wav`, etc. follow input-line order. Regenerate individual ta
 ## Narrate a script from the library
 
 `scripts/narrate.py` is this skill's interface for whole scripts: it takes the lines and a voice library, and callers need nothing else from here.
+
+An ignored `.runtime/narrate.json` selects the native CLI when present. Explicit Python device or batching options select Python when `--engine` is omitted. Use `--engine python|native` to choose the engine or `--native-config` to select a native configuration. The [native runtime guide](references/native-vulkan.md) covers two-line LocDiT batching, selective Q8_0 weights and continuation cloning.
 
 - Library: `voice.wav`, `bank/bank.json` (mood → sample, exact transcript, direction, measured pace), optional `bank/rules.json` mapping a line's direction to a mood.
 - Lines: a JSON list of `{"id", "say", "direction", "mood"}`, `mood` optional. A take is `output_NNN.wav` by its place in the list.

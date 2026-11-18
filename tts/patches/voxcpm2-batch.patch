@@ -1,0 +1,1282 @@
+diff --git c/tools/omni/voxcpm2/voxcpm2_cfm.cpp w/tools/omni/voxcpm2/voxcpm2_cfm.cpp
+index 20a487a..683f24d 100644
+--- c/tools/omni/voxcpm2/voxcpm2_cfm.cpp
++++ w/tools/omni/voxcpm2/voxcpm2_cfm.cpp
+@@ -46,29 +46,23 @@ ggml_tensor * UnifiedCFMSolver::compute_velocity_with_cfg(ggml_context *      ct
+                                                           ggml_tensor *       mu,
+                                                           ggml_tensor *       cond_proj,
+                                                           int                 prefix_len,
+-                                                          ggml_tensor *       delta_time_zero,
+-                                                          ggml_tensor *       combined_time_embedding,
+-                                                          float               t,
++                                                          ggml_tensor *       time_token,
+                                                           float               cfg_rate,
+                                                           bool                use_cfg_zero_star,
+                                                           const LocDiTModel & dit_model) const {
+     ggml_tensor * x_proj = dit_model.project_input(ctx, x);
+-    if (!combined_time_embedding) {
+-        ggml_tensor * t_scalar  = ggml_arange(ctx, t, t + 1.0f, 1.0f);
+-        combined_time_embedding = dit_model.build_time_embedding(ctx, t_scalar);
+-        if (delta_time_zero) {
+-            combined_time_embedding = ggml_add(ctx, combined_time_embedding, delta_time_zero);
+-        }
+-    }
+-
+-    ggml_tensor * time_token =
+-        ggml_reshape_2d(ctx, combined_time_embedding, dit_model.config.transformer.hidden_size, 1);
+-
+     ggml_tensor * conditioned   = nullptr;
+     ggml_tensor * unconditioned = nullptr;
+     dit_model.forward_cfg_pair_projected(ctx, x_proj, mu, time_token, cond_proj, prefix_len, &conditioned,
+                                          &unconditioned);
++    return blend_guidance(ctx, conditioned, unconditioned, cfg_rate, use_cfg_zero_star);
++}
+ 
++ggml_tensor * UnifiedCFMSolver::blend_guidance(ggml_context * ctx,
++                                               ggml_tensor *  conditioned,
++                                               ggml_tensor *  unconditioned,
++                                               float          cfg_rate,
++                                               bool           use_cfg_zero_star) const {
+     if (use_cfg_zero_star) {
+         ggml_tensor * st_star       = optimized_scale(ctx, conditioned, unconditioned);
+         ggml_tensor * scaled_uncond = ggml_mul(ctx, unconditioned, ggml_repeat(ctx, st_star, unconditioned));
+@@ -107,6 +101,8 @@ ggml_tensor * UnifiedCFMSolver::solve(ggml_context *      ctx,
+     GGML_ASSERT(mu->ne[0] % dit_model.config.transformer.hidden_size == 0);
+     GGML_ASSERT(n_steps > 0);
+ 
++    const bool paired = noise->ne[2] == 2;
++    const int hidden_size = dit_model.config.transformer.hidden_size;
+     ggml_tensor *            x               = (temperature == 1.0f) ? noise : ggml_scale(ctx, noise, temperature);
+     const std::vector<float> t_span          = build_timesteps(n_steps, sway_sampling_coef);
+     float                    t               = t_span[0];
+@@ -114,6 +110,15 @@ ggml_tensor * UnifiedCFMSolver::solve(ggml_context *      ctx,
+     const int                prefix_len      = static_cast<int>(cond->ne[1]);
+     const int                zero_init_steps = n_steps > 1 ? std::max(1, static_cast<int>(t_span.size() * 0.04f)) : 0;
+ 
++    ggml_tensor * positions = nullptr;
++    ggml_tensor * mask = nullptr;
++    if (paired) {
++        const int mu_tokens = static_cast<int>(mu->ne[0] / hidden_size);
++        const int generated_prefix_tokens = dit_model.config.combine_mu_time ? 1 : mu_tokens + 1;
++        dit_model.build_batch_attention(ctx, generated_prefix_tokens + prefix_len + noise->ne[1], &positions, &mask);
++        cond = ggml_reshape_2d(ctx, cond, cond->ne[0], prefix_len * 2);
++    }
++
+     ggml_tensor * cond_proj       = prefix_len > 0 ? dit_model.project_condition(ctx, cond) : nullptr;
+     ggml_tensor * delta_time_zero = nullptr;
+     if (!precomputed_time_table) {
+@@ -128,11 +133,29 @@ ggml_tensor * UnifiedCFMSolver::solve(ggml_context *      ctx,
+         } else {
+             ggml_tensor * combined_time_embedding = nullptr;
+             if (precomputed_time_table) {
+-                combined_time_embedding = time_embedding_from_table(ctx, precomputed_time_table,
+-                                                                    dit_model.config.transformer.hidden_size, step - 1);
++                combined_time_embedding = time_embedding_from_table(ctx, precomputed_time_table, hidden_size, step - 1);
++            } else {
++                ggml_tensor * t_scalar = ggml_arange(ctx, t, t + 1.0f, 1.0f);
++                combined_time_embedding = ggml_add(ctx, dit_model.build_time_embedding(ctx, t_scalar), delta_time_zero);
++            }
++            ggml_tensor * time_token = ggml_reshape_2d(ctx, combined_time_embedding, hidden_size, 1);
++            if (paired) {
++                ggml_tensor * flat_x = ggml_reshape_2d(ctx, x, x->ne[0], x->ne[1] * 2);
++                ggml_tensor * x_proj = dit_model.project_input(ctx, flat_x);
++                std::array<ggml_tensor *, 2> conditioned{};
++                std::array<ggml_tensor *, 2> unconditioned{};
++                dit_model.forward_cfg_batch_projected(ctx, x_proj, mu, time_token, cond_proj, positions, mask,
++                                                      static_cast<int>(x->ne[1]), prefix_len, conditioned,
++                                                      unconditioned);
++                ggml_tensor * first =
++                    blend_guidance(ctx, conditioned[0], unconditioned[0], cfg_rate, use_cfg_zero_star);
++                ggml_tensor * second =
++                    blend_guidance(ctx, conditioned[1], unconditioned[1], cfg_rate, use_cfg_zero_star);
++                velocity = ggml_concat(ctx, first, second, 2);
++            } else {
++                velocity = compute_velocity_with_cfg(ctx, x, mu, cond_proj, prefix_len, time_token, cfg_rate,
++                                                     use_cfg_zero_star, dit_model);
+             }
+-            velocity = compute_velocity_with_cfg(ctx, x, mu, cond_proj, prefix_len, delta_time_zero,
+-                                                 combined_time_embedding, t, cfg_rate, use_cfg_zero_star, dit_model);
+         }
+ 
+         x = ggml_sub(ctx, x, ggml_scale(ctx, velocity, dt));
+@@ -145,6 +168,24 @@ ggml_tensor * UnifiedCFMSolver::solve(ggml_context *      ctx,
+     return x;
+ }
+ 
++ggml_tensor * UnifiedCFMSolver::solve_batch(ggml_context *      ctx,
++                                            ggml_tensor *       noise,
++                                            ggml_tensor *       mu,
++                                            ggml_tensor *       cond,
++                                            const LocDiTModel & dit_model,
++                                            int                 n_steps,
++                                            float               cfg_rate,
++                                            float               temperature,
++                                            float               sway_sampling_coef,
++                                            bool                use_cfg_zero_star,
++                                            ggml_tensor *       precomputed_time_table) const {
++    GGML_ASSERT(noise->ne[2] == 2 && noise->ne[3] == 1 && ggml_is_contiguous(noise));
++    GGML_ASSERT(cond->ne[2] == 2 && cond->ne[3] == 1 && ggml_is_contiguous(cond));
++    GGML_ASSERT(mu->ne[1] == 2 && mu->ne[2] == 1 && mu->ne[3] == 1 && ggml_is_contiguous(mu));
++    return solve(ctx, noise, mu, cond, dit_model, n_steps, cfg_rate, temperature, sway_sampling_coef,
++                 use_cfg_zero_star, precomputed_time_table);
++}
++
+ // ---------------------------------------------------------------------------
+ // Staged solver helpers
+ // ---------------------------------------------------------------------------
+diff --git c/tools/omni/voxcpm2/voxcpm2_cfm.h w/tools/omni/voxcpm2/voxcpm2_cfm.h
+index 6315118..886097c 100644
+--- c/tools/omni/voxcpm2/voxcpm2_cfm.h
++++ w/tools/omni/voxcpm2/voxcpm2_cfm.h
+@@ -62,6 +62,20 @@ struct UnifiedCFMSolver {
+                         bool                use_cfg_zero_star      = true,
+                         ggml_tensor *       precomputed_time_table = nullptr) const;
+ 
++    // noise / cond: [feat_dim, patch_size, 2], mu: [hidden_size * n_mu_tokens, 2].
++    // Returns two independent audio patches in [feat_dim, patch_size, 2].
++    ggml_tensor * solve_batch(ggml_context *      ctx,
++                              ggml_tensor *       noise,
++                              ggml_tensor *       mu,
++                              ggml_tensor *       cond,
++                              const LocDiTModel & dit_model,
++                              int                 n_steps,
++                              float               cfg_rate,
++                              float               temperature,
++                              float               sway_sampling_coef,
++                              bool                use_cfg_zero_star,
++                              ggml_tensor *       precomputed_time_table = nullptr) const;
++
+   private:
+     ggml_tensor * optimized_scale(ggml_context * ctx,
+                                   ggml_tensor *  positive,
+@@ -78,10 +92,14 @@ struct UnifiedCFMSolver {
+                                             ggml_tensor *       mu,
+                                             ggml_tensor *       cond_proj,
+                                             int                 prefix_len,
+-                                            ggml_tensor *       delta_time_zero,
+-                                            ggml_tensor *       combined_time_embedding,
+-                                            float               t,
++                                            ggml_tensor *       time_token,
+                                             float               cfg_rate,
+                                             bool                use_cfg_zero_star,
+                                             const LocDiTModel & dit_model) const;
++
++    ggml_tensor * blend_guidance(ggml_context * ctx,
++                                  ggml_tensor *  conditioned,
++                                  ggml_tensor *  unconditioned,
++                                  float          cfg_rate,
++                                  bool           use_cfg_zero_star) const;
+ };
+diff --git c/tools/omni/voxcpm2/voxcpm2_cli.cpp w/tools/omni/voxcpm2/voxcpm2_cli.cpp
+index 91e4143..b9fda79 100644
+--- c/tools/omni/voxcpm2/voxcpm2_cli.cpp
++++ w/tools/omni/voxcpm2/voxcpm2_cli.cpp
+@@ -19,14 +19,19 @@
+ #include "voxcpm2_runtime.h"
+ #include "log.h"
+ 
++#include <nlohmann/json.hpp>
++
+ #include <algorithm>
++#include <array>
+ #include <chrono>
+ #include <cmath>
+ #include <cstdio>
+ #include <cstdlib>
+ #include <cstring>
+ #include <fstream>
++#include <limits>
+ #include <string>
++#include <unordered_map>
+ #include <vector>
+ 
+ namespace {
+@@ -38,9 +43,11 @@ struct CliConfig {
+     std::string reference_wav_path;
+     std::string prompt_wav_path;
+     std::string prompt_text;
++    std::string batch_path;
+     std::string output_path = "output.wav";
+     bool   use_gpu       = true;
+     bool   streaming     = false;
++    int    batch_rows    = 1;
+     int    max_steps     = 200;
+     int    timesteps     = 10;
+     float  cfg_value     = 2.0f;
+@@ -61,6 +68,8 @@ static void print_usage(const char * prog) {
+         "\n"
+         "Options:\n"
+         "  -t, --text TEXT      Input text to synthesize\n"
++        "  --batch PATH        Read JSONL requests and share one loaded model\n"
++        "  --batch-rows N      Solve 1 or 2 batch requests at a time (default: 1)\n"
+         "  -o, --output PATH    Output WAV file path (default: output.wav)\n"
+         "  -r, --reference PATH Reference WAV for voice cloning\n"
+         "  --prompt-wav PATH    Prompt WAV for ultimate cloning\n"
+@@ -95,6 +104,14 @@ static bool parse_args(int argc, char ** argv, CliConfig & cfg) {
+             return false;
+         } else if (arg == "-t" || arg == "--text") {
+             if (++i < argc) cfg.text = argv[i];
++        } else if (arg == "--batch") {
++            if (++i < argc) cfg.batch_path = argv[i];
++        } else if (arg == "--batch-rows") {
++            if (++i >= argc || (std::strcmp(argv[i], "1") != 0 && std::strcmp(argv[i], "2") != 0)) {
++                LOG_ERR("--batch-rows requires 1 or 2\n");
++                return false;
++            }
++            cfg.batch_rows = std::atoi(argv[i]);
+         } else if (arg == "-o" || arg == "--output") {
+             if (++i < argc) cfg.output_path = argv[i];
+         } else if (arg == "-r" || arg == "--reference") {
+@@ -130,18 +147,27 @@ static bool parse_args(int argc, char ** argv, CliConfig & cfg) {
+         print_usage(argv[0]);
+         return false;
+     }
+-    if (cfg.text.empty()) {
+-        LOG_ERR("No input text specified. Use -t \"your text here\"\n");
++    if (cfg.text.empty() && cfg.batch_path.empty()) {
++        LOG_ERR("No input text specified. Use -t \"your text here\" or --batch PATH\n");
++        return false;
++    }
++    if (!cfg.batch_path.empty() && (!cfg.text.empty() || !cfg.prompt_wav_path.empty() || !cfg.prompt_text.empty() ||
++                                  !cfg.reference_wav_path.empty() || cfg.streaming)) {
++        LOG_ERR("Batch text and prompts must come from the JSONL requests. Streaming requires -t.\n");
++        return false;
++    }
++    if (cfg.batch_rows == 2 && cfg.batch_path.empty()) {
++        LOG_ERR("--batch-rows 2 requires --batch\n");
+         return false;
+     }
+     return true;
+ }
+ 
+-static void write_wav(const std::string & path, const std::vector<float> & pcm, int sample_rate) {
++static bool write_wav(const std::string & path, const std::vector<float> & pcm, int sample_rate) {
+     std::ofstream f(path, std::ios::binary);
+     if (!f) {
+         LOG_ERR("Cannot create: %s\n", path.c_str());
+-        return;
++        return false;
+     }
+     const int32_t n_samples = static_cast<int32_t>(pcm.size());
+     const int32_t byte_rate = sample_rate * 2;  // 16-bit mono
+@@ -158,6 +184,12 @@ static void write_wav(const std::string & path, const std::vector<float> & pcm,
+         v = std::max(-1.0f, std::min(1.0f, v));
+         w16(static_cast<int16_t>(v * 32767.0f));
+     }
++    f.close();
++    if (!f) {
++        LOG_ERR("Failed to write WAV: %s\n", path.c_str());
++        return false;
++    }
++    return true;
+ }
+ 
+ static std::vector<float> load_wav_mono(const std::string & path, int & out_sample_rate) {
+@@ -168,7 +200,7 @@ static std::vector<float> load_wav_mono(const std::string & path, int & out_samp
+     }
+     char riff[4]; int32_t chunk_size; char wave[4];
+     f.read(riff, 4); f.read(reinterpret_cast<char *>(&chunk_size), 4); f.read(wave, 4);
+-    if (std::strncmp(riff, "RIFF", 4) != 0 || std::strncmp(wave, "WAVE", 4) != 0) {
++    if (!f || std::strncmp(riff, "RIFF", 4) != 0 || std::strncmp(wave, "WAVE", 4) != 0) {
+         LOG_ERR("Not a valid WAV file: %s\n", path.c_str());
+         return {};
+     }
+@@ -178,7 +210,15 @@ static std::vector<float> load_wav_mono(const std::string & path, int & out_samp
+         char id[4]; int32_t size;
+         f.read(id, 4); f.read(reinterpret_cast<char *>(&size), 4);
+         if (!f) break;
++        if (size < 0) {
++            LOG_ERR("Invalid WAV chunk size: %s\n", path.c_str());
++            return {};
++        }
+         if (std::strncmp(id, "fmt ", 4) == 0) {
++            if (size < 16) {
++                LOG_ERR("Invalid WAV format chunk: %s\n", path.c_str());
++                return {};
++            }
+             f.read(reinterpret_cast<char *>(&audio_format), 2);
+             f.read(reinterpret_cast<char *>(&num_channels), 2);
+             f.read(reinterpret_cast<char *>(&sample_rate), 4);
+@@ -193,15 +233,20 @@ static std::vector<float> load_wav_mono(const std::string & path, int & out_samp
+         } else {
+             f.seekg(size, std::ios::cur);
+         }
++        if (size % 2 != 0) f.seekg(1, std::ios::cur);
+     }
+-    if (audio_format != 1 || data_size <= 0) {
++    if (audio_format != 1 || bits_per_sample != 16 || sample_rate <= 0 || num_channels <= 0 ||
++        data_size <= 0 || data_size % (num_channels * 2) != 0) {
+         LOG_ERR("Unsupported WAV format: %s (fmt=%d, data=%d)\n", path.c_str(), audio_format, data_size);
+         return {};
+     }
+     out_sample_rate = sample_rate;
+-    int n_samples = data_size / (bits_per_sample / 8);
++    int n_samples = data_size / 2;
+     std::vector<int16_t> raw(n_samples);
+-    f.read(reinterpret_cast<char *>(raw.data()), data_size);
++    if (!f.read(reinterpret_cast<char *>(raw.data()), data_size)) {
++        LOG_ERR("Truncated WAV data: %s\n", path.c_str());
++        return {};
++    }
+ 
+     std::vector<float> pcm(static_cast<size_t>(n_samples) / num_channels);
+     for (int i = 0; i < n_samples / num_channels; ++i) {
+@@ -227,6 +272,154 @@ static void report_stats(const std::vector<float> & wav, int sample_rate, double
+     LOG_INF("Elapsed: %.3fs, RTF=%.3f\n", elapsed_s, elapsed_s / dur);
+ }
+ 
++static VoxCPM2GenerateParams generation_params(const CliConfig & cfg) {
++    VoxCPM2GenerateParams params;
++    params.max_steps           = cfg.max_steps;
++    params.inference_timesteps = cfg.timesteps;
++    params.cfg_value           = cfg.cfg_value;
++    params.temperature         = cfg.temperature;
++    params.seed                = static_cast<uint32_t>(cfg.seed);
++    return params;
++}
++
++struct BatchRow {
++    std::string text;
++    std::string output;
++    std::string prompt_text;
++    const std::vector<float> * prompt_feat = nullptr;
++    size_t row = 0;
++    VoxCPM2GenerateParams params;
++
++    VoxCPM2BatchRequest to_request() const { return {text, prompt_text, *prompt_feat, params}; }
++};
++
++static bool write_batch_row(const BatchRow & row, const std::vector<float> & wav, double elapsed,
++                            VoxCPM2Runtime & runtime) {
++    if (wav.empty()) {
++        LOG_ERR("Batch row %zu failed: %s\n", row.row, runtime.last_error().c_str());
++        return false;
++    }
++    const int sample_rate = runtime.sample_rate();
++    report_stats(wav, sample_rate, elapsed);
++    if (!write_wav(row.output, wav, sample_rate)) {
++        return false;
++    }
++    common_log_flush(common_log_main());
++    std::printf("voxcpm2-batch-complete %zu\n", row.row);
++    std::fflush(stdout);
++    return true;
++}
++
++static bool run_batch_rows(const std::array<BatchRow, 2> & rows, int count,
++                           VoxCPM2Runtime & runtime, std::chrono::steady_clock::time_point start) {
++    std::array<std::vector<float>, 2> wavs;
++    if (count == 2) {
++        wavs = runtime.generate_pair({rows[0].to_request(), rows[1].to_request()});
++    } else {
++        const BatchRow & row = rows[0];
++        if (row.params.seed == 0) {
++            // A fresh standalone CLI starts with a zero-seeded RNG.
++            runtime.reset_rng();
++        }
++        wavs[0] = row.prompt_feat->empty()
++            ? runtime.generate(row.text, row.params)
++            : runtime.generate_with_continuation_features(row.text, row.prompt_text, *row.prompt_feat, row.params);
++    }
++    const double elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
++    if (count == 2) {
++        LOG_INF("VoxCPM2: finished pair in %.3fs\n", elapsed);
++    }
++    for (int i = 0; i < count; ++i) {
++        if (!write_batch_row(rows[i], wavs[i], elapsed, runtime)) {
++            return false;
++        }
++    }
++    return true;
++}
++
++static int run_batch(const CliConfig & cfg) {
++    std::ifstream requests(cfg.batch_path);
++    if (!requests) {
++        LOG_ERR("Cannot open batch requests: %s\n", cfg.batch_path.c_str());
++        return 1;
++    }
++
++    VoxCPM2Runtime runtime;
++    if (!runtime.init(cfg.base_lm_path, cfg.acoustic_path, cfg.n_gpu_layers, cfg.use_gpu)) {
++        LOG_ERR("Failed to initialize VoxCPM2 runtime: %s\n", runtime.last_error().c_str());
++        return 1;
++    }
++
++    const auto params = generation_params(cfg);
++    const std::vector<float> no_prompt;
++    std::unordered_map<std::string, std::vector<float>> prompt_features;
++    std::array<BatchRow, 2> rows;
++    int count = 0;
++    auto start = std::chrono::steady_clock::now();
++    size_t row = 0;
++    for (std::string line; std::getline(requests, line);) {
++        ++row;
++        try {
++            if (count == 0) {
++                start = std::chrono::steady_clock::now();
++            }
++            auto request = nlohmann::json::parse(line);
++            BatchRow & current = rows[count];
++            current.text = request.at("text").get<std::string>();
++            current.output = request.at("output").get<std::string>();
++            current.prompt_text = request.value("prompt_text", std::string{});
++            current.row = row;
++            current.params = params;
++            current.prompt_feat = &no_prompt;
++            const auto & seed = request.at("seed");
++            const auto prompt_wav = request.value("prompt_wav", std::string{});
++            if (current.text.empty() || current.output.empty() || prompt_wav.empty() != current.prompt_text.empty() ||
++                !seed.is_number_unsigned() || seed.get<uint64_t>() > std::numeric_limits<uint32_t>::max()) {
++                LOG_ERR("Invalid text, output, prompt or seed in batch row %zu\n", row);
++                return 1;
++            }
++            current.params.seed = seed.get<uint32_t>();
++
++            if (!prompt_wav.empty()) {
++                auto cached = prompt_features.find(prompt_wav);
++                if (cached == prompt_features.end()) {
++                    int sample_rate = 0;
++                    const auto pcm = load_wav_mono(prompt_wav, sample_rate);
++                    if (pcm.empty()) {
++                        LOG_ERR("Failed to load prompt for batch row %zu\n", row);
++                        return 1;
++                    }
++                    auto features = runtime.encode_reference_audio(pcm, sample_rate);
++                    if (features.empty()) {
++                        LOG_ERR("Failed to encode prompt for batch row %zu: %s\n", row, runtime.last_error().c_str());
++                        return 1;
++                    }
++                    cached = prompt_features.emplace(prompt_wav, std::move(features)).first;
++                }
++                current.prompt_feat = &cached->second;
++            }
++            ++count;
++            if (count == cfg.batch_rows) {
++                if (!run_batch_rows(rows, count, runtime, start)) {
++                    return 1;
++                }
++                count = 0;
++            }
++        } catch (const nlohmann::json::exception & e) {
++            LOG_ERR("Invalid JSON in batch row %zu: %s\n", row, e.what());
++            return 1;
++        }
++    }
++    if (!requests.eof() || row == 0) {
++        LOG_ERR("No batch requests or error reading %s\n", cfg.batch_path.c_str());
++        return 1;
++    }
++    if (count > 0 && !run_batch_rows(rows, count, runtime, start)) {
++        return 1;
++    }
++    return 0;
++}
++
+ static int run_synthesis(const CliConfig & cfg) {
+     LOG_INF("VoxCPM2 CLI — Text-to-Speech Synthesis\n");
+     LOG_INF("  BaseLM:   %s\n", cfg.base_lm_path.c_str());
+@@ -242,12 +435,7 @@ static int run_synthesis(const CliConfig & cfg) {
+         return 1;
+     }
+ 
+-    VoxCPM2GenerateParams params;
+-    params.max_steps           = cfg.max_steps;
+-    params.inference_timesteps = cfg.timesteps;
+-    params.cfg_value           = cfg.cfg_value;
+-    params.temperature         = cfg.temperature;
+-    params.seed                = static_cast<uint32_t>(cfg.seed);
++    auto params = generation_params(cfg);
+ 
+     std::vector<float> wav;
+     auto t_start = std::chrono::steady_clock::now();
+@@ -350,7 +538,9 @@ static int run_synthesis(const CliConfig & cfg) {
+ 
+     int sample_rate = runtime.sample_rate();
+     report_stats(wav, sample_rate, elapsed);
+-    write_wav(cfg.output_path, wav, sample_rate);
++    if (!write_wav(cfg.output_path, wav, sample_rate)) {
++        return 1;
++    }
+     LOG_INF("WAV saved: %s\n", cfg.output_path.c_str());
+ 
+     return 0;
+@@ -364,7 +554,7 @@ int main(int argc, char ** argv) {
+     CliConfig cfg;
+     if (!parse_args(argc, argv, cfg)) return 1;
+ 
+-    const int rc = run_synthesis(cfg);
++    const int rc = cfg.batch_path.empty() ? run_synthesis(cfg) : run_batch(cfg);
+ 
+     common_log_flush(common_log_main());
+     std::fflush(stdout);
+diff --git c/tools/omni/voxcpm2/voxcpm2_locdit.cpp w/tools/omni/voxcpm2/voxcpm2_locdit.cpp
+index cde847e..45cc7e7 100644
+--- c/tools/omni/voxcpm2/voxcpm2_locdit.cpp
++++ w/tools/omni/voxcpm2/voxcpm2_locdit.cpp
+@@ -390,6 +390,98 @@ void LocDiTModel::forward_cfg_pair(ggml_context * ctx,
+                                unconditioned);
+ }
+ 
++void LocDiTModel::build_batch_attention(ggml_context * ctx,
++                                       int            branch_len,
++                                       ggml_tensor ** positions,
++                                       ggml_tensor ** mask) const {
++    constexpr int n_branches = 4;
++    constexpr int mask_padding = 256;
++    const int total_len = branch_len * n_branches;
++    const int padded_len = GGML_PAD(total_len, mask_padding);
++    GGML_ASSERT(total_len <= config.transformer.max_length);
++    GGML_ASSERT(config.transformer.no_rope || config.transformer.rope_original_max <= 1 ||
++                total_len <= config.transformer.rope_original_max);
++
++    const float inv_branch_len = 1.0f / static_cast<float>(branch_len);
++    ggml_tensor * token_ids = ggml_arange(ctx, 0.0f, static_cast<float>(total_len), 1.0f);
++    ggml_tensor * key_branch = ggml_floor(ctx, ggml_scale_bias(ctx, token_ids, inv_branch_len, 0.5f * inv_branch_len));
++    *positions = ggml_cast(ctx, ggml_sub(ctx, token_ids, ggml_scale(ctx, key_branch, branch_len)), GGML_TYPE_I32);
++
++    ggml_tensor * queries = ggml_arange(ctx, 0.0f, static_cast<float>(padded_len), 1.0f);
++    ggml_tensor * query_branch = ggml_floor(ctx, ggml_scale_bias(ctx, queries, inv_branch_len, 0.5f * inv_branch_len));
++    query_branch = ggml_clamp(ctx, query_branch, 0.0f, n_branches - 1.0f);
++    query_branch = ggml_reshape_2d(ctx, query_branch, 1, padded_len);
++    key_branch = ggml_repeat_4d(ctx, key_branch, total_len, padded_len, 1, 1);
++    ggml_tensor * different_branch =
++        ggml_clamp(ctx, ggml_abs(ctx, ggml_sub(ctx, key_branch, query_branch)), 0.0f, 1.0f);
++    *mask = ggml_cont(ctx, ggml_cast(ctx, ggml_scale(ctx, different_branch, -1.0e9f), GGML_TYPE_F16));
++}
++
++void LocDiTModel::forward_cfg_batch_projected(ggml_context *                ctx,
++                                              ggml_tensor *                 x_proj,
++                                              ggml_tensor *                 mu,
++                                              ggml_tensor *                 time_token,
++                                              ggml_tensor *                 cond_proj,
++                                              ggml_tensor *                 positions,
++                                              ggml_tensor *                 mask,
++                                              int                           seq_len,
++                                              int                           prefix_len,
++                                              std::array<ggml_tensor *, 2> & conditioned,
++                                              std::array<ggml_tensor *, 2> & unconditioned) const {
++    const int hidden_size = config.transformer.hidden_size;
++    const int mu_tokens = static_cast<int>(mu->ne[0] / hidden_size);
++    const int generated_prefix_tokens = config.combine_mu_time ? 1 : mu_tokens + 1;
++    const int branch_len = generated_prefix_tokens + prefix_len + seq_len;
++    std::array<ggml_tensor *, 2> cfg_pairs{};
++
++    for (size_t lane = 0; lane < cfg_pairs.size(); ++lane) {
++        ggml_tensor * mu_lane = ggml_view_1d(ctx, mu, mu->ne[0], lane * mu->nb[1]);
++        ggml_tensor * mu_prefix = reshape_mu_tokens(ctx, mu_lane);
++        ggml_tensor * zero_mu = ggml_scale(ctx, mu_prefix, 0.0f);
++        ggml_tensor * positive_prefix = nullptr;
++        ggml_tensor * negative_prefix = nullptr;
++        if (config.combine_mu_time) {
++            GGML_ASSERT(mu_tokens == 1);
++            positive_prefix = ggml_add(ctx, mu_prefix, time_token);
++            negative_prefix = ggml_add(ctx, zero_mu, time_token);
++        } else {
++            positive_prefix = ggml_concat(ctx, mu_prefix, time_token, 1);
++            negative_prefix = ggml_concat(ctx, zero_mu, time_token, 1);
++        }
++
++        ggml_tensor * patch_tokens =
++            ggml_view_2d(ctx, x_proj, hidden_size, seq_len, x_proj->nb[1], lane * seq_len * x_proj->nb[1]);
++        if (cond_proj) {
++            ggml_tensor * condition_tokens = ggml_view_2d(
++                ctx, cond_proj, hidden_size, prefix_len, cond_proj->nb[1], lane * prefix_len * cond_proj->nb[1]);
++            patch_tokens = ggml_concat(ctx, condition_tokens, patch_tokens, 1);
++        }
++        ggml_tensor * positive = ggml_concat(ctx, positive_prefix, patch_tokens, 1);
++        ggml_tensor * negative = ggml_concat(ctx, negative_prefix, patch_tokens, 1);
++        cfg_pairs[lane] = ggml_concat(ctx, positive, negative, 1);
++    }
++
++    ggml_tensor * branches = ggml_concat(ctx, cfg_pairs[0], cfg_pairs[1], 1);
++    ggml_tensor * hidden =
++        voxcpm2_transformer_forward(ctx, config.transformer, weights.transformer, branches, positions, mask);
++    std::array<ggml_tensor *, 2> output_pairs{};
++    for (size_t lane = 0; lane < output_pairs.size(); ++lane) {
++        const size_t offset = (2 * lane * branch_len + generated_prefix_tokens + prefix_len) * hidden->nb[1];
++        ggml_tensor * positive = ggml_view_2d(ctx, hidden, hidden_size, seq_len, hidden->nb[1], offset);
++        ggml_tensor * negative =
++            ggml_view_2d(ctx, hidden, hidden_size, seq_len, hidden->nb[1], offset + branch_len * hidden->nb[1]);
++        output_pairs[lane] = ggml_concat(ctx, positive, negative, 1);
++    }
++    ggml_tensor * projected = voxcpm2_linear(ctx, weights.out_proj_weight, weights.out_proj_bias,
++                                           ggml_concat(ctx, output_pairs[0], output_pairs[1], 1));
++    for (size_t lane = 0; lane < output_pairs.size(); ++lane) {
++        const size_t offset = 2 * lane * seq_len * projected->nb[1];
++        conditioned[lane] = ggml_view_2d(ctx, projected, config.feat_dim, seq_len, projected->nb[1], offset);
++        unconditioned[lane] = ggml_view_2d(ctx, projected, config.feat_dim, seq_len, projected->nb[1],
++                                          offset + seq_len * projected->nb[1]);
++    }
++}
++
+ ggml_tensor * LocDiTModel::forward_cfg_pair(ggml_context * ctx,
+                                             ggml_tensor *  x,
+                                             ggml_tensor *  mu,
+diff --git c/tools/omni/voxcpm2/voxcpm2_locdit.h w/tools/omni/voxcpm2/voxcpm2_locdit.h
+index a96d1b2..f517b14 100644
+--- c/tools/omni/voxcpm2/voxcpm2_locdit.h
++++ w/tools/omni/voxcpm2/voxcpm2_locdit.h
+@@ -2,6 +2,7 @@
+ 
+ #include "voxcpm2_transformer.h"
+ 
++#include <array>
+ #include <memory>
+ #include <string>
+ #include <vector>
+@@ -128,4 +129,19 @@ struct LocDiTModel {
+                                              int            prefix_len,
+                                              ggml_tensor ** conditioned,
+                                              ggml_tensor ** unconditioned) const;
++    void build_batch_attention(ggml_context * ctx,
++                               int            branch_len,
++                               ggml_tensor ** positions,
++                               ggml_tensor ** mask) const;
++    void forward_cfg_batch_projected(ggml_context *                ctx,
++                                     ggml_tensor *                 x_proj,
++                                     ggml_tensor *                 mu,
++                                     ggml_tensor *                 time_token,
++                                     ggml_tensor *                 cond_proj,
++                                     ggml_tensor *                 positions,
++                                     ggml_tensor *                 mask,
++                                     int                           seq_len,
++                                     int                           prefix_len,
++                                     std::array<ggml_tensor *, 2> & conditioned,
++                                     std::array<ggml_tensor *, 2> & unconditioned) const;
+ };
+diff --git c/tools/omni/voxcpm2/voxcpm2_runtime.cpp w/tools/omni/voxcpm2/voxcpm2_runtime.cpp
+index 1360ccd..5992a40 100644
+--- c/tools/omni/voxcpm2/voxcpm2_runtime.cpp
++++ w/tools/omni/voxcpm2/voxcpm2_runtime.cpp
+@@ -472,7 +472,7 @@ std::vector<float> VoxCPM2ResidualLM::prefill_kv(const std::vector<float> & inpu
+         return {};
+     }
+ 
+-    kv_cache.clear();
++    active_kv_cache().clear();
+ 
+     GgmlContextGuard ctx_guard(kMediumGraphMem, true);
+     ggml_context *   ctx = ctx_guard.get();
+@@ -496,7 +496,7 @@ std::vector<float> VoxCPM2ResidualLM::prefill_kv(const std::vector<float> & inpu
+ 
+     std::vector<ggml_tensor *> cache_writes;
+     ggml_tensor * output =
+-        voxcpm2_transformer_forward_prefill(ctx, config, weights, input_t, seq_len, kv_cache, mask_t, &cache_writes);
++        voxcpm2_transformer_forward_prefill(ctx, config, weights, input_t, seq_len, active_kv_cache(), mask_t, &cache_writes);
+ 
+     ggml_cgraph * graph = ggml_new_graph_custom(ctx, kMediumGraphNodes, false);
+     ggml_set_output(output);
+@@ -545,7 +545,7 @@ std::vector<float> VoxCPM2ResidualLM::forward_step(const std::vector<float> & in
+ 
+     std::vector<ggml_tensor *> cache_writes;
+     ggml_tensor * output =
+-        voxcpm2_transformer_forward_step(ctx, config, weights, input_t, position, kv_cache, &cache_writes);
++        voxcpm2_transformer_forward_step(ctx, config, weights, input_t, position, active_kv_cache(), &cache_writes);
+ 
+     ggml_cgraph * graph = ggml_new_graph_custom(ctx, kMediumGraphNodes, false);
+     ggml_set_output(output);
+@@ -571,10 +571,11 @@ std::vector<float> VoxCPM2ResidualLM::forward_step(const std::vector<float> & in
+ }
+ 
+ void VoxCPM2ResidualLM::clear_kv() {
+-    kv_cache.clear();
++    active_kv_cache().clear();
+ }
+ 
+ void VoxCPM2ResidualLM::free() {
++    alternate_kv = nullptr;
+     kv_cache.free();
+     store.reset();
+     weights = {};
+@@ -699,6 +700,9 @@ void VoxCPM2Runtime::set_n_threads(int n_threads) {
+     if (base_lm.ctx) {
+         llama_set_n_threads(base_lm.ctx, n_threads, n_threads);
+     }
++    if (alternate_base_ctx) {
++        llama_set_n_threads(alternate_base_ctx.get(), n_threads, n_threads);
++    }
+     if (backend && ggml_backend_is_cpu(backend)) {
+         ggml_backend_cpu_set_n_threads(backend, n_threads);
+     }
+@@ -1077,84 +1081,95 @@ std::vector<float> VoxCPM2Runtime::run_residual_fusion(const std::vector<float>
+     return tensor_to_vector(output);
+ }
+ 
+-bool VoxCPM2Runtime::ensure_decode_front_half_graph(int n_timesteps, float cfg_value) {
+-    if (cached_front_half.graph && cached_front_half.cached_timesteps == n_timesteps &&
+-        cached_front_half.cached_cfg == cfg_value) {
++bool VoxCPM2Runtime::ensure_decode_front_half_graph(int n_timesteps, float cfg_value, int batch_size) {
++    auto & front_half = batch_size == 1 ? cached_front_half : cached_pair_front_half;
++    if (front_half.graph && front_half.cached_timesteps == n_timesteps &&
++        front_half.cached_cfg == cfg_value) {
+         return true;
+     }
+ 
+-    cached_front_half.free_graph();
++    front_half.free_graph();
+ 
+     ggml_init_params ctx_params{};
+     ctx_params.mem_size   = kLargeGraphMem;
+     ctx_params.mem_buffer = nullptr;
+     ctx_params.no_alloc   = true;
+-    cached_front_half.ctx = ggml_init(ctx_params);
+-    if (!cached_front_half.ctx) {
++    front_half.ctx = ggml_init(ctx_params);
++    if (!front_half.ctx) {
+         return fail("failed to create decode_front_half graph context");
+     }
+ 
+-    ggml_context * ctx    = cached_front_half.ctx;
++    ggml_context * ctx    = front_half.ctx;
+     const int      fdim   = feat_dim();
+     const int      psize  = patch_size();
+     const int      hidden = base_lm.n_embd;
+ 
+-    // Graph inputs
+-    cached_front_half.noise_input = ggml_new_tensor_2d(ctx, GGML_TYPE_F32, fdim, psize);
+-    cached_front_half.lm_input    = ggml_new_tensor_1d(ctx, GGML_TYPE_F32, hidden);
+-    cached_front_half.res_input   = ggml_new_tensor_1d(ctx, GGML_TYPE_F32, hidden);
+-    cached_front_half.cond_input  = ggml_new_tensor_2d(ctx, GGML_TYPE_F32, fdim, psize);
+-    ggml_set_input(cached_front_half.noise_input);
+-    ggml_set_input(cached_front_half.lm_input);
+-    ggml_set_input(cached_front_half.res_input);
+-    ggml_set_input(cached_front_half.cond_input);
++    // Each line occupies a contiguous patch and a contiguous row of LM state.
++    front_half.noise_input = ggml_new_tensor_3d(ctx, GGML_TYPE_F32, fdim, psize, batch_size);
++    front_half.lm_input    = ggml_new_tensor_2d(ctx, GGML_TYPE_F32, hidden, batch_size);
++    front_half.res_input   = ggml_new_tensor_2d(ctx, GGML_TYPE_F32, hidden, batch_size);
++    front_half.cond_input  = ggml_new_tensor_3d(ctx, GGML_TYPE_F32, fdim, psize, batch_size);
++    ggml_set_input(front_half.noise_input);
++    ggml_set_input(front_half.lm_input);
++    ggml_set_input(front_half.res_input);
++    ggml_set_input(front_half.cond_input);
+ 
+-    // Build dit condition: mu = project(lm_hidden, residual_hidden)
+-    ggml_tensor * mu = projections.build_dit_condition(ctx, cached_front_half.lm_input, cached_front_half.res_input);
++    ggml_tensor * mu = projections.build_dit_condition(ctx, front_half.lm_input, front_half.res_input);
++    const auto & cfm = cfm_solver.config;
++    if (batch_size == 1) {
++        ggml_tensor * patch = cfm_solver.solve(ctx, front_half.noise_input, mu, front_half.cond_input, loc_dit,
++                                               n_timesteps, cfg_value, 1.0f, cfm.sway_sampling_coef,
++                                               cfm.use_cfg_zero_star, nullptr);
++        front_half.patch_output = patch;
++        front_half.embed_output = projections.enc_to_lm(ctx, loc_enc.forward_patch(ctx, patch));
++        front_half.stop_output = stop_predictor.forward(ctx, front_half.lm_input);
++    } else {
++        ggml_tensor * patches = cfm_solver.solve_batch(ctx, front_half.noise_input, mu, front_half.cond_input,
++                                                        loc_dit, n_timesteps, cfg_value, 1.0f, cfm.sway_sampling_coef,
++                                                        cfm.use_cfg_zero_star, nullptr);
++        front_half.patch_output = patches;
++        std::array<ggml_tensor *, 2> embeddings;
++        std::array<ggml_tensor *, 2> stops;
++        for (size_t lane = 0; lane < embeddings.size(); ++lane) {
++            ggml_tensor * patch = ggml_view_2d(ctx, patches, fdim, psize, patches->nb[1], lane * patches->nb[2]);
++            ggml_tensor * lm_row = ggml_view_1d(ctx, front_half.lm_input, hidden, lane * front_half.lm_input->nb[1]);
++            embeddings[lane] = projections.enc_to_lm(ctx, loc_enc.forward_patch(ctx, patch));
++            stops[lane] = stop_predictor.forward(ctx, lm_row);
++        }
++        front_half.embed_output = ggml_concat(ctx, embeddings[0], embeddings[1], 1);
++        front_half.stop_output  = ggml_concat(ctx, stops[0], stops[1], 1);
++    }
+ 
+-    // CFM solve (all Euler steps in one graph)
+-    ggml_tensor * patch = cfm_solver.solve(ctx, cached_front_half.noise_input, mu, cached_front_half.cond_input,
+-                                           loc_dit, n_timesteps, cfg_value, 1.0f, cfm_solver.config.sway_sampling_coef,
+-                                           cfm_solver.config.use_cfg_zero_star, nullptr);
+-    cached_front_half.patch_output = patch;
++    ggml_set_output(front_half.patch_output);
++    ggml_set_output(front_half.embed_output);
++    ggml_set_output(front_half.stop_output);
+ 
+-    // LocEnc + enc_to_lm
+-    ggml_tensor * encoded          = loc_enc.forward_patch(ctx, patch);
+-    cached_front_half.embed_output = projections.enc_to_lm(ctx, encoded);
+-
+-    // Stop predictor (uses lm_hidden, independent of CFM output)
+-    cached_front_half.stop_output = stop_predictor.forward(ctx, cached_front_half.lm_input);
+-
+-    ggml_set_output(cached_front_half.patch_output);
+-    ggml_set_output(cached_front_half.embed_output);
+-    ggml_set_output(cached_front_half.stop_output);
+-
+-    cached_front_half.graph = ggml_new_graph_custom(ctx, kLargeGraphNodes, false);
+-    ggml_build_forward_expand(cached_front_half.graph, cached_front_half.patch_output);
+-    ggml_build_forward_expand(cached_front_half.graph, cached_front_half.embed_output);
+-    ggml_build_forward_expand(cached_front_half.graph, cached_front_half.stop_output);
++    front_half.graph = ggml_new_graph_custom(ctx, kLargeGraphNodes, false);
++    ggml_build_forward_expand(front_half.graph, front_half.patch_output);
++    ggml_build_forward_expand(front_half.graph, front_half.embed_output);
++    ggml_build_forward_expand(front_half.graph, front_half.stop_output);
+ 
+     // Use ggml_gallocr — the standard ggml graph-aware allocator.
+     // Unlike ggml_backend_alloc_ctx_tensors (which naively allocates every tensor),
+     // gallocr analyzes tensor lifetimes from the graph and allocates based on the
+     // actual compute plan. This is the same approach used by ggml_backend_sched internally.
+-    cached_front_half.galloc = ggml_gallocr_new(ggml_backend_get_default_buffer_type(backend));
+-    if (!cached_front_half.galloc) {
+-        cached_front_half.free_graph();
++    front_half.galloc = ggml_gallocr_new(ggml_backend_get_default_buffer_type(backend));
++    if (!front_half.galloc) {
++        front_half.free_graph();
+         return fail("failed to create graph allocator for decode_front_half");
+     }
+ 
+-    if (!ggml_gallocr_reserve(cached_front_half.galloc, cached_front_half.graph)) {
+-        cached_front_half.free_graph();
++    if (!ggml_gallocr_reserve(front_half.galloc, front_half.graph)) {
++        front_half.free_graph();
+         return fail("failed to reserve graph memory for decode_front_half");
+     }
+ 
+-    cached_front_half.cached_timesteps = n_timesteps;
+-    cached_front_half.cached_cfg       = cfg_value;
++    front_half.cached_timesteps = n_timesteps;
++    front_half.cached_cfg       = cfg_value;
+ 
+-    LOG_INF("VoxCPM2Runtime: built decode_front_half graph (timesteps=%d, cfg=%.2f, nodes=%d, buffer=%.1f MiB)\n",
+-            n_timesteps, cfg_value, ggml_graph_n_nodes(cached_front_half.graph),
+-            static_cast<double>(ggml_gallocr_get_buffer_size(cached_front_half.galloc, 0)) / (1024.0 * 1024.0));
++    LOG_INF("VoxCPM2Runtime: built decode_front_half graph (rows=%d, timesteps=%d, cfg=%.2f, nodes=%d, buffer=%.1f MiB)\n",
++            batch_size, n_timesteps, cfg_value, ggml_graph_n_nodes(front_half.graph),
++            static_cast<double>(ggml_gallocr_get_buffer_size(front_half.galloc, 0)) / (1024.0 * 1024.0));
+     return true;
+ }
+ 
+@@ -1212,6 +1227,50 @@ bool VoxCPM2Runtime::run_decode_front_half(const std::vector<float> &    noise,
+     return true;
+ }
+ 
++bool VoxCPM2Runtime::run_pair_front_half(const std::array<std::vector<float>, 2> &   noise,
++                                         const DecodeState &                          other,
++                                         const VoxCPM2GenerateParams &                params,
++                                         std::array<VoxCPM2DecodeStepResult, 2> &       results) {
++    auto & front_half = cached_pair_front_half;
++    if (!ensure_decode_front_half_graph(params.inference_timesteps, params.cfg_value, 2)) {
++        return false;
++    }
++    if (!ggml_gallocr_alloc_graph(front_half.galloc, front_half.graph)) {
++        return fail("failed to allocate paired decode_front_half graph tensors");
++    }
++
++    // Upload both lines together so transfers do not add per-line synchronization.
++    std::vector<float> input;
++    const auto set_pair = [&input](ggml_tensor * dst, const std::vector<float> & first,
++                                   const std::vector<float> & second) {
++        input.assign(first.begin(), first.end());
++        input.insert(input.end(), second.begin(), second.end());
++        ggml_backend_tensor_set(dst, input.data(), 0, input.size() * sizeof(float));
++    };
++    set_pair(front_half.noise_input, noise[0], noise[1]);
++    set_pair(front_half.lm_input, lm_hidden, other.lm_hidden);
++    set_pair(front_half.res_input, residual_hidden, other.residual_hidden);
++    set_pair(front_half.cond_input, prefix_feat_cond, other.prefix_feat_cond);
++
++    if (ggml_backend_graph_compute(backend, front_half.graph) != GGML_STATUS_SUCCESS) {
++        return fail("paired decode_front_half graph compute failed");
++    }
++    const auto patches = tensor_to_vector(front_half.patch_output);
++    const auto embeddings = tensor_to_vector(front_half.embed_output);
++    const auto stops = tensor_to_vector(front_half.stop_output);
++    const std::array<int, 2> positions{current_position, other.current_position};
++    for (size_t lane = 0; lane < results.size(); ++lane) {
++        auto & result = results[lane];
++        copy_token(patches, feat_dim() * patch_size(), lane, result.latent_patch);
++        copy_token(embeddings, lm_hidden_size(), lane, result.current_embed);
++        result.continue_logit = stops[2 * lane];
++        result.stop_logit = stops[2 * lane + 1];
++        result.should_stop = result.stop_logit > result.continue_logit;
++        result.position = positions[lane];
++    }
++    return true;
++}
++
+ VoxCPM2DecodeStepResult VoxCPM2Runtime::decode_step(const VoxCPM2GenerateParams & params) {
+     if (params.seed != 0) {
+         rng.seed(params.seed + static_cast<uint32_t>(current_position));
+@@ -1231,9 +1290,13 @@ VoxCPM2DecodeStepResult VoxCPM2Runtime::decode_step(const std::vector<float> &
+     if (!run_decode_front_half(noise, params, result)) {
+         return result;
+     }
++    return finish_decode_step(result) ? std::move(result) : VoxCPM2DecodeStepResult{};
++}
++
++bool VoxCPM2Runtime::finish_decode_step(const VoxCPM2DecodeStepResult & result) {
+     if (!finite_vector(result.latent_patch) || !finite_vector(result.current_embed)) {
+         fail("decode_step produced non-finite patch or embedding");
+-        return {};
++        return false;
+     }
+ 
+     const int          hidden     = base_lm.n_embd;
+@@ -1246,30 +1309,30 @@ VoxCPM2DecodeStepResult VoxCPM2Runtime::decode_step(const std::vector<float> &
+ 
+     if (!base_lm.decode_step(base_input.data(), current_position)) {
+         fail("BaseLM decode_step failed");
+-        return {};
++        return false;
+     }
+ 
+     std::vector<float> base_hidden = base_lm.get_last_hidden();
+     if (base_hidden.size() != static_cast<size_t>(hidden)) {
+         fail("BaseLM decode_step did not return a hidden state");
+-        return {};
++        return false;
+     }
+ 
+     lm_hidden = run_fsq(base_hidden, 1);
+     if (lm_hidden.size() != static_cast<size_t>(hidden)) {
+         fail("FSQ decode hidden forward failed");
+-        return {};
++        return false;
+     }
+ 
+     std::vector<float> fusion = run_residual_fusion(lm_hidden, result.current_embed, 1);
+     if (fusion.size() != static_cast<size_t>(hidden)) {
+         fail("residual fusion decode failed");
+-        return {};
++        return false;
+     }
+     residual_hidden = residual_lm.forward_step(fusion, current_position);
+     if (residual_hidden.size() != static_cast<size_t>(hidden)) {
+         fail("ResidualLM forward_step failed");
+-        return {};
++        return false;
+     }
+ 
+     prefix_feat_cond = result.latent_patch;
+@@ -1277,7 +1340,7 @@ VoxCPM2DecodeStepResult VoxCPM2Runtime::decode_step(const std::vector<float> &
+     ++audio_frame_count;
+     ++current_position;
+     state_ready = true;
+-    return result;
++    return true;
+ }
+ 
+ void VoxCPM2Runtime::decode_loop(const VoxCPM2GenerateParams &                                params,
+@@ -1806,6 +1869,17 @@ std::vector<float> VoxCPM2Runtime::generate_with_continuation(const std::string
+                                                              const std::string &           prompt_text,
+                                                              const std::vector<float> &    prompt_wav,
+                                                              const VoxCPM2GenerateParams & params) {
++    const auto prompt_feat = encode_reference_audio(prompt_wav, params.reference_sample_rate);
++    if (prompt_feat.empty()) {
++        return {};
++    }
++    return generate_with_continuation_features(target_text, prompt_text, prompt_feat, params);
++}
++
++std::vector<float> VoxCPM2Runtime::generate_with_continuation_features(const std::string &           target_text,
++                                                                      const std::string &           prompt_text,
++                                                                      const std::vector<float> &    prompt_feat,
++                                                                      const VoxCPM2GenerateParams & params) {
+     // Continuation-mode voice cloning (Python voxcpm2.py:589-623 / 668-676).
+     // Tokenize the CONCATENATED string (prompt_text + target_text) ONCE so that
+     // CJK multi-char expansion applies to the joined string — do NOT tokenize the
+@@ -1819,12 +1893,6 @@ std::vector<float> VoxCPM2Runtime::generate_with_continuation(const std::string
+         return {};
+     }
+ 
+-    // VAE-encode the prompt audio with the existing reference-audio encoder.
+-    std::vector<float> prompt_feat = encode_reference_audio(prompt_wav, params.reference_sample_rate);
+-    if (prompt_feat.empty()) {
+-        return {};
+-    }
+-
+     VoxCPM2PrefillInputs inputs;
+     if (!build_continuation_prefill_inputs(token_ids, prompt_feat, params.append_audio_start, inputs)) {
+         return {};
+@@ -1856,6 +1924,177 @@ std::vector<float> VoxCPM2Runtime::generate_with_continuation(const std::string
+     return decode_to_waveform(params.target_sr);
+ }
+ 
++void VoxCPM2Runtime::swap_decode_state(DecodeState & other) {
++    lm_hidden.swap(other.lm_hidden);
++    residual_hidden.swap(other.residual_hidden);
++    prefix_feat_cond.swap(other.prefix_feat_cond);
++    residual_input_history.swap(other.residual_input_history);
++    output_pool.swap(other.output_pool);
++    std::swap(current_position, other.current_position);
++    std::swap(audio_frame_count, other.audio_frame_count);
++    std::swap(state_ready, other.state_ready);
++    std::swap(rng, other.rng);
++}
++
++bool VoxCPM2Runtime::ensure_alternate_context(size_t prefill_tokens, int max_steps) {
++    const uint32_t base_limit = llama_n_ctx(base_lm.ctx);
++    const auto & residual_cfg = residual_lm.config;
++    const uint32_t residual_limit = static_cast<uint32_t>(residual_cfg.max_length);
++    const uint64_t required = prefill_tokens + static_cast<uint64_t>(std::max(0, max_steps));
++    // llama.cpp rounds its context capacity to 256. Use the same allocation
++    // granularity for the residual cache and keep both existing context limits.
++    const uint32_t requested = static_cast<uint32_t>(std::min<uint64_t>(required, std::max(base_limit, residual_limit)));
++    const uint32_t rounded = GGML_PAD(std::max(1u, requested), 256);
++    const uint32_t base_capacity = std::min(rounded, base_limit);
++    const uint32_t residual_capacity = std::min(rounded, residual_limit);
++
++    if (!alternate_base_ctx || llama_n_ctx(alternate_base_ctx.get()) < base_capacity) {
++        auto context_params = base_lm.cparams;
++        context_params.n_ctx = base_capacity;
++        alternate_base_ctx.reset();
++        alternate_base_ctx.reset(llama_init_from_model(base_lm.model, context_params));
++        if (!alternate_base_ctx) {
++            return fail("failed to initialize second BaseLM context");
++        }
++        llama_set_n_threads(alternate_base_ctx.get(), llama_n_threads(base_lm.ctx), llama_n_threads_batch(base_lm.ctx));
++    }
++    if (!alternate_residual_kv || static_cast<uint32_t>(alternate_residual_kv->max_length) < residual_capacity) {
++        alternate_residual_kv.reset();
++        auto cache = std::make_unique<VoxCPM2KVCache>();
++        if (!cache->init(residual_cfg.n_layer, residual_cfg.n_kv_heads, residual_capacity, residual_cfg.head_dim, backend)) {
++            return fail("failed to initialize second ResidualLM cache");
++        }
++        alternate_residual_kv = std::move(cache);
++    }
++    LOG_INF("VoxCPM2Runtime: second lane context (prefill=%zu, max_steps=%d, BaseLM=%u/%u, ResidualLM=%d/%u, backend=%s)\n",
++            prefill_tokens, max_steps, llama_n_ctx(alternate_base_ctx.get()), base_limit,
++            alternate_residual_kv->max_length, residual_limit, ggml_backend_name(backend));
++    return true;
++}
++
++std::array<std::vector<float>, 2> VoxCPM2Runtime::generate_pair(
++    const std::array<VoxCPM2BatchRequest, 2> & requests) {
++    clear_error();
++    if (!is_initialized) {
++        fail("paired generation requires an initialized runtime");
++        return {};
++    }
++    const auto & first = requests[0].params;
++    const auto & second = requests[1].params;
++    if (first.inference_timesteps != second.inference_timesteps || first.cfg_value != second.cfg_value) {
++        fail("paired generation requires matching solver steps and CFG");
++        return {};
++    }
++
++    DecodeState other;
++    llama_context * primary_base_ctx = base_lm.ctx;
++    size_t active_lane = 0;
++    const auto activate = [&](size_t lane) {
++        if (active_lane != lane) {
++            swap_decode_state(other);
++            base_lm.ctx = lane == 0 ? primary_base_ctx : alternate_base_ctx.get();
++            residual_lm.alternate_kv = lane == 0 ? nullptr : alternate_residual_kv.get();
++            active_lane = lane;
++        }
++    };
++    // Restore the public primary state and context even if a lane fails.
++    struct RestorePrimaryLane {
++        const decltype(activate) & restore;
++        ~RestorePrimaryLane() { restore(0); }
++    } restore_primary{activate};
++
++    std::array<VoxCPM2GenerateParams, 2> params{first, second};
++    for (size_t lane = 0; lane < requests.size(); ++lane) {
++        const auto & request = requests[lane];
++        auto & lane_params = params[lane];
++        auto tokens = tokenize_text(request.prompt_text + request.text, false, true);
++        if (tokens.empty()) {
++            if (last_error_msg.empty()) {
++                fail("text tokenization produced no tokens");
++            }
++            return {};
++        }
++        VoxCPM2PrefillInputs inputs;
++        if (request.prompt_feat.empty()) {
++            if (lane_params.max_steps >= 200) {
++                const int auto_steps = std::max(15, static_cast<int>(tokens.size()) * 3 + 15);
++                lane_params.max_steps = std::min(auto_steps, lane_params.max_steps);
++            }
++            if (lane_params.append_audio_start && tokens.back() != kAudioStartToken) {
++                tokens.push_back(kAudioStartToken);
++            }
++            inputs.token_ids = std::move(tokens);
++        } else if (!build_continuation_prefill_inputs(tokens, request.prompt_feat, lane_params.append_audio_start, inputs)) {
++            return {};
++        }
++        if (lane == 1 && !ensure_alternate_context(inputs.token_ids.size(), lane_params.max_steps)) {
++            return {};
++        }
++        activate(lane);
++        rng.seed(lane_params.seed);
++        if (!prefill(inputs)) {
++            return {};
++        }
++    }
++
++    std::array<int, 2> steps{0, 0};
++    std::array<bool, 2> finished{params[0].max_steps <= 0, params[1].max_steps <= 0};
++    const auto record_step = [&](size_t lane, const VoxCPM2DecodeStepResult & result) {
++        const auto & lane_params = params[lane];
++        const bool predicted_stop =
++            lane_params.stop_on_predictor && steps[lane] > lane_params.min_steps && result.should_stop;
++        ++steps[lane];
++        finished[lane] = predicted_stop || steps[lane] >= lane_params.max_steps;
++    };
++    int paired_steps = 0;
++    while (!finished[0] && !finished[1]) {
++        std::array<std::vector<float>, 2> noise;
++        for (size_t lane = 0; lane < noise.size(); ++lane) {
++            activate(lane);
++            if (params[lane].seed != 0) {
++                rng.seed(params[lane].seed + static_cast<uint32_t>(current_position));
++            }
++            noise[lane] = random_noise();
++            for (float & value : noise[lane]) {
++                value *= params[lane].temperature;
++            }
++        }
++
++        activate(0);
++        std::array<VoxCPM2DecodeStepResult, 2> results;
++        if (!run_pair_front_half(noise, other, first, results)) {
++            return {};
++        }
++        for (size_t lane = 0; lane < results.size(); ++lane) {
++            activate(lane);
++            if (!finish_decode_step(results[lane])) {
++                return {};
++            }
++            record_step(lane, results[lane]);
++        }
++        ++paired_steps;
++    }
++
++    std::array<std::vector<float>, 2> waveforms;
++    for (size_t lane = 0; lane < waveforms.size(); ++lane) {
++        activate(lane);
++        while (!finished[lane]) {
++            const auto result = decode_step(params[lane]);
++            if (result.latent_patch.empty() || !last_error_msg.empty()) {
++                return {};
++            }
++            record_step(lane, result);
++        }
++        waveforms[lane] = decode_to_waveform(params[lane].target_sr);
++        if (waveforms[lane].empty()) {
++            return {};
++        }
++    }
++    LOG_INF("VoxCPM2Runtime: paired decode ran %d paired and %d single-line patches\n",
++            paired_steps, steps[0] + steps[1] - 2 * paired_steps);
++    return waveforms;
++}
++
+ bool VoxCPM2Runtime::decode_streaming_from_ready_state(const VoxCPM2GenerateParams &     params,
+                                                        const VoxCPM2AudioChunkCallback & callback) {
+     clear_error();
+@@ -2011,7 +2250,10 @@ bool VoxCPM2Runtime::generate_with_continuation_streaming(const std::string &
+ }
+ 
+ void VoxCPM2Runtime::free() {
++    cached_pair_front_half.free_graph();
+     cached_front_half.free_graph();
++    alternate_residual_kv.reset();
++    alternate_base_ctx.reset();
+     reset_state();
+     audio_vae.free();
+     stop_predictor.free();
+diff --git c/tools/omni/voxcpm2/voxcpm2_runtime.h w/tools/omni/voxcpm2/voxcpm2_runtime.h
+index bb0cc6f..71cabed 100644
+--- c/tools/omni/voxcpm2/voxcpm2_runtime.h
++++ w/tools/omni/voxcpm2/voxcpm2_runtime.h
+@@ -8,6 +8,7 @@
+ #include "voxcpm2_llm.h"
+ #include "voxcpm2_localenc.h"
+ 
++#include <array>
+ #include <cstdint>
+ #include <functional>
+ #include <memory>
+@@ -35,6 +36,13 @@ struct VoxCPM2GenerateParams {
+     bool     append_audio_start    = true;
+ };
+ 
++struct VoxCPM2BatchRequest {
++    const std::string &        text;
++    const std::string &        prompt_text;
++    const std::vector<float> & prompt_feat;
++    VoxCPM2GenerateParams      params;
++};
++
+ struct VoxCPM2PrefillInputs {
+     // Token sequence already arranged on the VoxCPM2 timeline.
+     std::vector<int32_t> token_ids;
+@@ -74,6 +82,7 @@ struct VoxCPM2ResidualLM {
+     VoxCPM2TransformerConfig  config;
+     VoxCPM2TransformerWeights weights;
+     VoxCPM2KVCache            kv_cache;
++    VoxCPM2KVCache *          alternate_kv = nullptr;  // not owned
+ 
+     ggml_backend_t                          backend = nullptr;  // not owned
+     std::unique_ptr<VoxCPM2GGUFWeightStore> store;
+@@ -96,6 +105,9 @@ struct VoxCPM2ResidualLM {
+     std::vector<float> forward_step(const std::vector<float> & input_1d, int position);
+     void               clear_kv();
+     void               free();
++
++  private:
++    VoxCPM2KVCache & active_kv_cache() { return alternate_kv ? *alternate_kv : kv_cache; }
+ };
+ 
+ struct VoxCPM2Runtime {
+@@ -154,6 +166,12 @@ struct VoxCPM2Runtime {
+                                                     const std::string &           prompt_text,
+                                                     const std::vector<float> &    prompt_wav,
+                                                     const VoxCPM2GenerateParams & params = {});
++    // Reuse the encoded features of the same prompt WAV across utterances.
++    std::vector<float>   generate_with_continuation_features(const std::string &           target_text,
++                                                             const std::string &           prompt_text,
++                                                             const std::vector<float> &    prompt_feat,
++                                                             const VoxCPM2GenerateParams & params = {});
++    std::array<std::vector<float>, 2> generate_pair(const std::array<VoxCPM2BatchRequest, 2> & requests);
+     bool                 generate_tokens_streaming(const std::vector<int32_t> &      token_ids,
+                                                    const VoxCPM2AudioChunkCallback & callback,
+                                                    const VoxCPM2GenerateParams &     params = {});
+@@ -173,6 +191,7 @@ struct VoxCPM2Runtime {
+                                                               const VoxCPM2GenerateParams &     params = {});
+ 
+     void reset_state();
++    void reset_rng() { rng.seed(0); }
+     void set_n_threads(int n_threads);
+     void free();
+ 
+@@ -226,7 +245,25 @@ struct VoxCPM2Runtime {
+         float cached_cfg       = 0.0f;
+ 
+         void free_graph();
+-    } cached_front_half;
++    } cached_front_half, cached_pair_front_half;
++
++    // The second utterance shares model weights and the compute backend, but owns its KV state.
++    std::unique_ptr<llama_context, decltype(&llama_free)> alternate_base_ctx{nullptr, llama_free};
++    std::unique_ptr<VoxCPM2KVCache> alternate_residual_kv;
++
++    struct DecodeState {
++        std::vector<float>              lm_hidden;
++        std::vector<float>              residual_hidden;
++        std::vector<float>              prefix_feat_cond;
++        std::vector<float>              residual_input_history;
++        std::vector<std::vector<float>> output_pool;
++        std::mt19937                   rng{0};
++        int                            current_position  = 0;
++        int                            audio_frame_count = 0;
++        bool                           state_ready       = false;
++    };
++    void swap_decode_state(DecodeState & other);
++    bool ensure_alternate_context(size_t prefill_tokens, int max_steps);
+ 
+     bool fail(const std::string & message);
+     void clear_error();
+@@ -241,7 +278,12 @@ struct VoxCPM2Runtime {
+     bool                 run_decode_front_half(const std::vector<float> &    noise,
+                                                const VoxCPM2GenerateParams & params,
+                                                VoxCPM2DecodeStepResult &     result);
+-    bool                 ensure_decode_front_half_graph(int n_timesteps, float cfg_value);
++    bool                 ensure_decode_front_half_graph(int n_timesteps, float cfg_value, int batch_size = 1);
++    bool                 run_pair_front_half(const std::array<std::vector<float>, 2> &  noise,
++                                             const DecodeState &                          other,
++                                             const VoxCPM2GenerateParams &                params,
++                                             std::array<VoxCPM2DecodeStepResult, 2> &       results);
++    bool                 finish_decode_step(const VoxCPM2DecodeStepResult & result);
+     bool                 build_text_tokenizer_metadata(const std::string & base_lm_path);
+     bool                 build_reference_prefill_inputs(const std::vector<int32_t> & text_token_ids,
+                                                         const std::vector<float> &   reference_feat,
