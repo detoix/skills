@@ -1,0 +1,55 @@
+--- a/src/nar.h
++++ b/src/nar.h
+@@ -316,6 +316,7 @@
+                                            int                   N,
+                                            int                   M,
+                                            bool                  use_flash_attn,
++                                           bool                  strided_inputs,
+                                            bool                  clamp_fp16) {
+     int D   = c.head_dim;
+     int Nh  = c.n_heads;
+@@ -348,14 +349,22 @@
+     q = ggml_rope_ext(ctx, q, positions, NULL, D, 2, 0, c.rope_theta, 1.0f, 0.0f, 1.0f, 0.0f, 0.0f);
+     k = ggml_rope_ext(ctx, k, positions, NULL, D, 2, 0, c.rope_theta, 1.0f, 0.0f, 1.0f, 0.0f, 0.0f);
+ 
+-    q = ggml_cont(ctx, ggml_permute(ctx, q, 0, 2, 1, 3));  // [D, N, Nh, M]
+-    k = ggml_cont(ctx, ggml_permute(ctx, k, 0, 2, 1, 3));  // [D, N, Nkv, M]
+-    v = ggml_cont(ctx, ggml_permute(ctx, v, 0, 2, 1, 3));
+-
+-    // Clamp V before the F16 cast: the clamp kernels walk contiguous memory
+-    if (clamp_fp16) {
++    // Vulkan flash attention can read Q strides directly, and the casts can
++    // materialize transposed K/V. Clamp V while its input is contiguous.
++    if (strided_inputs && clamp_fp16) {
+         v = ggml_clamp(ctx, v, -65504.0f, 65504.0f);
+     }
++    q = ggml_permute(ctx, q, 0, 2, 1, 3);  // [D, N, Nh, M]
++    k = ggml_permute(ctx, k, 0, 2, 1, 3);  // [D, N, Nkv, M]
++    v = ggml_permute(ctx, v, 0, 2, 1, 3);
++    if (!strided_inputs) {
++        q = ggml_cont(ctx, q);
++        k = ggml_cont(ctx, k);
++        v = ggml_cont(ctx, v);
++        if (clamp_fp16) {
++            v = ggml_clamp(ctx, v, -65504.0f, 65504.0f);
++        }
++    }
+     k = ggml_cast(ctx, k, GGML_TYPE_F16);
+     v = ggml_cast(ctx, v, GGML_TYPE_F16);
+ 
+@@ -466,11 +475,14 @@
+     ggml_set_output(hidden);
+ 
+     const int probes[] = YUE2_NAR_PROBE_LAYERS;
++    const bool strided_inputs = n->use_flash_attn && std::strncmp(ggml_backend_name(n->backend), "Vulkan", 6) == 0 &&
++        !nar_use_tiled_gemm(n->use_flash_attn, M, c, N, nar_gemm_query_tile());
+     for (int l = 0; l < c.n_layers; l++) {
+         Qwen3Layer *         ly   = &n->layers[l];
+         struct ggml_tensor * norm = qwen3_rms_norm(ctx, hidden, ly->input_layernorm, c.rms_norm_eps);
+         struct ggml_tensor * attn = nar_build_attn(ctx, c, ly, norm, n->in_pos, n->in_mask, kv->k[kv_set][l],
+-                                                   kv->v[kv_set][l], ar_len, N, M, n->use_flash_attn, n->clamp_fp16);
++                                                   kv->v[kv_set][l], ar_len, N, M, n->use_flash_attn, strided_inputs,
++                                                   n->clamp_fp16);
+         if (l == 0) {
+             ggml_set_name(attn, "layer0_sa_output");
+             ggml_set_output(attn);

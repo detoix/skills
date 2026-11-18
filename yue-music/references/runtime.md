@@ -6,26 +6,22 @@ The skill bundles source and model identities, download/verification logic, buil
 
 Set `YUE_SKILL` to the skill's actual directory. Native prerequisites are Git, CMake 3.19+, a C/C++ compiler and its build tool, curl, FFmpeg, and ffprobe. Install missing prerequisites using the host's package manager within the user's authorized scope. Typical package sets:
 
-- Debian/Ubuntu: `build-essential cmake git curl pkg-config ffmpeg libopenblas-dev`.
-- Fedora: `gcc gcc-c++ make cmake git curl pkgconf-pkg-config ffmpeg-free openblas-devel`.
-- Arch: `base-devel cmake git curl pkgconf ffmpeg openblas`.
-- macOS: Xcode command line tools, then Homebrew packages `cmake git curl pkg-config ffmpeg openblas`.
+- Debian/Ubuntu: `build-essential cmake git curl pkg-config ffmpeg`.
+- Fedora: `gcc gcc-c++ make cmake git curl pkgconf-pkg-config ffmpeg-free`.
+- Arch: `base-devel cmake git curl pkgconf ffmpeg`.
+- macOS: Xcode command line tools, then Homebrew packages `cmake git curl pkg-config ffmpeg`.
 - Windows: native 64-bit Python, Git, CMake, MSVC Build Tools with the C++ desktop workload and Windows SDK, curl, FFmpeg, and ffprobe. Follow the [Windows procedure](windows.md).
 
 The agent should install missing dependencies and continue setup, rather than requiring the user to assemble a separate project or find model links. Native package installation may require the platform's normal administrator permissions. No Python packages or other skills are needed by the bundled scripts.
 
-For a fresh installation, set `YUE_MODEL` to a backbone filename from [assets/models.json](../assets/models.json) and pass `--model FILENAME` before `setup`. Subsequent commands can omit it when exactly one backbone is installed; otherwise pass the intended filename explicitly.
-
-For a dependency-minimal CPU build:
+In the setup example, `YUE_BACKEND` is the selected build backend (`cpu`, `vulkan`, or `cuda`) and `YUE_MODEL` is a backbone filename from [assets/models.json](../assets/models.json). Subsequent commands can omit `--model` when exactly one backbone is installed.
 
 ```bash
-python3 "$YUE_SKILL/scripts/yue.py" --model "$YUE_MODEL" setup --jobs 2
+python3 "$YUE_SKILL/scripts/yue.py" --model "$YUE_MODEL" setup --backend "$YUE_BACKEND" --jobs 2
 python3 "$YUE_SKILL/scripts/yue.py" check --hash
 ```
 
-GGML's native CPU kernels need no BLAS installation. For accelerated alternatives, use the backend procedures below. CPU remains the portable default. macOS builds may also include Metal through the native project's defaults; select a device actually available in that build.
-
-`setup --build-only` builds and checks the native tools without downloading model weights; `check --binaries-only` verifies that installation without requiring models. Run ordinary `setup` afterward to add the verified weights.
+`setup --build-only` builds and checks the native tools without downloading model weights. `check --binaries-only` verifies that installation without requiring models. Repeat `setup` with the same backend and omit `--build-only` to add the verified weights.
 
 The installer stops on download, checksum, patch, or compilation failure and preserves diagnostics. Download retries are bounded. Completed, valid model files are reused. `setup --rebuild` rebuilds the pinned source; it does not replace another revision or silently discard source changes. A different installation directory can be selected with `--runtime` before the subcommand. Installation directories must be writable.
 
@@ -33,9 +29,13 @@ Pinned source: [ServeurpersoCom/yue2.cpp](https://github.com/ServeurpersoCom/yue
 
 The public source, base models, and optional adapters have separate licenses. Keep their licenses with the private runtime. Read current authoritative terms when publication or commercialization matters; do not infer weight or adapter terms from the code license or extend a base-model grant to a separate contributor's weights.
 
-The bundled [NAR attention patch](../assets/nar-attention.patch) provides full-key query-tiled synthesis and omits an all-zero additive mask from NAR flash attention. See the Vulkan procedure below for mode selection and numerical behavior. Performance depends on the backend and tensor shape; validate numerical output and measure equivalent work on the selected backend.
+The bundled [NAR attention patch](../assets/nar-attention.patch) provides full-key query-tiled synthesis and omits an all-zero additive mask from NAR flash attention. The [NAR reuse patch](../assets/nar-reuse.patch) allocates the velocity graph once per solver chunk and lets single-variation synthesis concatenate strided prefix views directly. A 32-step midpoint solve reuses that graph across 64 velocity evaluations.
+
+The [Vulkan NAR stride patch](../assets/nar-vulkan-strides.patch) lets flash attention read strided queries and combines the key and value transposes with their existing F16 casts.
 
 ## Select and verify a backend
+
+The `--device` argument selects an available device for generation and replay. `--device CPU` uses GGML's native CPU kernels, which require no GPU or BLAS. On macOS, the native build may also expose Metal.
 
 ### Vulkan hardware
 
@@ -51,7 +51,7 @@ python3 "$YUE_SKILL/scripts/yue.py" generate \
 
 `Vulkan0` is an example registry device name, not a guarantee that the first device is the intended GPU. Confirm its description and the selected backend in the log. Driver visibility in the host and device access in the execution environment must both work. A shared-memory GPU still needs sufficient memory for weights, the context cache, and working tensors.
 
-The launcher defaults to `--nar-attention auto`: Vulkan uses the bundled [query-tiled GEMM patch](../assets/nar-attention.patch) for single-variation NAR synthesis, while other backends retain their existing attention path. AR attention in planning and semantic generation is unchanged. Every query still attends every prefix and latent key; only the query rows are tiled. KV storage stays F16 and both matrix products request F32 accumulation. Weights, semantic tokens, duration, seeds, guidance and solver steps are unchanged. Different arithmetic can produce small numerical differences; it is not bit-identical output or a universal speed guarantee.
+The launcher defaults to `--nar-attention auto`. The optional `.runtime/nar-attention.json` maps device names to `flash` or `tiled-gemm`. An explicit attention mode takes precedence. Without a local preference, single-variation Vulkan uses query-tiled GEMM and other backends use their native attention path. Flash and tiled GEMM both attend every prefix and latent key and use F16 KV storage with F32 accumulation. Their arithmetic can produce slightly different waveforms, so reuse the original attention mode for matching a saved take.
 
 Use `--nar-attention flash` to select the unmasked flash-attention reference. `--nar-query-tile 256` is the default; 128 and 512 are available for measured tuning. A conservative graph-node budget check and multi-variation requests retain flash attention. The generation log records the actual path, tile size and full key count; `run-info.json` records the requested path and patch hashes. Direct native invocations can select `YUE_NAR_ATTENTION=tiled-gemm` and `YUE_NAR_QUERY_TILE=256`; without this mode the native runtime uses its standard attention path. The Python launcher sets these variables per process from its explicit options.
 
@@ -70,7 +70,7 @@ With OpenBLAS development files installed, build with `setup --blas on` (OpenBLA
 The bundled scheduler patch exposes `--device CPU-BLAS`: BLAS handles supported matrix operations before CPU fallback while the model retains CPU attention behavior. A build with `GGML_BLAS=ON` running as `--device CPU` does not activate that scheduler path. Do not select the raw `BLAS` registry device as if it were a GPU.
 
 ```bash
-python3 "$YUE_SKILL/scripts/yue.py" setup --blas on --jobs 2
+python3 "$YUE_SKILL/scripts/yue.py" setup --backend cpu --blas on --jobs 2
 python3 "$YUE_SKILL/scripts/yue.py" generate \
   --request "audio/prompt.json" --device CPU-BLAS --threads 4 \
   --out-dir "audio/take-blas"
@@ -104,7 +104,7 @@ Important native fields:
 | `abc_sampling`, `semantic_sampling` | Native per-stage sampling budgets and temperatures. |
 | `adapters` | Requested adapter names and scales; also pass `--adapters-dir` so the native loader can discover their files. |
 
-`--max-seq` sets KV-cache capacity; that cache remains allocated during acoustic synthesis. Start from the model's native default and size changes to the actual workload with reasonable headroom: unused capacity can increase memory pressure and slow synthesis. A single acoustic chunk needs at least `P + 2*T + 3` positions, where `P` is the conditioning prefix before semantic audio tokens and `T` is the audio-frame count (25 frames per second). Account for the prompt and generated/supplied ABC in `P`. A smaller context can save memory, but insufficient capacity can fail generation or split the acoustic render into chunks. Check the native `[NAR] Song` chunk count and truncation status before delivering an intended continuous song; increase capacity when needed to retain its full form. Short `cot=off` previews can use 4096; do not apply that limit universally to long tracks or score planning.
+`--max-seq` sets the context capacity. A single acoustic chunk needs at least `P + 2*T + 3` positions, where `P` is the conditioning prefix before semantic audio tokens and `T` is the audio-frame count (25 frames per second). Account for the prompt and generated or supplied ABC in `P`. Insufficient capacity can fail generation or split the acoustic render into chunks. Check the native `[NAR] Song` chunk count and truncation status before delivering an intended continuous song.
 
 A requested duration range needs both a complete musical form and an appropriate semantic budget. Check the planned score's nominal length before expensive synthesis. `semantic_sampling.min_tokens` prevents an end token before its floor, while `max_tokens` and `duration` cap the stage. The stream is 25 frames per second; account for the decoder's small edge trim when computing a strict lower bound. A token floor alone can prolong an underspecified composition. Verify the actual decoded duration against the user's range before delivery.
 
@@ -112,6 +112,6 @@ There is no dedicated instrumental boolean in this pinned port. Use the bundled 
 
 The thread override is supplied by [assets/cpu-threads.patch](../assets/cpu-threads.patch). Upstream's pinned CPU backend otherwise estimates the number of threads itself; OpenMP environment settings alone do not override that count. The launcher also bounds OpenMP/BLAS threads and applies low process priority where supported.
 
-Each output directory is a single take and must be empty before generation. It contains `audio.wav`, `audio.json` (native replay), `request-input.json`, `run-info.json`, `generation.log`, `semantic.tokens.csv`, `acoustic.vae`, and optionally `score.abc` when a score exists. Interrupting the launcher stops its child process and retains available logs; partial data is not promised to support resume. The per-runtime lock prevents overlapping setup/generation jobs.
+Each output directory is a single take and must be empty before generation. It contains `audio.wav`, `audio.json` (native replay), `request-input.json`, `run-info.json`, `generation.log`, `semantic.tokens.csv`, `acoustic.vae`, and optionally `score.abc` when a score exists. Native replay JSON omits `steps` when the take used 32. The launcher interprets that omission as 32 on replay. `--steps` overrides a saved value. Interrupting the launcher stops its child process and retains available logs; partial data is not promised to support resume. The per-runtime lock prevents overlapping setup/generation jobs.
 
 The audio inspector uses FFmpeg and the Python standard library, streams PCM, and can check raw float32 latent values. It reports technical results, never an automatic listening verdict. Duration budgets can cut the result mid-phrase; fades, looping, gain adjustments, and ducking are later editorial choices, with the original retained.

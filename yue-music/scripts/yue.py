@@ -21,18 +21,35 @@ ENGINE_REPO = "https://github.com/ServeurpersoCom/yue2.cpp.git"
 ENGINE_REV = "8af01740686824ffd4a1839a457954f42e2a8ce7"
 VAE = "YuE2-Vae-F32.gguf"
 BINARIES = ("yue-synth", "yue-plan", "yue-server")
-INSTALLER_VERSION = 4
-PATCHES = ("cpu-threads.patch", "cpu-blas.patch", "nar-attention.patch")
+INSTALLER_VERSION = 5
+PATCHES = ("cpu-threads.patch", "cpu-blas.patch", "nar-attention.patch", "nar-reuse.patch", "nar-vulkan-strides.patch")
 
 
 def patch_fingerprints():
     return {name: hashlib.sha256((SKILL / "assets" / name).read_bytes()).hexdigest() for name in PATCHES}
 
 
-def synthesis_settings(args):
+def installed_patch_fingerprints(root):
+    try:
+        installed = read_json(root / "install.json")
+    except (OSError, ValueError):
+        return {}
+    patches = installed.get("runtime_patches") if isinstance(installed, dict) else None
+    return patches if isinstance(patches, dict) else {}
+
+
+def synthesis_settings(args, root):
     mode = args.nar_attention
     if mode == "auto":
         mode = "tiled-gemm" if args.device.lower().startswith("vulkan") else "flash"
+        config = root / "nar-attention.json"
+        if config.is_file():
+            modes = read_json(config)
+            if not isinstance(modes, dict):
+                raise ValueError("nar-attention.json must map runtime device names to attention modes.")
+            mode = modes.get(args.device, mode)
+            if mode not in ("flash", "tiled-gemm"):
+                raise ValueError(f"Unknown attention mode for {args.device} in nar-attention.json.")
     return {"nar_attention": mode, "nar_query_tile": args.nar_query_tile}
 
 
@@ -121,7 +138,7 @@ def setup(args, root):
                      "platform": sys.platform, "architecture": platform.machine(),
                      "backend": args.backend, "blas": bool(mkl or args.blas == "on"),
                      "blas_vendor": "Intel10_64lp" if mkl else args.blas_vendor if args.blas == "on" else None,
-                     "mkl_root": str(mkl) if mkl else None}
+                     "mkl_root": str(mkl) if mkl else None, "runtime_patches": patch_fingerprints()}
     installed = read_json(root / "install.json") if (root / "install.json").is_file() else {}
     reuse = (not args.rebuild and binary_path(root, "yue-synth").exists()
              and all(installed.get(key) == value for key, value in configuration.items()))
@@ -232,7 +249,8 @@ def request_data(args, replay):
     duration = request.setdefault("duration", 10.0)
     if not isinstance(duration, (int, float)) or not math.isfinite(duration) or not 0 < duration <= 360:
         raise ValueError("Duration must be finite and between 0 and 360 seconds.")
-    steps = request.setdefault("steps", 12)
+    # Native replay JSON omits steps when the take used its default of 32.
+    steps = request.setdefault("steps", 32 if replay else 12)
     if not isinstance(steps, int) or isinstance(steps, bool) or not 1 <= steps <= 128:
         raise ValueError("Steps must be an integer between 1 and 128.")
     if request.get("lm_batch_size", 1) != 1 or request.get("synth_batch_size", 1) != 1:
@@ -245,7 +263,7 @@ def request_data(args, replay):
 
 def generate(args, root, replay=False):
     request = request_data(args, replay)
-    synthesis = synthesis_settings(args)
+    synthesis = synthesis_settings(args, root)
     adapters = request.get("adapters", [])
     if not isinstance(adapters, list):
         raise ValueError("Request adapters must be an array of objects with name and scale.")
@@ -278,6 +296,7 @@ def generate(args, root, replay=False):
     model = model_files(root, args.model)[0]["name"]
     check(root, model=model)
     with lock(root):
+        runtime_patches = installed_patch_fingerprints(root)
         out.mkdir(parents=True, exist_ok=True)
         write_json(out / "request-input.json", request)
         command = [str(binary_path(root, "yue-synth")), "--device", args.device,
@@ -322,7 +341,7 @@ def generate(args, root, replay=False):
             write_json(out / "run-info.json", {"status": status, "returncode": returncode,
                        "wall_seconds": round(time.monotonic() - start, 3), "threads": args.threads,
                        "device": args.device, "model": model, "request": request, "clamp_fp16": args.clamp_fp16,
-                       **synthesis, "runtime_patches": patch_fingerprints(), "max_seq": args.max_seq,
+                       **synthesis, "runtime_patches": runtime_patches, "max_seq": args.max_seq,
                        "adapters_dir": str(adapters_dir) if adapters_dir else None,
                        "engine_revision": ENGINE_REV, "model_revision": read_json(SKILL / "assets/models.json")["revision"],
                        "listening_review": "not performed"})
@@ -368,7 +387,7 @@ def main():
         sub.add_argument("--clamp-fp16", action="store_true", help="Clamp hidden states to FP16 range")
         sub.add_argument("--adapters-dir", type=Path, help="Directory containing named LoRA adapter files or folders")
         sub.add_argument("--nar-attention", choices=("auto", "flash", "tiled-gemm"), default="auto",
-                         help="NAR attention: auto uses tiled GEMM on Vulkan, flash elsewhere; AR attention is unchanged")
+                         help="NAR attention: auto uses the device's local runtime preference when configured")
         sub.add_argument("--nar-query-tile", type=int, choices=(128, 256, 512), default=256,
                          help="Query rows per tiled GEMM block; all keys remain visible")
         sub.add_argument("--max-seq", type=int)

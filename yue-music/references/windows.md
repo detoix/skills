@@ -12,11 +12,11 @@ Use CMake 3.19 or newer and a version that supports the installed Visual Studio 
 
 ## Build and verify
 
-From the repository root, this PowerShell example resolves the existing skill directory:
+Set `$YueBackend` to the backend selected for the host (`cpu`, `vulkan`, or `cuda`). Follow the prerequisites below for a GPU build. Run these commands from the repository root.
 
 ```powershell
 $YueSkill = (Resolve-Path '.\yue-music').Path
-py -3 "$YueSkill\scripts\yue.py" setup --build-only --jobs 2
+py -3 "$YueSkill\scripts\yue.py" setup --backend $YueBackend --build-only --jobs 2
 py -3 "$YueSkill\scripts\yue.py" check --binaries-only
 ```
 
@@ -25,7 +25,7 @@ These commands download the pinned source and compile the native tools without f
 To download and verify the required weights, run ordinary setup:
 
 ```powershell
-py -3 "$YueSkill\scripts\yue.py" setup --jobs 2
+py -3 "$YueSkill\scripts\yue.py" setup --backend $YueBackend --jobs 2
 py -3 "$YueSkill\scripts\yue.py" check --hash
 ```
 

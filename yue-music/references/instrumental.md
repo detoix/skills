@@ -20,13 +20,13 @@ For text-only requests, let YuE2 compose the score. Preserve a user's supplied s
 }
 ```
 
-This example describes a neutral texture. Change its musical direction for the actual brief. Duration is a cap, not guaranteed score length. Set `YUE_RUNTIME` to the configured runtime directory (normally `"$YUE_SKILL/.runtime"`) and `YUE_MODEL` to the selected backbone filename, then run the native planner, using the same verified device and thread limits as synthesis:
+This example describes a neutral texture. Change its musical direction for the actual brief. Duration is a cap, not guaranteed score length. Set `YUE_RUNTIME` to the configured runtime directory (normally `"$YUE_SKILL/.runtime"`), `YUE_MODEL` to the selected backbone filename, and `YUE_DEVICE` to the verified device for both planning and synthesis.
 
 ```bash
 YUE_THREADS=2 OMP_NUM_THREADS=2 OMP_THREAD_LIMIT=2 \
   "$YUE_RUNTIME/bin/yue-plan" \
   --model "$YUE_RUNTIME/models/$YUE_MODEL" \
-  --request "audio/plan-request.json" --device CPU \
+  --request "audio/plan-request.json" --device "$YUE_DEVICE" \
   --out "audio/original.abc"
 ```
 
@@ -66,7 +66,7 @@ base.pop("semantic_tokens", None)
 Path("audio/native-request.json").write_text(json.dumps(base, indent=2) + "\n")
 PY
 python3 "$YUE_SKILL/scripts/yue.py" generate \
-  --request "audio/native-request.json" --device CPU --threads 2 \
+  --request "audio/native-request.json" --device "$YUE_DEVICE" --threads 2 \
   --out-dir "audio/instrumental-take"
 ```
 

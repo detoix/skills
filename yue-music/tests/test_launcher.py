@@ -14,6 +14,21 @@ import yue
 
 
 class LauncherTests(unittest.TestCase):
+    def test_sparse_native_replay_preserves_full_step_count(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            source = base / "audio.json"
+            request = {"style": "folk", "semantic_tokens": "151936,151937", "seed": 17, "lm_seed": 23}
+            command = [sys.executable, str(SCRIPTS / "yue.py"), "replay", "--request", str(source),
+                       "--out-dir", str(base / "take"), "--dry-run"]
+            for saved, flags, expected in (({}, [], 32), ({"steps": 24}, [], 24), ({}, ["--steps", "40"], 40)):
+                source.write_text(json.dumps({**request, **saved}), encoding="utf-8")
+                result = subprocess.run(command + flags, capture_output=True, text=True, check=True)
+                parsed = json.loads(result.stdout)["request"]
+                self.assertEqual(parsed["steps"], expected)
+                self.assertEqual(parsed["semantic_tokens"], request["semantic_tokens"])
+                self.assertEqual(parsed["seed"], request["seed"])
+
     def test_attention_selection_keeps_full_request_and_dry_run_side_effect_free(self):
         with tempfile.TemporaryDirectory() as temporary:
             base = Path(temporary)
@@ -27,7 +42,7 @@ class LauncherTests(unittest.TestCase):
                                               ("CUDA0", "auto", "flash"),
                                               ("Vulkan0", "flash", "flash")):
                 result = subprocess.run(
-                    [sys.executable, str(SCRIPTS / "yue.py"), "replay", "--request", str(source),
+                    [sys.executable, str(SCRIPTS / "yue.py"), "--runtime", str(base), "replay", "--request", str(source),
                      "--device", device, "--nar-attention", option, "--nar-query-tile", "128",
                      "--out-dir", str(base / "take"), "--dry-run"],
                     capture_output=True, text=True, check=True,
@@ -48,6 +63,23 @@ class LauncherTests(unittest.TestCase):
             )
             self.assertNotEqual(result.returncode, 0)
             self.assertFalse(out.exists())
+
+    def test_local_attention_preference_applies_only_to_auto_on_its_device(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "nar-attention.json").write_text('{"Vulkan0": "flash"}', encoding="utf-8")
+            command = [sys.executable, str(SCRIPTS / "yue.py"), "--runtime", str(root), "generate",
+                       "--style", "folk", "--out-dir", str(root / "take"), "--dry-run"]
+            default = json.loads(subprocess.run(command, capture_output=True, text=True, check=True).stdout)
+            self.assertEqual(default["device"], "CPU")
+            self.assertEqual(default["request"]["steps"], 12)
+            for device, option, expected in (("Vulkan0", "auto", "flash"),
+                                              ("Vulkan0", "tiled-gemm", "tiled-gemm"),
+                                              ("Vulkan1", "auto", "tiled-gemm")):
+                result = subprocess.run(command + ["--device", device, "--nar-attention", option],
+                                        capture_output=True, text=True, check=True)
+                self.assertEqual(json.loads(result.stdout)["nar_attention"], expected)
+            self.assertFalse((root / "take").exists())
 
     def test_model_selection_does_not_require_other_backbones(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -75,6 +107,18 @@ class LauncherTests(unittest.TestCase):
             yue.write_json(path, data)
             self.assertEqual(json.loads(path.read_bytes().decode("cp1250")), data)
             self.assertEqual(yue.read_json(path), data)
+
+    def test_run_metadata_uses_known_installed_patch_fingerprints(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self.assertEqual(yue.installed_patch_fingerprints(root), {})
+            for data in ('{"runtime_patches":', '[]', '{"installer_version": 4}', '{"runtime_patches": []}'):
+                with self.subTest(data=data):
+                    (root / "install.json").write_text(data, encoding="utf-8")
+                    self.assertEqual(yue.installed_patch_fingerprints(root), {})
+            patches = {"example.patch": "a" * 64}
+            yue.write_json(root / "install.json", {"runtime_patches": patches})
+            self.assertEqual(yue.installed_patch_fingerprints(root), patches)
 
     def test_lyrics_file_overrides_request_without_shell_text_conversion(self):
         lyrics = "[Verse]\nZażółć gęślą jaźń.\n日本語\n"

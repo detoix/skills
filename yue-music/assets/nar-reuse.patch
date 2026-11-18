@@ -1,0 +1,174 @@
+--- a/src/nar.h
++++ b/src/nar.h
+@@ -62,7 +62,7 @@
+     ggml_backend_t        cpu_backend;
+     ggml_backend_sched_t  sched;
+ 
+-    // Graph cache: the ODE replays one shape for every one of its evaluations
++    // The ODE reuses the allocated graph within one solve.
+     GraphArena           arena;       // stable node addresses across rebuilds
+     struct ggml_cgraph * graph;
+     struct ggml_tensor * in_x;        // [latent_dim, N_nar, M]
+@@ -359,15 +359,13 @@
+     k = ggml_cast(ctx, k, GGML_TYPE_F16);
+     v = ggml_cast(ctx, v, GGML_TYPE_F16);
+ 
+-    // AR prefix rows in the f16 layout of the cache, repeated per variation
+-    struct ggml_tensor * k_ar =
+-        ggml_cont(ctx, ggml_view_3d(ctx, cache_k, D, ar_len, Nkv, cache_k->nb[1], cache_k->nb[2], 0));
+-    struct ggml_tensor * v_ar =
+-        ggml_cont(ctx, ggml_view_3d(ctx, cache_v, D, ar_len, Nkv, cache_v->nb[1], cache_v->nb[2], 0));
++    // Single-variation concat reads the prefix with its original KV strides.
++    struct ggml_tensor * k_ar = ggml_view_3d(ctx, cache_k, D, ar_len, Nkv, cache_k->nb[1], cache_k->nb[2], 0);
++    struct ggml_tensor * v_ar = ggml_view_3d(ctx, cache_v, D, ar_len, Nkv, cache_v->nb[1], cache_v->nb[2], 0);
+     if (M > 1) {
+         struct ggml_tensor * shape = ggml_new_tensor_4d(ctx, GGML_TYPE_F16, D, ar_len, Nkv, M);
+-        k_ar                       = ggml_repeat(ctx, k_ar, shape);
+-        v_ar                       = ggml_repeat(ctx, v_ar, shape);
++        k_ar                       = ggml_repeat(ctx, ggml_cont(ctx, k_ar), shape);
++        v_ar                       = ggml_repeat(ctx, ggml_cont(ctx, v_ar), shape);
+     }
+ 
+     struct ggml_tensor * k_full = ggml_concat(ctx, k_ar, k, 1);
+@@ -391,11 +389,12 @@
+ }
+ 
+ // Build the velocity graph of M variations of a T_lat frame block over the
+-// AR prefix of KV set kv_set. The frame inputs hold for a shape (T_lat,
+-// ar_len), the graph itself is rebuilt at every evaluation.
+-static bool nar_build_graph(Yue2NAR * n, const Qw3lmKvCache * kv, int T_lat, int M, int ar_len, int kv_set) {
+-    bool                  new_shape = (n->graph_T != T_lat || n->graph_ar != ar_len);
+-    bool                  new_key   = new_shape || n->graph_M != M || n->graph_set != kv_set;
++// AR prefix of KV set kv_set. Reuse is scoped to a single solve, during which
++// the KV tensors stay live. A new solve can use a reallocated KV cache.
++static bool nar_build_graph(Yue2NAR * n, const Qw3lmKvCache * kv, int T_lat, int M, int ar_len, int kv_set,
++                            bool reuse_graph) {
++    bool                  new_shape = !n->input_buf || n->graph_T != T_lat || n->graph_ar != ar_len;
++    bool                  new_key   = !n->graph || new_shape || n->graph_M != M || n->graph_set != kv_set;
+     const Qwen3LMConfig & c         = n->cfg;
+     int                   H         = c.hidden_size;
+     int                   N         = T_lat + 2;
+@@ -405,10 +404,12 @@
+                 kv->cfg.max_seq_len);
+         return false;
+     }
+-    // Rewinding the arena rebuilds every node at the address it already had,
+-    // so the backend graph cache resolves to the same executable at every
+-    // evaluation of the ODE instead of thrashing on fresh allocations.
++    if (reuse_graph && !new_key) {
++        return true;
++    }
++
+     ggml_backend_sched_reset(n->sched);
++    n->graph = nullptr;
+     struct ggml_context * ctx = graph_arena_begin(&n->arena);
+     struct ggml_cgraph *  gf  = ggml_new_graph_custom(ctx, YUE2_NAR_GRAPH_NODES, false);
+ 
+@@ -419,15 +420,21 @@
+     ggml_set_name(n->in_time, "nar_time");
+     ggml_set_input(n->in_time);
+     // Frame embedding and index tensors hold for the whole ODE: they live in
+-    // their own buffer, so the graph allocation of each evaluation leaves them
+-    // in place and they are uploaded once per shape.
++    // their own buffer, so they can be reused between graphs of the same shape.
+     if (new_shape) {
+         if (n->input_ctx) {
+-            ggml_backend_buffer_free(n->input_buf);
++            if (n->input_buf) {
++                ggml_backend_buffer_free(n->input_buf);
++            }
+             ggml_free(n->input_ctx);
+         }
+         struct ggml_init_params ip = { ggml_tensor_overhead() * 8, NULL, true };
+         n->input_ctx               = ggml_init(ip);
++        if (!n->input_ctx) {
++            n->input_buf = nullptr;
++            fprintf(stderr, "[NAR] FATAL: failed to allocate inputs\n");
++            return false;
++        }
+         n->in_pos_emb              = ggml_new_tensor_2d(n->input_ctx, GGML_TYPE_F32, H, N);
+         n->in_pos                  = ggml_new_tensor_1d(n->input_ctx, GGML_TYPE_I32, N);
+         int mask_rows              = (N + YUE2_NAR_MASK_PAD - 1) / YUE2_NAR_MASK_PAD * YUE2_NAR_MASK_PAD;
+@@ -497,6 +504,19 @@
+     ggml_set_output(n->out_v);
+     ggml_build_forward_expand(gf, n->out_v);
+ 
++    if (!ggml_backend_sched_alloc_graph(n->sched, gf)) {
++        ggml_backend_sched_reset(n->sched);
++        if (new_shape) {
++            // The new shape's inputs have not been initialized yet.
++            ggml_backend_buffer_free(n->input_buf);
++            ggml_free(n->input_ctx);
++            n->input_buf = nullptr;
++            n->input_ctx = nullptr;
++        }
++        fprintf(stderr, "[NAR] FATAL: graph alloc failed for T_lat=%d\n", T_lat);
++        return false;
++    }
++
+     n->graph     = gf;
+     n->graph_T   = T_lat;
+     n->graph_M   = M;
+@@ -542,17 +562,9 @@
+                          int                  ar_len,
+                          int                  kv_set,
+                          float                raw_t,
+-                         float *              v_out) {
+-    if (!nar_build_graph(n, kv, T_lat, M, ar_len, kv_set)) {
+-        return false;
+-    }
+-
+-    // Every evaluation allocates the graph before uploading and computing:
+-    // the topology is identical so the allocation is stable and the backend
+-    // graph cache stays hot.
+-    ggml_backend_sched_reset(n->sched);
+-    if (!ggml_backend_sched_alloc_graph(n->sched, n->graph)) {
+-        fprintf(stderr, "[NAR] FATAL: graph alloc failed for T_lat=%d\n", T_lat);
++                         float *              v_out,
++                         bool                 reuse_graph = false) {
++    if (!nar_build_graph(n, kv, T_lat, M, ar_len, kv_set, reuse_graph)) {
+         return false;
+     }
+ 
+@@ -570,7 +582,10 @@
+     nar_time_features(nar_shift_t(n, raw_t), feats);
+     ggml_backend_tensor_set(n->in_time, feats, 0, sizeof(feats));
+ 
+-    ggml_backend_sched_graph_compute(n->sched, n->graph);
++    if (ggml_backend_sched_graph_compute(n->sched, n->graph) != GGML_STATUS_SUCCESS) {
++        fprintf(stderr, "[NAR] FATAL: graph compute failed for T_lat=%d\n", T_lat);
++        return false;
++    }
+     ggml_backend_tensor_get(n->out_v, v_out, 0, block * M * sizeof(float));
+     return true;
+ }
+@@ -628,7 +643,7 @@
+             return false;
+         }
+         float t = 1.0f - (float) step * dt;
+-        if (!nar_velocity(n, kv, state, T_lat, M, ar_len, kv_set, nar_logit_clamped(t), first.data())) {
++        if (!nar_velocity(n, kv, state, T_lat, M, ar_len, kv_set, nar_logit_clamped(t), first.data(), step > 0)) {
+             return false;
+         }
+         if (dbg->enabled && step == 0) {
+@@ -638,7 +653,7 @@
+             mid[i] = state[i] - first[i] * (dt * 0.5f);
+         }
+         if (!nar_velocity(n, kv, mid.data(), T_lat, M, ar_len, kv_set, nar_logit_clamped(t - dt * 0.5f),
+-                          second.data())) {
++                          second.data(), true)) {
+             return false;
+         }
+         for (size_t i = 0; i < count; i++) {
+@@ -664,8 +679,10 @@
+         ggml_backend_sched_reset(n->sched);
+         graph_arena_free(&n->arena);
+     }
+-    if (n->input_ctx) {
++    if (n->input_buf) {
+         ggml_backend_buffer_free(n->input_buf);
++    }
++    if (n->input_ctx) {
+         ggml_free(n->input_ctx);
+     }
+     if (n->sched) {

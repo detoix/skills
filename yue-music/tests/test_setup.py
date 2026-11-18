@@ -36,6 +36,7 @@ class SetupTests(unittest.TestCase):
             "platform": sys.platform,
             "architecture": yue.platform.machine(),
             "backend": "cpu", "blas": False, "blas_vendor": None, "mkl_root": None,
+            "runtime_patches": yue.patch_fingerprints(),
         } if matching else {"fixture": "original installation"}
         yue.write_json(self.root / "install.json", configuration)
         return (self.root / "install.json").read_bytes()

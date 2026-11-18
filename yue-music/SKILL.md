@@ -17,7 +17,9 @@ Check an existing installation without loading a model:
 python3 "$YUE_SKILL/scripts/yue.py" check
 ```
 
-For a fresh installation or backend change, read [references/runtime.md](references/runtime.md). Inspect the platform, memory, disk space, hardware devices, and native tools, install missing dependencies, then run `setup`. Select a backbone filename from `assets/models.json` with `--model FILENAME` before the subcommand; this flag applies to setup, check, generation, and replay. It may be omitted when exactly one backbone is installed. The installer downloads the pinned engine, selected backbone, and VAE, verifies SHA-256, applies the backend patches, and builds the runtime. CPU needs no NVIDIA GPU; Vulkan can use supported Intel or AMD hardware. For native Windows, follow [references/windows.md](references/windows.md). Verify the selected device in the actual generation log.
+`setup --backend` selects the build backend. `generate` and `replay` accept `--device` for the device in the installed runtime. The examples use `$YUE_DEVICE` for the device selected for the current host and request. The native log records the actual device. See the [runtime reference](references/runtime.md) and the [native Windows setup](references/windows.md).
+
+Select a backbone filename from `assets/models.json` with `--model FILENAME` before the subcommand. This flag applies to setup, check, generation, and replay. It may be omitted when exactly one backbone is installed. The installer downloads the pinned engine, selected backbone, and VAE, verifies SHA-256, applies the backend patches, and builds the runtime.
 
 `setup` installs without generating audio. `check` and `--dry-run` also perform no inference. Honor requests to prepare only, defer generation, or limit CPU use. Reuse a valid installation instead of downloading another copy.
 
@@ -33,11 +35,11 @@ Match the requested duration and musical form; use a short audition when that is
 
 ```bash
 python3 "$YUE_SKILL/scripts/yue.py" generate \
-  --request "audio/prompt.json" --threads 2 \
+  --request "audio/prompt.json" --device "$YUE_DEVICE" --threads 2 \
   --out-dir "audio/take-01"
 ```
 
-`--dry-run` validates and prints the request without creating output, downloading anything, or loading weights. Set `--device` explicitly for a verified backend; see the runtime reference for `Vulkan0`, `CPU-BLAS`, `--clamp-fp16`, and adapters. The launcher uses low priority and bounds CPU threads; run one generation per runtime at a time. Vulkan synthesis selects query-tiled GEMM automatically; use `--nar-attention flash` for the flash-attention reference. See the runtime reference for the full-key behavior, rebuild procedure and comparison controls.
+`--dry-run` validates and prints the request without creating output, downloading anything, or loading weights. The launcher uses low process priority, bounds CPU threads, and permits one generation per runtime at a time. The runtime reference covers devices, attention modes, FP16 clamping, and adapters.
 
 Read the [runtime reference](references/runtime.md) for context budgets, formats, seeds, and equivalent-work performance comparisons. Duration is an upper budget; hitting it can produce an abrupt ending. Longer material and more synthesis steps need a measured estimate. Choose sample length for musical judgment; shortening the requested work is not a backend speedup.
 
@@ -47,7 +49,7 @@ Every take retains its request, log, 24-bit stereo WAV, actual seeds and semanti
 
 ```bash
 python3 "$YUE_SKILL/scripts/yue.py" replay \
-  --request "audio/take-01/audio.json" --steps 32 --threads 2 \
+  --request "audio/take-01/audio.json" --device "$YUE_DEVICE" --steps 32 --threads 2 \
   --out-dir "audio/take-01-refined"
 ```
 
