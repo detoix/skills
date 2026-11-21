@@ -1,8 +1,9 @@
-// The whole film as one pure function of time: scenes in order, the timeline rail on the apron, paper grain on top.
+// The whole film as one pure function of time: every frame starts from the bare stage, then scenes in order,
+// the timeline rail on the apron, paper grain on top.
 // Cardboard pieces move on twos (15 holds a second) and boil 7.5 times a second.
 // Scene k starts at a transition just before its first line; everything inside hangs off the narration.
-import { stepped, boilStep } from './engine.js';
-import { grain, makeRail } from './stage.js';
+import { W, H, stepped, boilStep } from './engine.js';
+import { COL, grain, makeRail } from './stage.js';
 import { transition, transitionSound } from './transitions.js';
 import * as s1 from './scenes/s1.js';
 // import * as s2 from './scenes/s2.js';  // one module per scene, in order
@@ -68,8 +69,9 @@ export function createFilm(tl, img, tex) {
 
   function draw(ctx, t) {
     const S = stepped(t), b = boilStep(S);
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over'; ctx.filter = 'none';
+    // a set that does not cover the picture (a map sheet) must not show what earlier frames left there
+    ctx.reset();
+    ctx.fillStyle = COL.apron; ctx.fillRect(0, 0, W, H);
     const sc = scenes.find((s) => S >= s.from && S < s.to) || scenes[scenes.length - 1];
     sc.draw(ctx, S, t, b);
     rail(ctx, S, b);

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Narration → timeline → sound design → final mix.
 
-Run with the project's audio interpreter (numpy, soundfile, scipy, NeMo):
+Run with the project's audio interpreter (numpy, soundfile, scipy, transcribe-cpp):
     python3 tools/build_audio.py --scenes 1
 
 1. trims and level-matches every narration take (no pitch, tempo or EQ changes)

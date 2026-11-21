@@ -5,8 +5,10 @@ film.json -> "music" opisuje, jaki klimat gra pod którą kwestią; "palette" wy
 a "borrow" pozwala zaczerpnąć wybrany klimat z innej palety biblioteki.
 
 Dwie szyny, jak w szablonie:
-  - podkład (bed): pętle klimatu pod narracją, poziom liczony kwestia po kwestii względem głosu; krótkie pauzy mostkowane,
-    w pauzach dłuższych niż HOLD_GAP podkład wychodzi o `pause_db`;
+  - podkład (bed): frazy klimatu pod narracją (`arrange`), łączone na kreskach taktowych; na końcu odcinka gra tyle
+    pełnych taktów, ile się zmieści, a niepełnego taktu nie zaczyna; pod oddechem podkład milknie i wraca
+    od początku frazy. Poziom liczony kwestia po kwestii względem głosu; krótkie pauzy mostkowane, w pauzach dłuższych
+    niż HOLD_GAP podkład wychodzi o `pause_db`;
   - pierwszy plan (foreground): sygnał po tytule, przejścia między scenami, oddechy po mocnych kwestiach, ekran końcowy.
     Gra na swoim poziomie w ciszy, ustępuje mowie, gdyby na nią zachodził.
 Join modules at bar lines and use a compatible key and tempo across each palette.
@@ -28,7 +30,11 @@ END_SCREEN = 8.0   # a tail after the last line longer than this is the end scre
 END_FADE = 3.0     # the score fades over the last seconds of the film only
 HOLD_GAP = 0.9     # shorter pauses between lines keep the bed at its speech level
 JOIN = 0.015       # przenikanie na kresce taktowej
-ENTRY_LEAD = 1.0   # wejście podkładu przed pierwszą kwestią sceny
+ENTRY_LEAD = 1.0   # wejście podkładu przed pierwszą kwestią odcinka
+PHRASE_OVERRUN = 1.0  # koniec rozdziału: podkład może dograć takt do tylu sekund dalej
+PHRASE_RELEASE = 0.3  # wybrzmienie ostatniej frazy podkładu
+BARS_PER_PHRASE = 4   # pętla i wariant klimatu to frazy czterotaktowe (nazwy modułów biblioteki)
+BREATH_LEAD = 0.1  # oddech startuje tyle po kwestii; podkład milknie przed nim
 
 
 def _sha(path):
@@ -53,7 +59,6 @@ class Pack:
             "oddech": f"{mood}/{mood}_warianty_{p}_05_oddech_1takt.wav",
             "oddech2": f"{mood}/{mood}_warianty_{p}_06_oddech_2takty.wav",
             "wariant": f"{mood}/{mood}_warianty_{p}_07_wariant_B_4takty.wav",
-            "koniec": f"{mood}/{mood}_warianty_{p}_08_zakonczenie.wav",
             "sygnal": f"motyw/motyw_{p}_02_sygnal.wav",
             "tytul": f"motyw/motyw_{p}_03_tytul.wav",
             "ekran": f"motyw/motyw_{p}_04_ekran_koncowy.wav",
@@ -89,44 +94,80 @@ def add(bus, x, t):
         bus[i:i + n] += x[:n]
 
 
-def sequence(pack, mood, frames, safe_variants, entry=True, turn=0, every=3):
-    """Forma segmentu: [wejście] A A B A A B … przycięta do długości; moduły łączone na kreskach taktowych."""
-    parts = []
-    if entry and safe_variants:
-        parts.append(pack.read(mood, "wejscie"))
-    n = turn
-    while sum(len(p) for p in parts) < frames + SR:
-        use_b = safe_variants and n % every == every - 1
-        parts.append(pack.read(mood, "wariant" if use_b else "petla"))
-        n += 1
+def join(parts):
+    """Moduły łączone na kreskach taktowych krótkim przenikaniem."""
     j = int(JOIN * SR)
     out = parts[0]
     ramp = np.linspace(0, 1, j)[:, None]
     for p in parts[1:]:
         mid = out[-j:] * (1 - ramp) + p[:j] * ramp
         out = np.concatenate([out[:-j], mid, p[j:]])
-    return out[:frames]
+    return out
+
+
+def arrange(pack, mood, length, approved, overrun, entry=True, turn=0, every=3):
+    """Podkład z fraz klimatu: [wejście] A A B A A B …, moduły na kreskach taktowych.
+
+    Odcinek ma trwać około `length` sekund i może dograć do `length` + `overrun`. Frazy grają po kolei; z frazy, która
+    się już nie mieści, gra tyle pełnych taktów, ile się zmieści. Niepełnego taktu podkład nie zaczyna.
+    Zwraca dźwięk i opis formy."""
+    head = [pack.read(mood, "wejscie")] if entry and approved else []
+    kinds = ["wejście"] if head else []
+    parts, n = list(head), turn
+    seconds = lambda parts: sum(len(p) for p in parts) / SR
+    limit = length + overrun
+
+    def nxt(k):
+        use_b = approved and k % every == every - 1
+        return pack.read(mood, "wariant" if use_b else "petla"), "wariant" if use_b else "fraza"
+
+    while True:
+        x, kind = nxt(n)
+        if seconds(parts) + len(x) / SR > limit:
+            break
+        parts.append(x)
+        kinds.append(kind)
+        n += 1
+    release = PHRASE_RELEASE
+    bar = len(pack.read(mood, "petla")) / SR / BARS_PER_PHRASE
+    bars = int((limit - seconds(parts)) // bar)
+    if bars > 0:   # x: fraza, która się nie zmieściła
+        parts.append(x[: int(bars * bar * SR)])
+        kinds.append(f"{kind}: {bars} {'takt' if bars == 1 else 'takty'}")
+        release = bar / 4   # wybrzmienie przez ostatnią ćwierćnutę, do kreski taktowej
+    if not parts:   # odcinek krótszy niż takt: tyle, ile się mieści, z wyciszeniem
+        parts, kinds, release = [x[: int(max(0.5, length) * SR)]], [f"{kind} (odcinek krótszy niż takt)"], 0.5
+    x = fades(join(parts), fade_out=release)
+    return x, {"form": kinds, "seconds": round(len(x) / SR, 3)}
 
 
 def plan_segments(tl, cfg):
     """Odcinki podkładu: jeden klimat na rozdział (film.json -> music.plan: numer rozdziału -> klimat).
-    Klimat zmienia się tylko na karcie rozdziału; sąsiednie rozdziały mogą mieć ten sam."""
+    Klimat zmienia się tylko na karcie rozdziału; sąsiednie rozdziały mogą mieć ten sam. Oddech
+    (film.json -> music.breaths) dzieli podkład rozdziału: podkład milknie przed oddechem i wraca po nim od początku frazy.
+    `length` i `overrun` (sekundy) mówią, kiedy podkład ma się skończyć i ile może dograć, by skończyć takt."""
     lines = sorted(tl["lines"], key=lambda l: l["start"])
     plan = {int(k): v for k, v in cfg["plan"].items()}
+    breaths = cfg.get("breaths", {})
     segs = []
     for i, line in enumerate(lines):
-        if i and lines[i - 1]["scene"] == line["scene"]:
+        new_scene = i == 0 or lines[i - 1]["scene"] != line["scene"]
+        if not (new_scene or line["id"] in breaths):
             continue
         if line["scene"] not in plan:
             raise ValueError(f"music plan: rozdział {line['scene']} nie ma klimatu")
-        segs.append({"start": 0.0 if i == 0 else line["start"] - ENTRY_LEAD, "mood": plan[line["scene"]], "entry": True, "first": line["id"]})
-    scene_end = {}
-    for line in lines:
-        scene_end[line["scene"]] = max(scene_end.get(line["scene"], 0), line["end"])
-    by_id = {l["id"]: l for l in lines}
+        if segs:   # poprzedni odcinek kończy się przed tą kwestią
+            prev = lines[i - 1]
+            if new_scene:
+                segs[-1]["end"], segs[-1]["overrun"] = prev["end"] + 0.35, PHRASE_OVERRUN
+            else:   # przed oddechem: bez zakładki z frazą oddechu
+                segs[-1]["end"], segs[-1]["overrun"] = prev["end"] + BREATH_LEAD, 0.0
+        # po oddechu podkład rusza z kwestią, żeby nie wejść pod końcówkę oddechu
+        start = 0.0 if i == 0 else line["start"] - (ENTRY_LEAD if new_scene else 0.0)
+        segs.append({"start": start, "mood": plan[line["scene"]], "entry": True, "first": line["id"]})
+    segs[-1]["end"], segs[-1]["overrun"] = lines[-1]["end"] + 0.35, PHRASE_OVERRUN
     for s in segs:
-        s["end"] = scene_end[by_id[s["first"]]["scene"]] + 0.35
-        s["crossfade_out"] = False
+        s["length"] = s["end"] - s["start"]
     return segs
 
 def level_cue(x, target_db=-21.5, limit_db=6.0):
@@ -195,13 +236,13 @@ def compose(tl, cfg, pack):
     safe = set(cfg.get("variants_safe", []))
     turn = {}
     for seg in plan_segments(tl, cfg):
-        frames = int((seg["end"] - seg["start"]) * SR) + int(0.5 * SR)
         mood = seg["mood"]
-        x = sequence(pack, mood, frames, mood in safe, entry=seg["entry"], turn=turn.get(mood, 0), every=cfg.get("variant_every", {}).get(mood, 3))
+        x, form = arrange(pack, mood, seg["length"], mood in safe, seg["overrun"], entry=seg["entry"], turn=turn.get(mood, 0),
+                          every=cfg.get("variant_every", {}).get(mood, 3))
         turn[mood] = turn.get(mood, 0) + 1
-        x = fades(x, fade_in=0.008 if seg["entry"] else 0.25, fade_out=0.5)
-        add(bed, x, seg["start"])
-        events.append({"bus": "bed", "t": round(seg["start"], 3), "mood": mood, "until": round(seg["end"], 3), "entry": seg["entry"]})
+        add(bed, fades(x, fade_in=0.008), seg["start"])
+        events.append({"bus": "bed", "t": round(seg["start"], 3), "mood": mood, "until": round(seg["start"] + form["seconds"], 3),
+                       "planned_until": round(seg["end"], 3), "form": form["form"]})
     lines = sorted(tl["lines"], key=lambda l: l["start"])
     ends = {}
     for l in lines:
@@ -229,10 +270,10 @@ def compose(tl, cfg, pack):
         i, l = by_id[line_id]
         gap_start, gap_end = lines[i - 1]["end"], l["start"]
         x = pack.read(mood, "oddech")
-        room = int((gap_end - gap_start - 0.15) * SR)
+        room = int((gap_end - gap_start - BREATH_LEAD - 0.05) * SR)
         y = fades(x[:min(room, len(x))], fade_in=0.005, fade_out=0.35)
-        add(fg, y * 10 ** (cfg["breath_db"] / 20), gap_start + 0.1)
-        events.append({"bus": "fg", "t": round(gap_start + 0.1, 3), "cue": f"oddech {mood}", "before": line_id})
+        add(fg, y * 10 ** (cfg["breath_db"] / 20), gap_start + BREATH_LEAD)
+        events.append({"bus": "fg", "t": round(gap_start + BREATH_LEAD, 3), "cue": f"oddech {mood}", "before": line_id})
     # ekran końcowy: dwa takty motywu i zakończenie, razem około 14 s; gra do końca filmu
     last = lines[-1]
     head = pack.read("motyw", "tytul")[: len(pack.read("motyw", "sygnal"))]

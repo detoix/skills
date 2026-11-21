@@ -4,8 +4,8 @@
 
 1. Point `film.json` → `voice_library` at the channel's voice library; `voice_moods` names a mood for lines whose direction does not settle it.
 2. After `python3 tools/script.py`, ask the `tts` skill to plan `audio/narration.json` against the library. That only reads the library. For a mood it reports missing, it makes candidates, the user chooses by ear and the choice joins the library for later films. A channel with no library starts one the same way, with a reference the user picked by ear.
-3. Have the `tts` skill narrate `audio/narration.json` into `audio/takes/`, with provenance in `audio/provenance.json`, in one run for the whole film. Wrap long jobs in `tools/clock.py run`. Pass these inputs and outputs to the skill; read its instructions for invocation.
-4. Check every take with `tools/check_takes.py`: word by word against the spoken text, report in `audio/check.json`. Listen to the openings and to every flagged line. Use the number-check procedure below for numerical expressions.
+3. Have the `tts` skill narrate `audio/narration.json` into `audio/takes/`, with provenance in `audio/provenance.json`, in one run for the whole film. Lines whose accent the model easily gets wrong — a negation with a short verb ending a sentence, a contrast, a foreign name, the channel's name — get 3–4 variants in the same run. Wrap long jobs in `tools/clock.py run`. Pass these inputs and outputs to the skill; read its instructions for invocation.
+4. Check every take with `tools/check_takes.py`: word by word against the spoken text, report in `audio/check.json`, read as below. Listen to the openings and to every flagged line. The user picks each risky line's variant by ear from one file (the variants in order, numbered by short beeps) before the scenes are built; no measurement here settles an accent.
 
 ## Retakes
 
@@ -14,21 +14,19 @@
 
 ## Timeline and mix (`tools/build_audio.py`)
 
-- Run the project's audio tools in a Python environment with `numpy`, `soundfile`, `scipy` and NVIDIA NeMo (`nemo_toolkit[asr]` with PyTorch; a GPU is used when present), with FFmpeg and Node on `PATH`. The first recognition downloads the model from Hugging Face. This environment belongs to the film tools.
-- Recognition (`tools/asr.py`, Parakeet TDT 0.6B v3) is cached per take in `audio/asr_cache/`: an entry is keyed by the file's SHA-256, the model settings, the film language and the tool version, so a retake or a changed setting is recognised again and nothing else is. Word times are stored against the raw file, so trim and pause settings can change without new recognition. The take check fills the cache and the timing reads it.
+- Run the project's audio tools in a Python environment with `numpy`, `soundfile`, `scipy` and `transcribe-cpp` (transcribe.cpp with its native library; Vulkan is used when a GPU is present), with FFmpeg and Node on `PATH`. The recogniser is the same model file Superwhisper uses for offline dictation, `parakeet-tdt-0.6b-v3-Q4_K_M.gguf`: `superwhisper models download transcription` puts it in `~/.local/share/superwhisper/models`; `film.json` → `asr.model` or `$PARAKEET_GGUF` points elsewhere. This environment belongs to the film tools.
+- Recognition (`tools/asr.py`, Parakeet TDT 0.6B v3) is cached per take in `audio/asr_cache/`: an entry is keyed by the file's SHA-256, the model file's SHA-256 and settings, the film language and the tool version, so a retake or a changed setting is recognised again and nothing else is. Word times are stored against the raw file, so trim and pause settings can change without new recognition. The take check fills the cache and the timing reads it.
 - Trims and levels every take, maps its cached word times through the trim and pause edits (a take not yet recognised is recognised here), lays lines out with `film.json` → `gaps` (pause before a line; 2.5–3 s breaths after strong lines), scene gaps, the title tail and the 14 s end screen → `film/timeline.json`, `film/audio/vo.wav`.
 - Asks `film/film.js` for the sound cues, synthesises the effects, lays out the music from the library (`tools/music.py`), mixes to -14 LUFS with the true peak held at -2 dBTP → `film/audio/mix.wav` (+ music stems).
 - Missing takes become provisional silence of the expected length, so scenes can be built before the voice exists.
 - `--reuse` keeps the timeline and voice and only rebuilds effects and music.
 
-## Number and pronunciation checks
+## Reading the check
 
-- Keep three distinct records: the written caption text, the intended spoken text and the literal free ASR hypothesis. Never substitute expected words for the recognised result or convert recognised number words back to digits in a pronunciation report.
-- For numerical passages, use free transcription without the expected text as a prompt. The recogniser writes numbers in digits: the check matches them to their caption span and flags them, because digits do not show whether the spoken form and its inflection are right; listen to every flagged number. Preserve omissions, foreign words and Roman numerals exactly as returned. A spelling match is not proof of correct pronunciation.
-- The word differences (substitutions, omissions, insertions, the first word) choose what to hear first; they are not a pronunciation verdict. Compare takes of one line only through the same tool and settings.
-- Report the intended phrase, literal hypothesis, missing words and flagged probabilities with the version and timestamps of the full film. Account for source trimming and line placement; provide surrounding context in the complete mix rather than only isolated take times.
-- Inspect acoustic onsets after pauses. Word alignment and interpolated timings can start a caption or action inside silence; correct and review the affected anchors before deriving captions and scene cues.
-- Confirm suspected errors by listening. Keep the report tied to the selected audio hashes and rebuild its times after an edit changes the timeline.
+- `audio/check.json` keeps three records per line: the caption text, the spoken text and the literal hypothesis of free transcription (no expected text as a prompt). Never replace the hypothesis with expected words.
+- Weigh every word difference (substitution, omission, insertion, the first word) in the context of its line: a rare name or a split word can come back garbled from a correct reading, and a one-letter substitution can be a real mispronunciation. Neither the overall error rate nor a spelling match is a verdict; listening is. Numbers come back as digits, so every number is heard.
+- Report what to hear with the version and time in the full film, tied to the selected audio hashes; rebuild the times after an edit changes the timeline.
+- Alignment can start a word inside silence after a pause: check those onsets before deriving captions and scene cues.
 
 ## Selected-take provenance
 
@@ -49,16 +47,13 @@ Preflight, right after the script is approved. It reads the music plan and libra
 3. Fill the gaps from the library first: modules share key and tempo, so a mood can come from another palette (`music.borrow`: mood → palette) and a brighter variant can come more often (`music.variant_every`: mood → every Nth phrase). Only what the library does not have is generated, with the `yue-music` skill, and cut into modules as the library's README describes.
 4. Listen: a new module, or one with a vocal-detector warning, goes in only after the user has heard it, and a loop is judged under narration. Equal loudness does not mean audible: a loop with nearly all its energy under 400 Hz measures the same as the others and vanishes under a male voice.
 
-## Music rules
+## How the score is laid
 
-- `tools/music.py` keeps the continuous bed and the foreground cues (signal, chapter gestures, breaths, end screen) on separate buses and exports both stems for inspection.
-- The bed stays about 18 dB under the voice during speech (`music.voice_over_bed_db`) and restrained in pauses. Lower it further while a scored break has its own foreground music; lack of narration must not raise the whole bed.
-- Foreground music plays at its intended level during a clear musical break and ducks whenever narration overlaps it. Actual speech wins over a nominal break window, including cue tails crossing into the next line.
-- Use passage-level ducking within speech: bridge short pauses and avoid reacting to individual words. Use intentional music-break windows from the timeline to fit release and attack inside silence instead of holding the foreground down throughout a transition.
-- The template accepts `music_breaks` on the timeline as absolute start/end windows. `tools/build_audio.py` derives scored breaks from the arranged line gaps. If the edit defines different breaks, write their exact windows to the timeline. Overlapping narration still overrides them.
-- The end screen is not a break: the score plays it out (the motif right after the last line, then its ending) with the bed back at its own level, and fades only over the last seconds (`music.py` → `END_SCREEN`, `END_FADE`).
-- Choose the additional bed attenuation and fade lengths for the approved score in `film.json` → `music_mix` (`bed_break_db`, `break_fade_seconds`). They are mix settings, not universal mastering targets. The bed remains at or below its restrained level.
-- Keep melody out of short gaps inside a spoken passage. Place the motif and gestures only where the edit leaves room, and choose palette and moods for the subject and approved pilot.
+`tools/music.py` lays two buses from the library and exports both stems:
+
+- **Bed.** One mood per chapter, in the library's four-bar loop and variant phrases joined at bar lines. At the end of a chapter the bed plays as many full bars as fit and stops on a bar line: it never starts a bar it cannot finish, and it has no ending of its own, because the transition closes the chapter. Under a breath the bed is silent and comes back with the next line, at the start of a phrase. Its level follows the voice (`music.voice_over_bed_db`, passage by passage, short pauses bridged), restrained in pauses and lower while foreground music plays.
+- **Foreground.** The signal after the title, a gesture at every chapter change, breaths after strong lines, and the end screen played out to the film's last seconds. It plays at its own level in silence and yields to actual speech.
+- **The agent decides** the palette, the mood of each chapter, the gestures (`music.transitions`, no two alike in a row), where breaths go (`music.breaths`, in pauses of at least 2.4 s from `film.json` → `gaps`) and the mix settings (`music_mix`: `bed_break_db`, `break_fade_seconds`). An edit with breaks the timeline does not derive writes their windows to the timeline as `music_breaks`.
 
 ## Level checks before sending anything
 

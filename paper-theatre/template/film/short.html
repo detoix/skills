@@ -1,0 +1,16 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Short</title>
+<style>html, body { margin: 0; height: 100%; background: #14151b; } body { display: flex; justify-content: center; } canvas { height: 100%; aspect-ratio: 9 / 16; }</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script type="module">
+// short.html?name=<name>: the short of film.json -> shorts.<name>, built by tools/build_shorts.py
+import { boot } from './shorts/page.js';
+await boot(new URLSearchParams(location.search).get('name'));
+</script>
+</body>
+</html>
