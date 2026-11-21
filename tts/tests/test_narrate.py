@@ -103,13 +103,15 @@ class NarrationTests(unittest.TestCase):
                     generate_python.assert_not_called()
                     generate_native.assert_not_called()
 
-    @unittest.skipUnless(HAS_AUDIO_RUNTIME, "Needs NumPy and SoundFile")
-    def test_native_batch_keeps_completed_take_when_engine_fails_later(self):
+    @unittest.skipUnless(HAS_AUDIO_RUNTIME and importlib.util.find_spec("scipy"), "Needs NumPy, SciPy and SoundFile")
+    def test_native_batch_filters_prompt_and_keeps_completed_take_on_failure(self):
         import numpy as np
         import soundfile as sf
 
         sample = self.root / "bank/sample.wav"
-        sf.write(sample, np.full(4800, 0.1), 48000, subtype="PCM_24")
+        t = np.arange(4800) / 48000
+        signal = 0.12 * np.sin(2*np.pi * 1000*t) + 0.3 * np.sin(2*np.pi * 10000*t)
+        sf.write(sample, signal, 48000, subtype="PCM_24")
         self.bank["quiet"]["sha256"] = narrate.sha(sample)
         (self.root / "bank/bank.json").write_text(json.dumps(self.bank))
         engine = self.root / "engine"
@@ -125,7 +127,7 @@ assert first['text'] == 'Pierwsze zdanie.' and first['seed'] == 5000
 assert second['text'] == 'Drugie zdanie.' and second['seed'] == 5001
 assert first['prompt_wav'] == second['prompt_wav']
 with wave.open(first['prompt_wav']) as prompt:
-    assert prompt.getsampwidth() == 2
+    assert (prompt.getsampwidth(), prompt.getframerate()) == (2, 16000)
 print('custom component backend=Vulkan0', file=sys.stderr, flush=True)
 shutil.copyfile(first['prompt_wav'], first['output'])
 print('voxcpm2-batch-complete 1', flush=True)
@@ -144,7 +146,20 @@ sys.exit(1)
 
         take = json.loads((out / "provenance.json").read_text())["takes"]["first"]
         self.assertEqual(take["sha256"], narrate.sha(out / "output_001.wav"))
-        self.assertEqual(take["generation"]["prompt_cli"]["converted_from"], "PCM_24")
+        prepared = take["generation"]["prompt_cli"]
+        self.assertEqual(prepared["converted_from"], "PCM_24")
+        self.assertEqual(prepared["source_sample_rate"], 48000)
+        self.assertEqual(prepared["sample_rate"], 16000)
+        self.assertEqual(prepared["sha256"], take["sha256"])
+        waveform, rate = sf.read(out / "output_001.wav")
+        self.assertEqual(rate, 16000)
+        self.assertEqual(len(waveform), 1600)
+        # A bare 3:1 decimation would fold the 10 kHz tone down to 6 kHz.
+        spectrum = np.abs(np.fft.rfft(waveform[80:-80]))
+        fundamental = spectrum[90]
+        self.assertGreater(fundamental, 10)
+        self.assertLess(spectrum[540], fundamental / 200)
+        self.assertEqual(narrate.sha(sample), self.bank["quiet"]["sha256"])
         self.assertEqual(take["generation"]["batch_rows"], 1)
         self.assertFalse((out / "output_002.wav").exists())
         self.assertFalse(list(out.glob(".native-*")))
@@ -155,7 +170,7 @@ sys.exit(1)
         import soundfile as sf
 
         sample = self.root / "bank/sample.wav"
-        sf.write(sample, np.full(4800, 0.1), 48000, subtype="PCM_16")
+        sf.write(sample, np.full(1600, 0.1), 16000, subtype="PCM_16")
         self.bank["quiet"]["sha256"] = narrate.sha(sample)
         self.bank["calm"] = dict(self.bank["quiet"], text="Another sample text.")
         (self.root / "bank/bank.json").write_text(json.dumps(self.bank))
@@ -208,6 +223,7 @@ for number, row in enumerate(requests, 1):
                 self.assertEqual(generation.get("batch_partner"), partner)
                 self.assertEqual(generation["seed"], seed)
                 self.assertEqual(generation["inference_timesteps"], 30)
+                self.assertIsNone(generation["prompt_cli"])
 
         retakes = self.root / "retakes"
         self.assertEqual(self.call(["--ids", "third", "--out", str(retakes), "--seed", "-1"]), 0)
@@ -285,6 +301,9 @@ for number, row in enumerate(requests, 1):
         import numpy as np
         import soundfile as sf
         import compare_takes
+
+        # Load SciPy before patch.dict snapshots sys.modules, so NumPy's FFT extension is not unloaded.
+        importlib.import_module("scipy.signal")
         old, new = self.root / "old", self.root / "new"
         old.mkdir()
         new.mkdir()

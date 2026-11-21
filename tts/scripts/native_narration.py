@@ -2,10 +2,14 @@
 from contextlib import closing
 import hashlib
 import json
+from math import gcd
 import os
 from pathlib import Path
 import subprocess
 import tempfile
+
+
+PROMPT_SAMPLE_RATE = 16_000
 
 
 def sha(path):
@@ -109,7 +113,7 @@ def generate(args, root, bank, groups, index):
             prompt = (root / bank[mood]['file']).resolve()
             prompt_dir = tmp / f'mood-{mood_number}'
             prompt_dir.mkdir()
-            cli_prompt, converted = pcm16_prompt(prompt, prompt_dir, sf)
+            cli_prompt, converted = prepare_cli_prompt(prompt, prompt_dir, sf)
             prompt_info = {'prompt_mood': mood, 'prompt_file': str(prompt), 'prompt_sha256': sha(prompt),
                            'prompt_cli': converted, 'prompt_text': bank[mood]['text']}
             for line in lines:
@@ -163,13 +167,41 @@ def generate(args, root, bank, groups, index):
                 print(f"{line['id']} {prompt_info['prompt_mood']}: {duration:.2f}s", flush=True)
 
 
-def pcm16_prompt(prompt, tmp, sf):
-    """The CLI reads only 16-bit PCM WAV prompts; a 24-bit sample corrupts its heap. Returns the file to pass
-    and, for a converted copy, what provenance needs to trace it back to the library sample."""
-    info = sf.info(str(prompt))
-    if info.format == 'WAV' and info.subtype == 'PCM_16':
-        return prompt.resolve(), None
-    data, rate = sf.read(str(prompt), dtype='float64')
-    copy = tmp / 'prompt_pcm16.wav'
-    sf.write(str(copy), data, rate, subtype='PCM_16')
-    return copy, {'converted_from': info.subtype, 'subtype': 'PCM_16', 'sha256': sha(copy)}
+def prepare_cli_prompt(prompt, tmp, sf):
+    """Prepare the 16 kHz PCM16 prompt that the VoxCPM2 encoder reads."""
+    info = sf.info(prompt)
+    rate = info.samplerate
+    cli_prompt = prompt.resolve()
+    if info.format != 'WAV' or info.subtype != 'PCM_16':
+        data, _ = sf.read(prompt, dtype='float64')
+        cli_prompt = tmp / 'prompt_pcm16.wav'
+        sf.write(cli_prompt, data, rate, subtype='PCM_16')
+
+    processing = {'converted_from': info.subtype, 'subtype': 'PCM_16',
+                  'source_sample_rate': rate, 'sample_rate': PROMPT_SAMPLE_RATE}
+    if rate != PROMPT_SAMPLE_RATE:
+        import numpy as np
+        from scipy.signal import resample_poly
+
+        # The native encoder decimates 48 kHz inputs without a low-pass filter.
+        # Resample the PCM16 signal here to prevent aliasing at the encoder input.
+        data, _ = sf.read(cli_prompt, dtype='float64')
+        divisor = gcd(rate, PROMPT_SAMPLE_RATE)
+        up, down = PROMPT_SAMPLE_RATE // divisor, rate // divisor
+        window = ('kaiser', 8.6)
+        data = resample_poly(data, up, down, window=window)
+        processing['resampling'] = {'method': 'polyphase', 'up': up, 'down': down, 'window': list(window)}
+
+        # A filtered peak can exceed the PCM16 range even if the source fit.
+        peak = float(np.max(np.abs(data), initial=0.0))
+        pcm16_max = 32767 / 32768
+        if peak > pcm16_max:
+            gain = pcm16_max / peak
+            data *= gain
+            processing['peak_gain'] = gain
+        cli_prompt = tmp / 'prompt_16k.wav'
+        sf.write(cli_prompt, data, PROMPT_SAMPLE_RATE, subtype='PCM_16')
+
+    if cli_prompt == prompt.resolve():
+        return cli_prompt, None
+    return cli_prompt, {**processing, 'sha256': sha(cli_prompt)}

@@ -79,7 +79,7 @@ Outputs `output_001.wav`, etc. follow input-line order. Regenerate individual ta
 
 `scripts/narrate.py` is this skill's interface for whole scripts: it takes the lines and a voice library, and callers need nothing else from here.
 
-An ignored `.runtime/narrate.json` selects the native CLI when present. Explicit Python device or batching options select Python when `--engine` is omitted. Use `--engine python|native` to choose the engine or `--native-config` to select a native configuration. The [native runtime guide](references/native-vulkan.md) covers two-line LocDiT batching, selective Q8_0 weights and continuation cloning.
+An ignored `.runtime/narrate.json` selects the native CLI when present. Explicit Python device or batching options select Python when `--engine` is omitted. Use `--engine python|native` to choose the engine or `--native-config` to select a native configuration. The [native runtime guide](references/native-vulkan.md) covers filtered 16 kHz prompt preparation, two-line LocDiT batching and selective Q8_0 weights.
 
 - Library: `voice.wav`, `bank/bank.json` (mood → sample, exact transcript, direction, measured pace), optional `bank/rules.json` mapping a line's direction to a mood.
 - Lines: a JSON list of `{"id", "say", "direction", "mood"}`, `mood` optional. A take is `output_NNN.wav` by its place in the list.

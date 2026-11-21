@@ -16,7 +16,7 @@ fi
 
 uv pip install --python "$VENV/bin/python" \
   --torch-backend "$TORCH_BACKEND" \
-  "voxcpm==2.0.3" "wetext==0.1.2" "whisperx==3.8.5" torch torchaudio soundfile
+  "voxcpm==2.0.3" "wetext==0.1.2" "whisperx==3.8.5" torch torchaudio scipy soundfile
 
 TTS_INSTALL_OPENVINO=0
 case "${OPENVINO:-auto}" in
@@ -37,7 +37,7 @@ if [ "$TTS_INSTALL_OPENVINO" = 1 ]; then
 fi
 
 "$VENV/bin/python" -c "
-import voxcpm, whisperx, soundfile, torch
+import scipy, soundfile, torch, voxcpm, whisperx
 print('runtime ready:', '$VENV/bin/python')
 print('torch', torch.__version__, '| cuda', torch.cuda.is_available())
 "
