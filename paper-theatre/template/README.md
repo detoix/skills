@@ -5,7 +5,7 @@ Paper-theatre film (skill `paper-theatre`): hand-cut cardboard figures drawn in 
 ## Files
 
 - `script.md` — narration with delivery instructions and the picture, scene by scene
-- `film.json` — the film's settings for the tools (title, language, voice, spoken forms, music breaths, figures)
+- `film.json` — the film's settings for the tools (title, language, voice, spoken forms, music, figures)
 - `film/` — the film: `engine.js`, `stage.js`, `kit.js` (engine), `config.js` (label colours, rail years, map paper), `film.js` (scenes in order), `scenes/sN.js`, `geo.js` + `geodata.js` (maps from Natural Earth, `tools/geodata.py`), `thumb.html` (the thumbnail)
 - `prompts/` — imagegen prompts (`_style.txt` + sets; `refs.json` maps cut-outs of real subjects to their references in `research/ref/`), `raw/` — generated PNGs, `film/fig/` — trimmed cut-outs
 - `research/` — sources, the claim register, references for cut-outs, `*.georef.json` lines read off published maps (`tools/georef.py`)

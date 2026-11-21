@@ -73,6 +73,6 @@ Revise and check again when:
 - a scene runs more than ~15 seconds without a new picture beat (figure, card, transition, label), or consecutive cuts share a transition or its sound
 - a documented person, place or object, a label, pin or route disagrees with its source, the narration or the map, or a setting shows another time than the scene
 - a take's first word, a name, or a word the recogniser heard differently sounds wrong in its line; words that also exist in English and foreign names go through `film.json` → `spoken` with a phonetic spelling
-- the voice sits less than ~17 dB over the music or ~15 dB over effects, or a chapter change, a breath or the end screen sounds wrong in context
+- the voice sits less than ~17 dB over the music or ~15 dB over effects, or a chapter change or the end screen sounds wrong in context
 
-The music tools keep the bed on bar lines, one mood per chapter, under the voice, and the foreground audible in its breaks (`tools/music.py`, audio reference); look up professional practice before changing audio craft.
+The music tools keep the bed under the voice, with one mood per chapter and modules joined on bar lines. Foreground music marks the title, chapter changes and the end screen. See the audio reference and look up professional practice before changing the mix.

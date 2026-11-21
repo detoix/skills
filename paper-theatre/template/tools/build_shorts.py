@@ -139,7 +139,7 @@ def edit_voice(name, source_lines, source_voice, evidence, source):
     voice = np.zeros(length, dtype="float32")
     for position, clip in clips:
         voice[position:position + len(clip)] += clip
-    timeline = {"fps": 30, "duration": round(length / SR, 6), "short": name, "music_breaks": [],
+    timeline = {"fps": 30, "duration": round(length / SR, 6), "short": name,
                 "outro_start": round(lines[-1]["end"] + 0.2, 4), "lines": lines}
     proof = {"title": edit["title"], "source": source, "takes": used,
              "output": {"duration": length / SR, "sample_rate": SR, "lead_seconds": LEAD, "interline_gap_seconds": GAP, "outro_seconds": OUTRO}}

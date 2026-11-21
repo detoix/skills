@@ -34,4 +34,4 @@
 
 ## Delivery instructions
 
-English, concrete, 2–4 qualities specifying emotion, pace and emphasis. Vary them along each scene's arc; the opening is slow and quiet, reveals get room after them (a music breath in `film.json` → `gaps`).
+English, concrete, 2–4 qualities specifying emotion, pace and emphasis. Vary them along each scene's arc. Let the delivery set the pace of the opening and any reveal.

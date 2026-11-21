@@ -6,10 +6,9 @@ a "borrow" pozwala zaczerpnąć wybrany klimat z innej palety biblioteki.
 
 Dwie szyny, jak w szablonie:
   - podkład (bed): frazy klimatu pod narracją (`arrange`), łączone na kreskach taktowych; na końcu odcinka gra tyle
-    pełnych taktów, ile się zmieści, a niepełnego taktu nie zaczyna; pod oddechem podkład milknie i wraca
-    od początku frazy. Poziom liczony kwestia po kwestii względem głosu; krótkie pauzy mostkowane, w pauzach dłuższych
+    pełnych taktów, ile się zmieści. Poziom liczony kwestia po kwestii względem głosu; krótkie pauzy mostkowane, w pauzach dłuższych
     niż HOLD_GAP podkład wychodzi o `pause_db`;
-  - pierwszy plan (foreground): sygnał po tytule, przejścia między scenami, oddechy po mocnych kwestiach, ekran końcowy.
+  - pierwszy plan (foreground): sygnał po tytule, przejścia między rozdziałami i ekran końcowy.
     Gra na swoim poziomie w ciszy, ustępuje mowie, gdyby na nią zachodził.
 Join modules at bar lines and use a compatible key and tempo across each palette.
 """
@@ -25,7 +24,6 @@ from scipy import signal
 SR = 48000
 ROOT = Path(__file__).resolve().parent.parent
 WIPE_LEAD = 0.55   # wipe → first line of a scene (film/film.js WIPE_LEAD)
-BREATH = 2.4       # a pause at least this long is a scored break
 END_SCREEN = 8.0   # a tail after the last line longer than this is the end screen, scored to the end (not a break)
 END_FADE = 3.0     # the score fades over the last seconds of the film only
 HOLD_GAP = 0.9     # shorter pauses between lines keep the bed at its speech level
@@ -34,7 +32,6 @@ ENTRY_LEAD = 1.0   # wejście podkładu przed pierwszą kwestią odcinka
 PHRASE_OVERRUN = 1.0  # koniec rozdziału: podkład może dograć takt do tylu sekund dalej
 PHRASE_RELEASE = 0.3  # wybrzmienie ostatniej frazy podkładu
 BARS_PER_PHRASE = 4   # pętla i wariant klimatu to frazy czterotaktowe (nazwy modułów biblioteki)
-BREATH_LEAD = 0.1  # oddech startuje tyle po kwestii; podkład milknie przed nim
 
 
 def _sha(path):
@@ -56,8 +53,6 @@ class Pack:
         names = {
             "petla": f"{mood}/{mood}_petla_{p}_02_petla_A_4takty.wav",
             "wejscie": f"{mood}/{mood}_warianty_{p}_04_wejscie_1takt.wav",
-            "oddech": f"{mood}/{mood}_warianty_{p}_05_oddech_1takt.wav",
-            "oddech2": f"{mood}/{mood}_warianty_{p}_06_oddech_2takty.wav",
             "wariant": f"{mood}/{mood}_warianty_{p}_07_wariant_B_4takty.wav",
             "sygnal": f"motyw/motyw_{p}_02_sygnal.wav",
             "tytul": f"motyw/motyw_{p}_03_tytul.wav",
@@ -143,28 +138,20 @@ def arrange(pack, mood, length, approved, overrun, entry=True, turn=0, every=3):
 
 def plan_segments(tl, cfg):
     """Odcinki podkładu: jeden klimat na rozdział (film.json -> music.plan: numer rozdziału -> klimat).
-    Klimat zmienia się tylko na karcie rozdziału; sąsiednie rozdziały mogą mieć ten sam. Oddech
-    (film.json -> music.breaths) dzieli podkład rozdziału: podkład milknie przed oddechem i wraca po nim od początku frazy.
+    Klimat zmienia się na karcie rozdziału. Sąsiednie rozdziały mogą mieć ten sam.
     `length` i `overrun` (sekundy) mówią, kiedy podkład ma się skończyć i ile może dograć, by skończyć takt."""
     lines = sorted(tl["lines"], key=lambda l: l["start"])
     plan = {int(k): v for k, v in cfg["plan"].items()}
-    breaths = cfg.get("breaths", {})
     segs = []
     for i, line in enumerate(lines):
-        new_scene = i == 0 or lines[i - 1]["scene"] != line["scene"]
-        if not (new_scene or line["id"] in breaths):
+        if i and lines[i - 1]["scene"] == line["scene"]:
             continue
         if line["scene"] not in plan:
             raise ValueError(f"music plan: rozdział {line['scene']} nie ma klimatu")
-        if segs:   # poprzedni odcinek kończy się przed tą kwestią
-            prev = lines[i - 1]
-            if new_scene:
-                segs[-1]["end"], segs[-1]["overrun"] = prev["end"] + 0.35, PHRASE_OVERRUN
-            else:   # przed oddechem: bez zakładki z frazą oddechu
-                segs[-1]["end"], segs[-1]["overrun"] = prev["end"] + BREATH_LEAD, 0.0
-        # po oddechu podkład rusza z kwestią, żeby nie wejść pod końcówkę oddechu
-        start = 0.0 if i == 0 else line["start"] - (ENTRY_LEAD if new_scene else 0.0)
-        segs.append({"start": start, "mood": plan[line["scene"]], "entry": True, "first": line["id"]})
+        if segs:
+            segs[-1]["end"], segs[-1]["overrun"] = lines[i - 1]["end"] + 0.35, PHRASE_OVERRUN
+        start = 0.0 if i == 0 else line["start"] - ENTRY_LEAD
+        segs.append({"start": start, "mood": plan[line["scene"]]})
     segs[-1]["end"], segs[-1]["overrun"] = lines[-1]["end"] + 0.35, PHRASE_OVERRUN
     for s in segs:
         s["length"] = s["end"] - s["start"]
@@ -237,7 +224,7 @@ def compose(tl, cfg, pack):
     turn = {}
     for seg in plan_segments(tl, cfg):
         mood = seg["mood"]
-        x, form = arrange(pack, mood, seg["length"], mood in safe, seg["overrun"], entry=seg["entry"], turn=turn.get(mood, 0),
+        x, form = arrange(pack, mood, seg["length"], mood in safe, seg["overrun"], turn=turn.get(mood, 0),
                           every=cfg.get("variant_every", {}).get(mood, 3))
         turn[mood] = turn.get(mood, 0) + 1
         add(bed, fades(x, fade_in=0.008), seg["start"])
@@ -262,18 +249,6 @@ def compose(tl, cfg, pack):
             x = level_cue(pack.read("przejscia", gesture))
             add(fg, x * 10 ** (cfg["transition_db"] / 20), t)
             events.append({"bus": "fg", "t": round(t, 3), "cue": f"przejscie_{gesture}"})
-    # oddechy: pauzy wpisane do film.json -> music.breaths {kwestia po pauzie: moduł klimatu}
-    by_id = {l["id"]: (i, l) for i, l in enumerate(lines)}
-    for line_id, mood in cfg.get("breaths", {}).items():
-        if line_id not in by_id:   # budowa części filmu, np. pilot sceny 1
-            continue
-        i, l = by_id[line_id]
-        gap_start, gap_end = lines[i - 1]["end"], l["start"]
-        x = pack.read(mood, "oddech")
-        room = int((gap_end - gap_start - BREATH_LEAD - 0.05) * SR)
-        y = fades(x[:min(room, len(x))], fade_in=0.005, fade_out=0.35)
-        add(fg, y * 10 ** (cfg["breath_db"] / 20), gap_start + BREATH_LEAD)
-        events.append({"bus": "fg", "t": round(gap_start + BREATH_LEAD, 3), "cue": f"oddech {mood}", "before": line_id})
     # ekran końcowy: dwa takty motywu i zakończenie, razem około 14 s; gra do końca filmu
     last = lines[-1]
     head = pack.read("motyw", "tytul")[: len(pack.read("motyw", "sygnal"))]
@@ -292,23 +267,14 @@ def compose(tl, cfg, pack):
     return bed, fg, events
 
 
-def music_breaks(tl):
-    """Absolute scored windows; an explicitly empty list means no scored breaks."""
-    if "music_breaks" in tl:
-        windows = tl["music_breaks"]
-    else:
-        lines = sorted(tl["lines"], key=lambda line: line["start"])
-        windows = [{"start": a["end"], "end": b["start"]}
-                   for a, b in zip(lines, lines[1:]) if b["start"] - a["end"] >= BREATH]
-        if lines and tl["duration"] - lines[-1]["end"] >= BREATH:
-            windows.append({"start": lines[-1]["end"], "end": tl["duration"]})
-    result = []
-    for window in windows:
-        a, b = float(window["start"]), float(window["end"])
-        if not np.isfinite([a, b]).all() or not 0 <= a < b <= tl["duration"]:
-            raise ValueError("music_breaks must be finite windows within the timeline")
-        result.append((a, b))
-    return sorted(result)
+def score_windows(tl):
+    """Time between chapters and after the last line, for the foreground cues."""
+    lines = sorted(tl["lines"], key=lambda line: line["start"])
+    windows = [(a["end"], b["start"]) for a, b in zip(lines, lines[1:])
+               if a["scene"] != b["scene"] and a["end"] < b["start"]]
+    if lines and lines[-1]["end"] < tl["duration"]:
+        windows.append((lines[-1]["end"], tl["duration"]))
+    return windows
 
 
 def break_bed_gain(tl, n, db=-12.0, fade_seconds=0.25):
@@ -317,7 +283,7 @@ def break_bed_gain(tl, n, db=-12.0, fade_seconds=0.25):
         raise ValueError("bed_break_db must be non-positive and break_fade_seconds positive")
     gain = np.ones(n, dtype="float32")
     depth = 10 ** (db / 20)
-    for start, end in music_breaks(tl):
+    for start, end in score_windows(tl):
         if end >= tl["duration"] - 0.05 and end - start > END_SCREEN:
             continue                              # the end screen: its level is set in render()
         a, b = max(0, int(start * SR)), min(n, int(end * SR))
@@ -404,7 +370,7 @@ def duck_envelope(vo, n, tl=None):
         env[e:r1] = np.maximum(env[e:r1], ramp(up)[::-1][: r1 - e])
     # Override holds only inside actual silence in intentional scored windows.
     if tl is not None:
-        for start, end in music_breaks(tl):
+        for start, end in score_windows(tl):
             a = max(0, int(np.ceil(start / 0.01)))
             b = min(frames, int(end / 0.01))
             silent = ~speech[a:b]
@@ -453,7 +419,6 @@ def preflight():
     need = [("motyw", "sygnal"), ("motyw", "tytul"), ("motyw", "ekran")] + [("przejscia", g) for g in cfg.get("transitions", [])]
     for mood in sorted(set(cfg.get("plan", {}).values())):
         need += [(mood, "petla")] + ([(mood, "wejscie"), (mood, "wariant")] if mood in safe else [])
-    need += [(mood, "oddech") for mood in sorted(set(cfg.get("breaths", {}).values()))]
     missing, dark, invalid = [], [], []
     for mood, kind in need:
         path = pack.root / pack.path(mood, kind)

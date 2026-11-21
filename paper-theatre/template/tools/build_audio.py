@@ -37,12 +37,11 @@ CFG = film_config.load()
 VOICE_RMS = 0.085
 LEAD = 1.15          # silence before the first line: the stage opens
 GAP = 0.55           # default pause between lines
-# pause before a line, from film.json "gaps": room for picture (wipes, cards, jumps) in the opening, and music
-# breaths of 2.5-3 s after a strong line or a reveal, so the music answers before the story goes on
+# pause before a line, from film.json "gaps": room for narration and picture cues
 GAPS = CFG.get("gaps", {})
 TAIL_FIRST, TAIL_LAST = CFG.get("tail_first", 4.0), 14.0  # after the first scene: the title card; after the last: the end card and room for
                                     # YouTube's end-screen elements (5–20 s), scored by tools/music.py
-TAIL_DEFAULT = 3.55       # the old scene holds while the music breathes (the motif)
+TAIL_DEFAULT = 3.55       # time for the chapter transition cue
 SCENE_GAP = 1.25          # then the transition, just before the first line
 WIPE_LEAD = 0.55          # transition → first line of the scene (film/film.js WIPE_LEAD)
 PACE = 2.75               # words per second, only for provisional lines whose take is not ready yet
@@ -369,9 +368,7 @@ def build_voice(scenes, takes_dir):
     for t0, x in clips:
         i = int(t0 * SR)
         vo[i:i + len(x)] += x
-    from music import music_breaks
     tl = {"fps": 30, "duration": total, "lines": lines}
-    tl["music_breaks"] = [{"start": a, "end": b} for a, b in music_breaks(tl)]
     (ROOT / "film/timeline.json").write_text(json.dumps(tl, ensure_ascii=False, indent=1), encoding="utf-8")
     (ROOT / "audio/manifest.json").write_text(json.dumps({
         "generation": "See matching per-take provenance; unverified settings remain unknown",
